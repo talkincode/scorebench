@@ -29,17 +29,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       TARGET: ${{ matrix.target }}
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      HAS_NOTARIZATION: ${{ secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+      HAS_APPLE_RELEASE: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_SIGNING_IDENTITY != '' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -69,11 +63,23 @@ jobs:
       - name: Verify tag matches the application version
         run: node scripts/check-tag-version.mjs
 
-      - name: Build platform bundles
+      - name: Build unsigned or non-macOS bundles
+        if: runner.os != 'macOS' || env.HAS_APPLE_RELEASE != 'true'
+        run: npm run tauri build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Build signed and notarized macOS bundles
+        if: runner.os == 'macOS' && env.HAS_APPLE_RELEASE == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run tauri build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
       - name: Verify notarization staple
-        if: runner.os == 'macOS' && env.HAS_NOTARIZATION == 'true'
+        if: runner.os == 'macOS' && env.HAS_APPLE_RELEASE == 'true'
         shell: bash
         run: xcrun stapler validate "src-tauri/target/${TARGET}/release/bundle/macos/scorebench.app"
 
@@ -103,7 +109,7 @@ jobs:
             Where-Object { $_.Extension -in '.msi', '.exe' } |
             Copy-Item -Destination release-assets
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: release-${{ matrix.target }}
           path: release-assets/*
@@ -114,9 +120,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           pattern: release-*
           path: release-assets
