@@ -1,4 +1,4 @@
-import type { ProjectInfo } from "./api";
+import type { ProjectInfo, Settings, VersionInfo } from "./api";
 
 export interface ChatMessage {
   role: "user" | "agent" | "tool";
@@ -11,6 +11,16 @@ class BenchState {
   project = $state<ProjectInfo | null>(null);
   scorekitPath = $state<string | null>(null);
   scorekitError = $state<string | null>(null);
+  versionInfo = $state<VersionInfo | null>(null);
+
+  settings = $state<Settings | null>(null);
+  settingsWarning = $state<string | null>(null);
+  apiKeySet = $state(false);
+  settingsOpen = $state(false);
+  themeHuePreview = $state<number | null>(null);
+  projectRevision = $state(0);
+
+  selectedScene = $state<string | null>(null);
 
   messages = $state<ChatMessage[]>([]);
   agentBusy = $state(false);

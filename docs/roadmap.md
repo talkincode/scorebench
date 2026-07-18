@@ -21,31 +21,37 @@ Origin ruling (2026-07): a "simple render GUI inside scorekit" was audited and r
 
 > Milestones express target capabilities, not a mandated implementation order.
 
-### M0 — Walking skeleton (status: code complete, GUI smoke pending)
+### M0 — Walking skeleton (status: complete)
 
 One window that opens a project directory, shows a chat panel wired to a stub agent loop, invokes `scorekit doctor --json` / `build --json` as subprocess tools, and plays a rendered OGG with a canvas spectrum. Proves the four seams: chat ↔ agent core, agent ↔ scorekit subprocess, disk ↔ project state, audio ↔ WebAudio.
 
-Findings: scorekit's machine contract is *failure-side* JSON — success is exit 0 plus (for `build`) the atomically-written `<stem>.meta.json`, which scorebench treats as the build result; human stdout is never parsed. The binary is located via `SCOREBENCH_SCOREKIT` > PATH > well-known prefixes (GUI apps on macOS launch with a stripped PATH). Asset bytes cross IPC as binary (`tauri::ipc::Response`) with a containment check pinning reads inside the project root; playback, FFT, and the spectrum stay entirely in the webview (WebAudio `AnalyserNode`), honoring the no-in-house-audio rule. The stub agent streams the same tagged `AgentEvent` shapes the M1 ReACT loop will emit, so the chat frontend contract is already settled.
+Findings: scorekit's machine contract is *failure-side* JSON — success is exit 0 plus (for `build`) the atomically-written `<stem>.meta.json`, which scorebench treats as the build result; human stdout is never parsed. The binary is located via `SCOREBENCH_SCOREKIT` > PATH > well-known prefixes (GUI apps on macOS launch with a stripped PATH). Asset bytes cross IPC as binary (`tauri::ipc::Response`) with a containment check pinning reads inside the project root; playback, FFT, and the spectrum stay entirely in the webview (WebAudio `AnalyserNode`), honoring the no-in-house-audio rule. The July 2026 GUI smoke covered native project opening, both renderers, OGG/WAV playback, seek/pause/loop, live spectrum switching, filesystem watching, scorekit-missing guidance, and the 960×640 minimum layout contract. M1 replaced the temporary slash-command stub with the real ReACT loop while preserving the tagged `AgentEvent` frontend contract.
 
-### M1 — Agent core
+### M1 — Agent core (status: complete)
 
 Hand-rolled ReACT loop over the Responses API: streaming, tool dispatch (validate/lint/build/diff/read scene/write scene), error surfaces from scorekit's JSON verbatim, cancellation. Settings panel: base URL, API key (OS keychain), model name, context budget.
 
-### M2 — Observation surfaces
+### M2 — Observation surfaces (status: complete)
 
 Read-only parameter panel derived from the current scene YAML (tempo/key/sections/tracks/performance), render progress reporting, project asset browser (open output directory), scene diff view after each agent edit (via `scorekit diff`).
 
-### M3 — Project memory
+### M3 — Project memory (status: complete)
 
 Rolling project summary maintained by the agent; automatic compaction when the transcript exceeds the context budget; memory persisted in the project directory as plain text.
 
-### M4 — Spectrum module system
+### M4 — Spectrum module system (status: complete)
 
 The spectrum view becomes a pluggable module with a stable interface (bars/waveform/spectrogram variants) so styles can be added without touching playback code.
 
-### M5 — Release engineering
+### M5 — Release engineering (status: implementation complete)
 
 Signed binaries via GitHub Actions for macOS/Windows/Linux; scorekit discovery and version check at startup (`scorekit doctor --json`).
+
+The release workflow builds both macOS architectures plus Windows and Linux, collects platform installers and checksums, and creates a draft release. macOS signing/notarization is conditional on repository Apple credentials; local unsigned bundles remain supported. A real notarized tag is an operational release action, not something the application can synthesize without those credentials.
+
+## Interface direction
+
+scorebench uses a dark "sonic control room" visual system: dense three-column project/agent/observation layout, low-luminance panels, signal-grid texture, and one user-selectable global hue. The hue is stored in app settings and drives borders, status lights, focus states, scene art, player transport, and every spectrum style. Amber is reserved for render/open actions so the chosen hue remains an information channel rather than decoration. The observation surfaces stay read-only.
 
 ## Acceptance matrix
 
@@ -64,5 +70,15 @@ Rules (MUST):
 | Build param → CLI arg mapping | 1 | `build_params_render_full_arg_set` | n/a (pure function, no state) |
 | Project directory scan | 1 | `scan_finds_scenes_and_assets` | `scan_rejects_non_directory` |
 | Asset read containment (webview → disk) | 1 | `resolve_inside` accepts in-root paths | `resolve_inside_blocks_escape` rejects traversal |
-| Chat stub dispatch (`/doctor`, `/build`) | 1 | `plan_routes_slash_commands`, `chat_message_gets_canned_reply_and_done` | `build_missing_scene_emits_tool_err_not_panic` — also verifies rule 4: failed build leaves zero artifacts in `out/` (atomicity delegated to scorekit) |
-| Player + spectrum (WebAudio) | 2 | manual smoke via `npm run tauri dev` (headless WebAudio not testable in M0) | decode/load failure surfaces a typed error in the player UI |
+| Responses SSE transport | 1 | recorded text/tool/multi-tool fixtures; arbitrary chunk-boundary equivalence | 401/429 metadata, failed event, mid-stream disconnect, dead endpoint, cancellation |
+| ReACT loop + tool dispatch | 1 | scripted transport writes a scene and completes; stable eight-tool schema | offline transport, unknown/malformed tools, max-turn guard, scorekit tool errors |
+| Atomic scene write + semantic history | 1 | real-scorekit diff integration test | rename failure preserves original; history failure warns without blocking edit |
+| Settings + API key | 1 | settings/keychain round trip | corrupt-file backup, keychain opt-in fallback, atomic-write kill point, invalid hue |
+| Scene observation + watcher | 1 | scorekit scene fixtures; external-change GUI smoke | malformed YAML and watcher-storm coalescing |
+| Project memory + compaction | 1 | repeated three-cycle compaction keeps recent turns and coherent memory | corrupt line recovery; every two-phase kill point restores a loadable generation |
+| Player + spectrum (WebAudio) | 2 | GUI smoke: OGG/WAV, seek/pause/loop, four live styles | decode errors surface; draw exception falls back to bars without stopping playback |
+| scorekit startup handshake | 1 | doctor/version fixture and local GUI startup | missing/unversioned binary yields guidance or warning without blocking the app |
+| Release packaging | 1 | local macOS app + DMG build; four-target workflow validated by actionlint | absent Apple secrets leave unsigned/non-mac builds available; tag/version mismatch fails early |
+| Dark hue-variable interface | 2 | native-app visual smoke at default hue; settings round trip | hue outside 0–359 rejected before settings write |
+
+The dated command log and manual GUI evidence live in [verification.md](verification.md).

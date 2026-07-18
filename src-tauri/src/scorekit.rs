@@ -10,6 +10,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -17,6 +18,116 @@ use crate::error::BenchError;
 
 /// Environment variable that pins the scorekit binary explicitly.
 pub const SCOREKIT_ENV: &str = "SCOREBENCH_SCOREKIT";
+pub const TESTED_SCOREKIT_RANGE: &str = ">=0.1.0, <0.2.0";
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Handshake {
+    pub found: bool,
+    pub ready: bool,
+    pub path: Option<PathBuf>,
+    pub version: Option<String>,
+    pub tested_range: String,
+    pub compatible: Option<bool>,
+    pub doctor: Option<Value>,
+    pub hints: Vec<String>,
+    pub warning: Option<String>,
+}
+
+pub fn handshake() -> Handshake {
+    let path = match locate() {
+        Ok(path) => path,
+        Err(error) => {
+            return Handshake {
+                found: false,
+                ready: false,
+                path: None,
+                version: None,
+                tested_range: TESTED_SCOREKIT_RANGE.into(),
+                compatible: None,
+                doctor: None,
+                hints: vec![
+                    "Install scorekit, then restart scorebench or set SCOREBENCH_SCOREKIT.".into(),
+                ],
+                warning: Some(error.to_string()),
+            };
+        }
+    };
+    match doctor() {
+        Ok(report) => handshake_from_report(path, report),
+        Err(error) => Handshake {
+            found: true,
+            ready: false,
+            path: Some(path),
+            version: None,
+            tested_range: TESTED_SCOREKIT_RANGE.into(),
+            compatible: None,
+            doctor: None,
+            hints: Vec::new(),
+            warning: Some(error.to_string()),
+        },
+    }
+}
+
+fn handshake_from_report(path: PathBuf, report: Value) -> Handshake {
+    let ready = report
+        .get("ready")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let hints = report
+        .get("hints")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(ToOwned::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    let version = report
+        .get("scorekit_version")
+        .or_else(|| report.get("version"))
+        .or_else(|| {
+            report
+                .get("scorekit")
+                .and_then(|value| value.get("version"))
+        })
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    let compatible = version.as_deref().and_then(|value| {
+        let version = Version::parse(value.trim_start_matches('v')).ok()?;
+        let requirement = VersionReq::parse(TESTED_SCOREKIT_RANGE).ok()?;
+        Some(requirement.matches(&version))
+    });
+    let warning = if !ready {
+        Some("scorekit doctor reports an unhealthy toolchain".into())
+    } else if version.is_none() {
+        Some(
+            "scorekit doctor JSON does not report a version; compatibility cannot be verified"
+                .into(),
+        )
+    } else if compatible == Some(false) {
+        Some(format!(
+            "scorekit {} is outside the tested range {TESTED_SCOREKIT_RANGE}",
+            version.as_deref().unwrap_or("unknown")
+        ))
+    } else if compatible.is_none() {
+        Some("scorekit doctor reported an invalid semantic version".into())
+    } else {
+        None
+    };
+    Handshake {
+        found: true,
+        ready,
+        path: Some(path),
+        version,
+        tested_range: TESTED_SCOREKIT_RANGE.into(),
+        compatible,
+        doctor: Some(report),
+        hints,
+        warning,
+    }
+}
 
 /// Locate the scorekit binary: explicit env override, then PATH, then the
 /// well-known install prefixes (GUI apps on macOS get a stripped PATH).
@@ -155,6 +266,50 @@ pub fn doctor() -> Result<Value, BenchError> {
     let stdout = run(&["doctor".into(), "--json".into()])?;
     serde_json::from_str(&stdout).map_err(|e| BenchError::Io {
         message: format!("doctor output was not valid JSON: {e}"),
+    })
+}
+
+/// Scene JSON Schema. Unlike validate/lint success text, schema is a declared
+/// machine-readable JSON output and is safe to parse.
+pub fn schema() -> Result<Value, BenchError> {
+    let stdout = run(&["schema".into(), "--json".into()])?;
+    serde_json::from_str(&stdout).map_err(|err| BenchError::Io {
+        message: format!("scorekit schema output was not valid JSON: {err}"),
+    })
+}
+
+/// Validate only by exit status. Human-oriented success stdout is discarded.
+pub fn validate(scene: &Path) -> Result<(), BenchError> {
+    run(&[
+        "validate".into(),
+        scene.to_string_lossy().into_owned(),
+        "--json".into(),
+    ])?;
+    Ok(())
+}
+
+/// Lint only by exit status. Machine-readable failures are retained verbatim.
+pub fn lint(scene: &Path, grammar: &Path) -> Result<(), BenchError> {
+    run(&[
+        "lint".into(),
+        scene.to_string_lossy().into_owned(),
+        "--grammar".into(),
+        grammar.to_string_lossy().into_owned(),
+        "--json".into(),
+    ])?;
+    Ok(())
+}
+
+/// Semantic diff's successful `--json` output is a JSON array.
+pub fn diff(old: &Path, new: &Path) -> Result<Value, BenchError> {
+    let stdout = run(&[
+        "diff".into(),
+        old.to_string_lossy().into_owned(),
+        new.to_string_lossy().into_owned(),
+        "--json".into(),
+    ])?;
+    serde_json::from_str(&stdout).map_err(|err| BenchError::Io {
+        message: format!("scorekit diff output was not valid JSON: {err}"),
     })
 }
 
@@ -361,5 +516,24 @@ mod tests {
             meta_path_for(Path::new("/x/out/forest.ogg")),
             PathBuf::from("/x/out/forest.meta.json")
         );
+    }
+
+    #[test]
+    fn handshake_gates_machine_readable_version() {
+        let report = serde_json::json!({
+            "ready": true,
+            "scorekit_version": "0.1.3",
+            "hints": ["install a renderer"]
+        });
+        let handshake = handshake_from_report(PathBuf::from("scorekit"), report);
+        assert_eq!(handshake.compatible, Some(true));
+        assert_eq!(handshake.hints, vec!["install a renderer"]);
+
+        let legacy = handshake_from_report(
+            PathBuf::from("scorekit"),
+            serde_json::json!({"ready":true,"hints":[]}),
+        );
+        assert_eq!(legacy.compatible, None);
+        assert!(legacy.warning.unwrap().contains("cannot be verified"));
     }
 }

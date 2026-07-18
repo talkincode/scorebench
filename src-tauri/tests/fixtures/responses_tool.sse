@@ -1,0 +1,15 @@
+: fixture for a streamed function call
+
+data: {"type":"response.output_item.added","response_id":"resp_tool","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"doctor","arguments":""}}
+
+data: {"type":"response.function_call_arguments.delta","response_id":"resp_tool","item_id":"fc_1","output_index":0,"delta":"{"}
+
+data: {"type":"response.function_call_arguments.delta","response_id":"resp_tool","item_id":"fc_1","output_index":0,"delta":"}"}
+
+data: {"type":"response.function_call_arguments.done","response_id":"resp_tool","item_id":"fc_1","output_index":0,"arguments":"{}"}
+
+data: {"type":"response.output_item.done","response_id":"resp_tool","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"doctor","arguments":"{}"}}
+
+data: {"type":"response.completed","response":{"id":"resp_tool","usage":{"input_tokens":8,"output_tokens":4,"total_tokens":12}}}
+
+: end of fixture

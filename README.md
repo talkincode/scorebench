@@ -1,5 +1,7 @@
 # scorebench
 
+[![CI](https://github.com/talkincode/scorebench/actions/workflows/ci.yml/badge.svg)](https://github.com/talkincode/scorebench/actions/workflows/ci.yml)
+
 > **Agent-native workbench for [scorekit](https://github.com/talkincode/scorekit).**
 > You talk to the agent; the agent writes the scene DSL and drives scorekit. The GUI observes — it does not edit.
 
@@ -42,6 +44,21 @@ Walking skeleton. See [docs/roadmap.md](docs/roadmap.md).
 npm install
 npm run tauri dev    # requires Rust toolchain + scorekit on PATH
 ```
+
+The API endpoint, model, context budget, and API key are configured from the in-app **Settings** panel. Keys use the OS keychain; the explicit insecure fallback is stored only in the Tauri app-config directory with mode `0600`.
+
+## Version and release
+
+`src-tauri/tauri.conf.json` is the application-version source of truth:
+
+```bash
+npm run version:set -- 0.1.1
+git commit -am "Release 0.1.1"
+git tag v0.1.1
+git push origin main v0.1.1
+```
+
+Version tags build macOS (`aarch64` and `x86_64`), Windows, and Linux installers, generate `SHA256SUMS`, and assemble a draft GitHub release. Apple signing/notarization activates when its repository secrets are present; local and non-macOS builds do not require those secrets. scorekit is discovered at runtime and is not bundled.
 
 ## License
 
