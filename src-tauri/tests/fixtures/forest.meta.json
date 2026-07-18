@@ -1,0 +1,37 @@
+{
+  "audio": "forest.ogg",
+  "bars": 8,
+  "crossfade_samples": 2205,
+  "key": "D_minor",
+  "loop": true,
+  "loop_samples": 920347,
+  "sample_rate": 44100,
+  "seconds": 20.86954648526077,
+  "stems": [],
+  "tempo": 92,
+  "time_signature": "4/4",
+  "title": "Forest Theme",
+  "total_samples": 920347,
+  "tracks": [
+    {
+      "instrument": "strings",
+      "intensity": 0.4000000059604645,
+      "pattern": "sustain"
+    },
+    {
+      "instrument": "piano",
+      "intensity": 0.550000011920929,
+      "pattern": "arpeggio"
+    },
+    {
+      "instrument": "bass",
+      "intensity": 0.44999998807907104,
+      "pattern": "bass"
+    },
+    {
+      "instrument": "drums",
+      "intensity": 0.30000001192092896,
+      "pattern": "drums"
+    }
+  ]
+}

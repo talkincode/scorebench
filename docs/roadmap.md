@@ -21,9 +21,11 @@ Origin ruling (2026-07): a "simple render GUI inside scorekit" was audited and r
 
 > Milestones express target capabilities, not a mandated implementation order.
 
-### M0 — Walking skeleton (status: in progress)
+### M0 — Walking skeleton (status: code complete, GUI smoke pending)
 
 One window that opens a project directory, shows a chat panel wired to a stub agent loop, invokes `scorekit doctor --json` / `build --json` as subprocess tools, and plays a rendered OGG with a canvas spectrum. Proves the four seams: chat ↔ agent core, agent ↔ scorekit subprocess, disk ↔ project state, audio ↔ WebAudio.
+
+Findings: scorekit's machine contract is *failure-side* JSON — success is exit 0 plus (for `build`) the atomically-written `<stem>.meta.json`, which scorebench treats as the build result; human stdout is never parsed. The binary is located via `SCOREBENCH_SCOREKIT` > PATH > well-known prefixes (GUI apps on macOS launch with a stripped PATH). Asset bytes cross IPC as binary (`tauri::ipc::Response`) with a containment check pinning reads inside the project root; playback, FFT, and the spectrum stay entirely in the webview (WebAudio `AnalyserNode`), honoring the no-in-house-audio rule. The stub agent streams the same tagged `AgentEvent` shapes the M1 ReACT loop will emit, so the chat frontend contract is already settled.
 
 ### M1 — Agent core
 
@@ -57,4 +59,10 @@ Rules (MUST):
 
 | Feature | Tier | Happy path | Failure path |
 | --- | --- | --- | --- |
-| (populated as M0 lands) | | | |
+| scorekit binary discovery | 1 | integration tests run via PATH-located binary | `locate_missing_everywhere_is_typed_error`, `locate_env_override_must_be_executable` (`scorekit.rs`) |
+| scorekit error contract (`--json` stderr) | 1 | `doctor_fixture_shape_holds`, `meta_fixture_shape_holds` (recorded fixtures) | `parses_recorded_io_error`, `falls_back_on_non_json_stderr` |
+| Build param → CLI arg mapping | 1 | `build_params_render_full_arg_set` | n/a (pure function, no state) |
+| Project directory scan | 1 | `scan_finds_scenes_and_assets` | `scan_rejects_non_directory` |
+| Asset read containment (webview → disk) | 1 | `resolve_inside` accepts in-root paths | `resolve_inside_blocks_escape` rejects traversal |
+| Chat stub dispatch (`/doctor`, `/build`) | 1 | `plan_routes_slash_commands`, `chat_message_gets_canned_reply_and_done` | `build_missing_scene_emits_tool_err_not_panic` — also verifies rule 4: failed build leaves zero artifacts in `out/` (atomicity delegated to scorekit) |
+| Player + spectrum (WebAudio) | 2 | manual smoke via `npm run tauri dev` (headless WebAudio not testable in M0) | decode/load failure surfaces a typed error in the player UI |

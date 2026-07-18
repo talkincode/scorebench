@@ -1,156 +1,169 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
+  import { onMount } from "svelte";
+  import TopBar from "$lib/components/TopBar.svelte";
+  import Chat from "$lib/components/Chat.svelte";
+  import ScenePanel from "$lib/components/ScenePanel.svelte";
+  import Player from "$lib/components/Player.svelte";
+  import { api, errorText } from "$lib/api";
+  import { bench } from "$lib/state.svelte";
 
-  let name = $state("");
-  let greetMsg = $state("");
-
-  async function greet(event: Event) {
-    event.preventDefault();
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    greetMsg = await invoke("greet", { name });
-  }
+  onMount(async () => {
+    try {
+      bench.scorekitPath = await api.scorekitStatus();
+    } catch (err) {
+      bench.scorekitError = errorText(err);
+    }
+  });
 </script>
 
-<main class="container">
-  <h1>Welcome to Tauri + Svelte</h1>
-
-  <div class="row">
-    <a href="https://vite.dev" target="_blank">
-      <img src="/vite.svg" class="logo vite" alt="Vite Logo" />
-    </a>
-    <a href="https://tauri.app" target="_blank">
-      <img src="/tauri.svg" class="logo tauri" alt="Tauri Logo" />
-    </a>
-    <a href="https://svelte.dev" target="_blank">
-      <img src="/svelte.svg" class="logo svelte-kit" alt="SvelteKit Logo" />
-    </a>
-  </div>
-  <p>Click on the Tauri, Vite, and SvelteKit logos to learn more.</p>
-
-  <form class="row" onsubmit={greet}>
-    <input id="greet-input" placeholder="Enter a name..." bind:value={name} />
-    <button type="submit">Greet</button>
-  </form>
-  <p>{greetMsg}</p>
-</main>
+<div class="app">
+  <TopBar />
+  {#if bench.project}
+    <div class="body">
+      <section class="chat-col">
+        <Chat />
+      </section>
+      <aside class="side-col">
+        <ScenePanel />
+      </aside>
+    </div>
+  {:else}
+    <div class="welcome">
+      <div class="welcome-card">
+        <span class="mark">◳</span>
+        <h1>scorebench</h1>
+        <p>Agent-native workbench for scorekit.</p>
+        <p class="sub">
+          Open a project directory — scene YAML in, rendered game audio out.
+          The agent composes; you listen.
+        </p>
+        {#if bench.scorekitError}
+          <p class="warn">{bench.scorekitError}</p>
+        {/if}
+        <p class="cta">Use <strong>Open project…</strong> in the top bar to begin.</p>
+      </div>
+    </div>
+  {/if}
+  <Player />
+</div>
 
 <style>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.svelte-kit:hover {
-  filter: drop-shadow(0 0 2em #ff3e00);
-}
-
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
-
-.container {
-  margin: 0;
-  padding-top: 10vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
-  justify-content: center;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
-}
-
-#greet-input {
-  margin-right: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
+  :global(:root) {
+    --bg: #101014;
+    --panel: #16161c;
+    --panel-2: #1e1e26;
+    --line: #2a2a34;
+    --fg: #e8e6e3;
+    --fg-dim: #8b8b96;
+    --accent: #e8a33d;
+    --accent-soft: rgba(232, 163, 61, 0.14);
+    --good: #57c470;
+    --bad: #e26d5c;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  }
+  :global(html, body) {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family:
+      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+  :global(button) {
+    font: inherit;
+  }
+  :global(button.primary) {
+    background: var(--accent);
+    color: #1a1206;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  :global(button.primary:hover:not(:disabled)) {
+    filter: brightness(1.08);
+  }
+  :global(button.primary:disabled) {
+    opacity: 0.45;
+    cursor: default;
+  }
+  :global(button.ghost) {
+    background: none;
+    color: var(--fg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 7px 14px;
+    cursor: pointer;
+  }
+  :global(button.ghost:hover) {
+    border-color: var(--fg-dim);
   }
 
-  a:hover {
-    color: #24c8db;
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
   }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
+  .body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
   }
-  button:active {
-    background-color: #0f0f0f69;
+  .chat-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
   }
-}
-
+  .side-col {
+    width: 340px;
+    flex-shrink: 0;
+    border-left: 1px solid var(--line);
+    background: var(--panel);
+    min-height: 0;
+  }
+  .welcome {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .welcome-card {
+    text-align: center;
+    max-width: 420px;
+    padding: 40px;
+  }
+  .mark {
+    font-size: 40px;
+    color: var(--accent);
+  }
+  h1 {
+    margin: 12px 0 4px;
+    font-size: 26px;
+    letter-spacing: 0.01em;
+  }
+  .welcome-card p {
+    color: var(--fg-dim);
+    line-height: 1.6;
+    margin: 6px 0;
+  }
+  .welcome-card .sub {
+    font-size: 13px;
+  }
+  .welcome-card .warn {
+    color: var(--bad);
+    font-size: 12.5px;
+    border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent);
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin-top: 14px;
+  }
+  .welcome-card .cta {
+    margin-top: 18px;
+    color: var(--fg);
+  }
 </style>
