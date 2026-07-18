@@ -47,44 +47,46 @@
   }
 </script>
 
-<div class="app" style={`--theme-hue: ${bench.themeHuePreview ?? bench.settings?.theme_hue ?? 171}`}>
-  <TopBar />
-  {#if bench.versionInfo && (!bench.versionInfo.scorekit.found || !bench.versionInfo.scorekit.ready)}
-    <div class="first-run" role="status">
-      <strong>scorekit setup required</strong>
-      <span>{bench.versionInfo.scorekit.warning ?? "scorekit is not ready"}</span>
-      {#if bench.versionInfo.scorekit.hints.length}<span class="hint">{bench.versionInfo.scorekit.hints.join(" · ")}</span>{/if}
-    </div>
-  {/if}
-
-  {#if bench.project}
-    <main class="workbench">
-      <SceneRail />
-      <section class="center-stage">
-        <nav class="workspace-tabs" aria-label="Workspace views">
-          <span class="tab active"><i>⌁</i> Agent <b>◆</b></span>
-          <span class="tab"><i>◇</i> {sceneLabel()}</span>
-          <span class="tab muted"><i>▶</i> Preview</span>
-          <span class="tab-add" aria-hidden="true">+</span>
-        </nav>
-        <div class="chat-frame"><Chat /></div>
-      </section>
-      <aside class="inspector"><ScenePanel /></aside>
-    </main>
-  {:else}
-    <div class="welcome">
-      <div class="welcome-signal" aria-hidden="true"><span></span><span></span><span></span><i>▮▮▮</i></div>
-      <div class="welcome-card">
-        <p class="eyebrow">Agent-native music workbench</p>
-        <h1>Compose in the <em>signal</em>.</h1>
-        <p>Open a scorekit project. Describe the music; the agent edits the scene, validates it, and renders the result.</p>
-        {#if bench.scorekitError}<p class="warn">{bench.scorekitError}</p>{/if}
-        <p class="cta">Use <strong>Open project…</strong> to begin.</p>
+<div class="theme-root" style={`--theme-hue: ${bench.themeHuePreview ?? bench.settings?.theme_hue ?? 171}`}>
+  <div class="app">
+    <TopBar />
+    {#if bench.versionInfo && (!bench.versionInfo.scorekit.found || !bench.versionInfo.scorekit.ready)}
+      <div class="first-run" role="status">
+        <strong>scorekit setup required</strong>
+        <span>{bench.versionInfo.scorekit.warning ?? "scorekit is not ready"}</span>
+        {#if bench.versionInfo.scorekit.hints.length}<span class="hint">{bench.versionInfo.scorekit.hints.join(" · ")}</span>{/if}
       </div>
-    </div>
-  {/if}
+    {/if}
 
-  <Player />
+    {#if bench.project}
+      <main class="workbench">
+        <SceneRail />
+        <section class="center-stage">
+          <nav class="workspace-tabs" aria-label="Workspace views">
+            <span class="tab active"><i>⌁</i> Agent <b>◆</b></span>
+            <span class="tab"><i>◇</i> {sceneLabel()}</span>
+            <span class="tab muted"><i>▶</i> Preview</span>
+            <span class="tab-add" aria-hidden="true">+</span>
+          </nav>
+          <div class="chat-frame"><Chat /></div>
+        </section>
+        <aside class="inspector"><ScenePanel /></aside>
+      </main>
+    {:else}
+      <div class="welcome">
+        <div class="welcome-signal" aria-hidden="true"><span></span><span></span><span></span><i>▮▮▮</i></div>
+        <div class="welcome-card">
+          <p class="eyebrow">Agent-native music workbench</p>
+          <h1>Compose in the <em>signal</em>.</h1>
+          <p>Open a scorekit project. Describe the music; the agent edits the scene, validates it, and renders the result.</p>
+          {#if bench.scorekitError}<p class="warn">{bench.scorekitError}</p>{/if}
+          <p class="cta">Use <strong>Open project…</strong> to begin.</p>
+        </div>
+      </div>
+    {/if}
+
+    <Player />
+  </div>
   <SettingsModal />
 </div>
 
@@ -135,7 +137,7 @@
   }
   :global(button.ghost:hover) { color: var(--accent); border-color: var(--accent-line-strong); background: var(--accent-soft); }
 
-  .app {
+  .theme-root {
     --bg: #020706;
     --panel-deep: #040b0a;
     --panel: #07100f;
@@ -162,8 +164,6 @@
     --radius-lg: 9px;
     --panel-shadow: 0 12px 30px rgba(0, 0, 0, .18), 0 0 22px hsl(var(--theme-hue) 70% 35% / .025);
     position: relative;
-    display: flex;
-    flex-direction: column;
     width: 100vw;
     height: 100vh;
     overflow: hidden;
@@ -172,7 +172,7 @@
       radial-gradient(ellipse at 47% -14%, hsl(var(--theme-hue) 72% 28% / .16), transparent 42%),
       linear-gradient(180deg, hsl(var(--theme-hue) 25% 5%), var(--bg));
   }
-  .app::before {
+  .theme-root::before {
     content: "";
     position: absolute;
     z-index: 0;
@@ -185,7 +185,14 @@
     background-size: 24px 24px;
     mask-image: linear-gradient(to bottom, #000, transparent 70%);
   }
-  .app > :global(*) { position: relative; z-index: 1; }
+  .app {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+  }
   .first-run {
     display: flex;
     align-items: center;

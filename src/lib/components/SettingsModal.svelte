@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { api, errorText, type Settings } from "../api";
   import { bench } from "../state.svelte";
 
@@ -16,16 +17,26 @@
   let busy = $state(false);
   let result = $state<string | null>(null);
   let failed = $state(false);
+  let closeButton = $state<HTMLButtonElement>();
 
   $effect(() => {
-    if (bench.settingsOpen && bench.settings) {
-      draft = { ...bench.settings };
-      bench.themeHuePreview = draft.theme_hue;
+    const open = bench.settingsOpen;
+    const settings = bench.settings;
+    const warning = bench.settingsWarning;
+    if (!open || !settings) return;
+
+    // Do not track the draft we initialize here. Tracking `draft.theme_hue`
+    // made every preview change retrigger this effect and snap back to the
+    // saved hue before the browser could paint it.
+    untrack(() => {
+      draft = { ...settings };
+      bench.themeHuePreview = settings.theme_hue;
       apiKey = "";
       allowInsecureStorage = false;
-      result = bench.settingsWarning;
-      failed = Boolean(bench.settingsWarning);
-    }
+      result = warning;
+      failed = Boolean(warning);
+      queueMicrotask(() => closeButton?.focus());
+    });
   });
 
   async function persist(): Promise<boolean> {
@@ -76,7 +87,6 @@
   }
 
   function close() {
-    if (busy) return;
     bench.settingsOpen = false;
     bench.themeHuePreview = null;
   }
@@ -89,103 +99,115 @@
     draft.theme_hue = Math.max(0, Math.min(359, Math.round(value)));
     bench.themeHuePreview = draft.theme_hue;
   }
+
+  function handleKeydown(event: KeyboardEvent) {
+    if (bench.settingsOpen && event.key === "Escape") {
+      event.preventDefault();
+      close();
+    }
+  }
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 {#if bench.settingsOpen}
   <div class="backdrop" role="presentation" onclick={closeBackdrop}>
-    <dialog open class="modal" aria-labelledby="settings-title">
-      <header>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <header class="modal-head">
         <div>
           <h2 id="settings-title">Agent settings</h2>
           <p>Stored outside project directories. The API key is write-only.</p>
         </div>
-        <button class="close" aria-label="Close settings" onclick={close} disabled={busy}>×</button>
+        <button class="close" aria-label="Close settings" onclick={close} bind:this={closeButton}>×</button>
       </header>
 
-      <section class="theme-editor" aria-labelledby="theme-title">
-        <div class="theme-copy">
-          <strong id="theme-title">Interface tone</strong>
-          <span>Dark console · {draft.theme_hue}°</span>
-        </div>
-        <div class="hue-line">
-          <input
-            class="hue-range"
-            type="range"
-            min="0"
-            max="359"
-            value={draft.theme_hue}
-            aria-label="Interface hue"
-            oninput={(event) => previewHue(Number(event.currentTarget.value))}
-          />
-          <div class="swatches" aria-label="Tone presets">
-            {#each [171, 198, 264, 326, 36] as hue}
-              <button
-                type="button"
-                class:active={draft.theme_hue === hue}
-                style={`--swatch-hue: ${hue}`}
-                aria-label={`Use ${hue} degree hue`}
-                onclick={() => previewHue(hue)}
-              ></button>
-            {/each}
+      <div class="modal-body">
+        <section class="theme-editor" aria-labelledby="theme-title">
+          <div class="theme-copy">
+            <strong id="theme-title">Interface tone</strong>
+            <span>Live preview · {draft.theme_hue}°</span>
           </div>
-        </div>
-      </section>
+          <div class="hue-line">
+            <input
+              class="hue-range"
+              type="range"
+              min="0"
+              max="359"
+              value={draft.theme_hue}
+              aria-label="Interface hue"
+              oninput={(event) => previewHue(Number(event.currentTarget.value))}
+            />
+            <div class="swatches" aria-label="Tone presets">
+              {#each [171, 198, 264, 326, 36] as hue}
+                <button
+                  type="button"
+                  class:active={draft.theme_hue === hue}
+                  style={`--swatch-hue: ${hue}`}
+                  aria-label={`Use ${hue} degree hue`}
+                  title={`${hue}°`}
+                  onclick={() => previewHue(hue)}
+                ></button>
+              {/each}
+            </div>
+          </div>
+        </section>
 
-      <label>
-        <span>Responses API base URL</span>
-        <input bind:value={draft.base_url} spellcheck="false" />
-      </label>
-      <label>
-        <span>Model</span>
-        <input bind:value={draft.model} spellcheck="false" />
-      </label>
-      <div class="row">
         <label>
-          <span>Context budget</span>
-          <input type="number" min="1024" max="2000000" bind:value={draft.context_budget_tokens} />
+          <span>Responses API base URL</span>
+          <input bind:value={draft.base_url} spellcheck="false" />
         </label>
         <label>
-          <span>Maximum turns</span>
-          <input type="number" min="1" max="128" bind:value={draft.max_turns} />
+          <span>Model</span>
+          <input bind:value={draft.model} spellcheck="false" />
         </label>
+        <div class="row">
+          <label>
+            <span>Context budget</span>
+            <input type="number" min="1024" max="2000000" bind:value={draft.context_budget_tokens} />
+          </label>
+          <label>
+            <span>Maximum turns</span>
+            <input type="number" min="1" max="128" bind:value={draft.max_turns} />
+          </label>
+        </div>
+        <label>
+          <span>API key · {bench.apiKeySet ? "set" : "not set"}</span>
+          <input type="password" autocomplete="off" bind:value={apiKey} placeholder={bench.apiKeySet ? "Leave blank to keep the stored key" : "Enter API key"} />
+        </label>
+        <label class="check">
+          <input type="checkbox" bind:checked={allowInsecureStorage} />
+          <span>If the OS keychain is unavailable, store the key insecurely in app config with mode 0600.</span>
+        </label>
+
+        {#if bench.versionInfo}
+          <div class="versions">
+            <h3>Version information</h3>
+            <dl>
+              <dt>scorebench</dt><dd>{bench.versionInfo.scorebench_version}</dd>
+              <dt>scorekit</dt><dd>{bench.versionInfo.scorekit.version ?? "not reported"}</dd>
+              <dt>tested range</dt><dd>{bench.versionInfo.scorekit.tested_range}</dd>
+              <dt>path</dt><dd>{bench.versionInfo.scorekit.path ?? "not found"}</dd>
+              <dt>doctor</dt><dd>{bench.versionInfo.scorekit.ready ? "ready" : "unhealthy"}</dd>
+            </dl>
+            {#if bench.versionInfo.scorekit.warning}<p>{bench.versionInfo.scorekit.warning}</p>{/if}
+            {#if bench.versionInfo.scorekit.hints.length}
+              <ul>{#each bench.versionInfo.scorekit.hints as hint}<li>{hint}</li>{/each}</ul>
+            {/if}
+          </div>
+        {/if}
+
+        {#if result}
+          <p class:failed class="result">{result}</p>
+        {/if}
       </div>
-      <label>
-        <span>API key · {bench.apiKeySet ? "set" : "not set"}</span>
-        <input type="password" autocomplete="off" bind:value={apiKey} placeholder={bench.apiKeySet ? "Leave blank to keep the stored key" : "Enter API key"} />
-      </label>
-      <label class="check">
-        <input type="checkbox" bind:checked={allowInsecureStorage} />
-        <span>If the OS keychain is unavailable, store the key insecurely in app config with mode 0600.</span>
-      </label>
 
-      {#if bench.versionInfo}
-        <div class="versions">
-          <h3>Version information</h3>
-          <dl>
-            <dt>scorebench</dt><dd>{bench.versionInfo.scorebench_version}</dd>
-            <dt>scorekit</dt><dd>{bench.versionInfo.scorekit.version ?? "not reported"}</dd>
-            <dt>tested range</dt><dd>{bench.versionInfo.scorekit.tested_range}</dd>
-            <dt>path</dt><dd>{bench.versionInfo.scorekit.path ?? "not found"}</dd>
-            <dt>doctor</dt><dd>{bench.versionInfo.scorekit.ready ? "ready" : "unhealthy"}</dd>
-          </dl>
-          {#if bench.versionInfo.scorekit.warning}<p>{bench.versionInfo.scorekit.warning}</p>{/if}
-          {#if bench.versionInfo.scorekit.hints.length}
-            <ul>{#each bench.versionInfo.scorekit.hints as hint}<li>{hint}</li>{/each}</ul>
-          {/if}
-        </div>
-      {/if}
-
-      {#if result}
-        <p class:failed class="result">{result}</p>
-      {/if}
-
-      <footer>
+      <footer class="modal-actions">
         <button class="ghost" onclick={testConnection} disabled={busy}>Test connection</button>
         <span class="spacer"></span>
-        <button class="ghost" onclick={close} disabled={busy}>Cancel</button>
+        <button class="ghost" onclick={close}>Cancel</button>
         <button class="primary" onclick={saveAndClose} disabled={busy}>{busy ? "Saving…" : "Save"}</button>
       </footer>
-    </dialog>
+    </div>
   </div>
 {/if}
 
@@ -193,30 +215,54 @@
   .backdrop {
     position: fixed;
     inset: 0;
-    z-index: 20;
+    z-index: 100;
     display: grid;
     place-items: center;
+    min-width: 0;
+    min-height: 0;
+    padding: clamp(12px, 3vw, 32px);
+    overflow: hidden;
     background: rgba(5, 5, 8, 0.68);
     backdrop-filter: blur(4px);
   }
   .modal {
-    width: min(560px, calc(100vw - 48px));
-    max-height: calc(100vh - 48px);
-    overflow: auto;
+    position: relative;
+    inset: auto;
+    display: flex;
+    flex-direction: column;
+    width: min(620px, 100%);
+    max-height: 100%;
+    min-height: 0;
+    margin: 0;
+    overflow: hidden;
     box-sizing: border-box;
-    padding: 22px;
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    background: var(--panel);
-    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+    padding: 0;
+    color: var(--fg);
+    border: 1px solid var(--accent-line-strong);
+    border-radius: 12px;
+    background: var(--panel-deep);
+    box-shadow: 0 28px 90px rgba(0, 0, 0, 0.62), 0 0 32px var(--accent-soft);
   }
-  header, footer, .row {
+  .modal-head, .modal-actions, .row {
     display: flex;
     gap: 12px;
   }
-  header { align-items: flex-start; margin-bottom: 20px; }
+  .modal-head {
+    flex: 0 0 auto;
+    align-items: flex-start;
+    padding: 18px 20px 15px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(115deg, var(--accent-soft), transparent 68%);
+  }
+  .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 18px 20px;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
   h2 { margin: 0; font-size: 19px; }
-  header p { margin: 5px 0 0; color: var(--fg-dim); font-size: 12px; }
+  .modal-head p { margin: 5px 0 0; color: var(--fg-dim); font-size: 12px; }
   .theme-editor {
     display: grid;
     gap: 10px;
@@ -252,11 +298,21 @@
   .swatches button.active { box-shadow: 0 0 0 1px var(--fg), 0 0 12px hsl(var(--swatch-hue) 80% 55% / .6); }
   .close {
     margin-left: auto;
-    border: 0;
-    background: none;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
     color: var(--fg-dim);
-    font-size: 24px;
+    font-size: 22px;
+    line-height: 1;
     cursor: pointer;
+  }
+  .close:hover, .close:focus-visible {
+    color: var(--accent);
+    border-color: var(--accent-line-strong);
+    background: var(--accent-soft);
   }
   label { display: grid; gap: 6px; margin-bottom: 14px; flex: 1; }
   label > span { color: var(--fg-dim); font-size: 12px; }
@@ -289,6 +345,19 @@
   .versions dd { margin: 0; overflow-wrap: anywhere; }
   .versions p, .versions ul { color: var(--bad); font-size: 11px; line-height: 1.45; }
   .versions ul { color: var(--fg-dim); padding-left: 18px; }
-  footer { align-items: center; margin-top: 20px; }
+  .modal-actions {
+    flex: 0 0 auto;
+    align-items: center;
+    padding: 13px 20px;
+    border-top: 1px solid var(--line);
+    background: color-mix(in srgb, var(--panel-deep) 92%, black);
+  }
   .spacer { flex: 1; }
+
+  @media (max-width: 620px) {
+    .backdrop { padding: 8px; }
+    .modal-head, .modal-body, .modal-actions { padding-right: 14px; padding-left: 14px; }
+    .row, .hue-line { align-items: stretch; flex-direction: column; }
+    .swatches { justify-content: flex-end; }
+  }
 </style>
