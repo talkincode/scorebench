@@ -19,6 +19,19 @@ pub enum BenchError {
     Io { message: String },
     /// The path is not a usable project directory or asset.
     InvalidProject { message: String },
+    /// OpenAI Responses-compatible endpoint failure.
+    Llm {
+        message: String,
+        status: Option<u16>,
+        retry_after: Option<String>,
+        body_excerpt: Option<String>,
+    },
+    /// An in-flight agent or transport operation was stopped by the user.
+    Cancelled { message: String },
+    /// Invalid or unavailable application settings / secret storage.
+    Settings { message: String, code: String },
+    /// Agent loop or tool protocol failure.
+    Agent { message: String, code: String },
 }
 
 impl BenchError {
@@ -33,6 +46,35 @@ impl BenchError {
             message: message.into(),
         }
     }
+
+    pub fn llm(message: impl Into<String>) -> Self {
+        Self::Llm {
+            message: message.into(),
+            status: None,
+            retry_after: None,
+            body_excerpt: None,
+        }
+    }
+
+    pub fn cancelled() -> Self {
+        Self::Cancelled {
+            message: "operation cancelled".into(),
+        }
+    }
+
+    pub fn settings(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::Settings {
+            message: message.into(),
+            code: code.into(),
+        }
+    }
+
+    pub fn agent(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::Agent {
+            message: message.into(),
+            code: code.into(),
+        }
+    }
 }
 
 impl std::fmt::Display for BenchError {
@@ -40,7 +82,11 @@ impl std::fmt::Display for BenchError {
         match self {
             Self::ScorekitMissing { message }
             | Self::Io { message }
-            | Self::InvalidProject { message } => write!(f, "{message}"),
+            | Self::InvalidProject { message }
+            | Self::Llm { message, .. }
+            | Self::Cancelled { message }
+            | Self::Settings { message, .. }
+            | Self::Agent { message, .. } => write!(f, "{message}"),
             Self::Scorekit { message, code, .. } => write!(f, "scorekit {code}: {message}"),
         }
     }

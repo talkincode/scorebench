@@ -1,0 +1,7 @@
+data: {"type":"response.output_item.done","response_id":"resp_multi","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read_scene","arguments":"{\"path\":\"forest.yaml\"}"}}
+
+data: {"type":"response.output_item.done","response_id":"resp_multi","output_index":1,"item":{"type":"function_call","id":"fc_2","call_id":"call_2","name":"validate_scene","arguments":"{\"path\":\"forest.yaml\"}"}}
+
+data: {"type":"response.completed","response":{"id":"resp_multi","usage":{"input_tokens":10,"output_tokens":8,"total_tokens":18}}}
+
+: end of fixture

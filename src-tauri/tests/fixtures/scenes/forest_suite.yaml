@@ -1,0 +1,25 @@
+title: Forest Suite
+tempo: 92
+key: D_minor
+time_signature: 4/4
+bars: 8
+unknown_future_field: tolerated
+tracks:
+  - { instrument: flute, pattern: melody, motif: theme, intensity: 0.7 }
+  - { instrument: strings, pattern: sustain, intensity: 0.5 }
+sections:
+  - name: intro
+    bars: 4
+    mute: [3, 4]
+    intensity: 0.7
+  - name: explore
+    bars: 8
+    loop: true
+  - name: combat
+    bars: 8
+    loop: true
+    tempo: 132
+    intensity: 1.4
+  - name: victory
+    bars: 2
+    mute: [4]

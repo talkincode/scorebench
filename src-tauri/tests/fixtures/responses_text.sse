@@ -1,0 +1,11 @@
+data: {"type":"response.created","response":{"id":"resp_text"}}
+
+data: {"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"delta":"hello "}
+
+data: {"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"delta":"scorebench"}
+
+data: {"type":"response.output_text.done","item_id":"msg_1","output_index":0,"text":"hello scorebench"}
+
+data: {"type":"response.completed","response":{"id":"resp_text","usage":{"input_tokens":4,"output_tokens":6,"total_tokens":10}}}
+
+: end of fixture

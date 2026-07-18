@@ -2,6 +2,7 @@
 //! scorebench only observes; it never restructures the user's directory.
 
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
@@ -139,6 +140,92 @@ pub fn resolve_inside(root: &Path, rel_path: &str) -> Result<PathBuf, BenchError
     Ok(resolved)
 }
 
+/// Resolve a project-relative write target. The target may not exist yet, so
+/// containment is proven from the canonical parent directory.
+pub fn resolve_for_write(root: &Path, rel_path: &str) -> Result<PathBuf, BenchError> {
+    let rel = Path::new(rel_path);
+    if rel.as_os_str().is_empty()
+        || rel.is_absolute()
+        || rel.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir
+                    | std::path::Component::RootDir
+                    | std::path::Component::Prefix(_)
+            )
+        })
+    {
+        return Err(BenchError::invalid(format!(
+            "`{rel_path}` is not a safe project-relative path"
+        )));
+    }
+    let root = root.canonicalize().map_err(BenchError::io)?;
+    let joined = root.join(rel);
+    let parent = joined
+        .parent()
+        .ok_or_else(|| BenchError::invalid("write target has no parent"))?;
+    std::fs::create_dir_all(parent).map_err(BenchError::io)?;
+    let parent = parent.canonicalize().map_err(BenchError::io)?;
+    if !parent.starts_with(&root) {
+        return Err(BenchError::invalid(format!(
+            "`{rel_path}` escapes the project directory"
+        )));
+    }
+    Ok(joined)
+}
+
+pub fn read_text_inside(root: &Path, rel_path: &str) -> Result<String, BenchError> {
+    let path = resolve_inside(root, rel_path)?;
+    std::fs::read_to_string(&path)
+        .map_err(|err| BenchError::io(format!("cannot read `{}`: {err}", path.display())))
+}
+
+pub fn write_text_atomic(root: &Path, rel_path: &str, text: &str) -> Result<PathBuf, BenchError> {
+    let target = resolve_for_write(root, rel_path)?;
+    atomic_write_with(&target, text.as_bytes(), |_| Ok(())).map_err(BenchError::io)?;
+    Ok(target)
+}
+
+fn atomic_write_with<F>(target: &Path, bytes: &[u8], before_rename: F) -> std::io::Result<()>
+where
+    F: FnOnce(&Path) -> std::io::Result<()>,
+{
+    use std::io::Write;
+
+    let parent = target
+        .parent()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "no parent"))?;
+    let suffix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+        ^ u128::from(std::process::id());
+    let temp = parent.join(format!(
+        ".{}.tmp-{suffix}",
+        target
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("scene")
+    ));
+    let result = (|| {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        before_rename(&temp)?;
+        std::fs::rename(&temp, target)?;
+        #[cfg(unix)]
+        std::fs::File::open(parent)?.sync_all()?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(temp);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,6 +278,28 @@ mod tests {
             err,
             BenchError::InvalidProject { .. } | BenchError::Io { .. }
         ));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn resolve_for_write_blocks_escape() {
+        let dir = temp_project();
+        assert!(resolve_for_write(&dir, "scenes/new.yaml").is_ok());
+        assert!(resolve_for_write(&dir, "../escape.yaml").is_err());
+        assert!(resolve_for_write(&dir, "/tmp/escape.yaml").is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn failed_atomic_scene_write_preserves_original() {
+        let dir = temp_project();
+        let target = dir.join("forest.yaml");
+        let error = atomic_write_with(&target, b"replacement", |_| {
+            Err(std::io::Error::other("rename kill point"))
+        })
+        .unwrap_err();
+        assert_eq!(error.to_string(), "rename kill point");
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "title: x");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
