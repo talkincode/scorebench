@@ -1,4 +1,4 @@
-//! Read-only scene and artifact display models.
+//! Scene validation plus read-only scene and artifact display models.
 //!
 //! Unknown scorekit fields are tolerated. scorebench extracts values for
 //! display and delegates validity to `scorekit validate --json`.
@@ -101,6 +101,37 @@ pub fn inspect_scene(root: &Path, rel_path: &str) -> Result<SceneInspection, Ben
         validation,
         render_profile,
         last_diff: read_last_diff(root, rel_path)?,
+    })
+}
+
+/// Validate unsaved editor content: stage it in a hidden temp file inside the
+/// project (so relative references resolve like the real scene would), run
+/// `scorekit validate --json`, then remove the staging file.
+pub fn validate_scene_content(root: &Path, content: &str) -> Result<ValidationDisplay, BenchError> {
+    let rel = format!(
+        ".scorebench/.validate-{}-{}.yaml",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    );
+    let path = project::write_text_atomic(root, &rel, content)?;
+    let result = scorekit::validate(&path);
+    let _ = std::fs::remove_file(&path);
+    Ok(match result {
+        Ok(()) => ValidationDisplay {
+            status: "valid".into(),
+            error: None,
+        },
+        Err(error @ BenchError::ScorekitMissing { .. }) => ValidationDisplay {
+            status: "unavailable".into(),
+            error: Some(error),
+        },
+        Err(error) => ValidationDisplay {
+            status: "invalid".into(),
+            error: Some(error),
+        },
     })
 }
 

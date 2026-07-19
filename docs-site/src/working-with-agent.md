@@ -1,50 +1,50 @@
-# 与 Agent 协作
+# Working with the Agent
 
-scorebench 的核心交互不是“填参数”，而是让 Agent 把创作意图翻译成可验证的 ScoreKit 场景。描述越清楚，迭代越短。
+The central interaction in scorebench is not filling out parameter forms. It is helping the Agent translate creative intent into a valid, testable ScoreKit scene. Clearer briefs usually require fewer iterations.
 
-## 一个实用的需求模板
+## A practical brief template
 
 ```text
-用途：这段音乐出现在哪里？循环还是一次性？
-情绪：希望听众感到什么？哪些感觉要避免？
-时长/结构：大约几小节，是否有 intro/explore/combat 等段落？
-音乐材料：调性、速度、节拍、核心动机或参考色彩。
-配器：哪些乐器承担旋律、和声、低音、节奏和质感？
-约束：需要 stems、无缝循环、指定渲染器或 SFZ profile 吗？
-验收：怎样才算完成？例如“旋律有留白、鼓只在 combat 出现”。
+Purpose: Where will the music play? Is it a loop or a one-shot cue?
+Mood: What should the listener feel, and what should be avoided?
+Length and form: How many bars, and are intro/explore/combat sections needed?
+Material: Tempo, key, meter, motif, or a reference color.
+Orchestration: Who carries melody, harmony, bass, rhythm, and texture?
+Constraints: Do you need stems, a seamless loop, or a particular SFZ profile?
+Acceptance: What would make the result complete?
 ```
 
-不必一次给出所有音乐理论术语。你可以说“像远处传来的回忆，稀疏、不要鼓”，Agent 再把它转成速度、配器、休止和强弱设计。但凡涉及不可执行的抽象描述，最终都必须落到现有 schema 能表达的选择上。
+You do not need to know every theory term. A phrase such as “a distant memory, sparse, no drums” is useful as long as the Agent eventually translates it into tempo, register, instrumentation, rests, and dynamics that the live schema can express.
 
-## 推荐的迭代节奏
+## A productive iteration loop
 
-1. **先定角色与结构。** 先确认旋律、和声、低音、节奏由谁承担，以及是否需要多个 section。
-2. **生成并验证场景。** YAML 通过 `scorekit validate`，只说明“协议有效”，不说明“音乐好听”。
-3. **先听默认音源。** 用 FluidSynth 快速判断旋律、和声、密度和段落。
-4. **一次只改一类问题。** 例如先改旋律呼吸，再改配器，最后换音源。这样语义 diff 才能解释听感变化。
-5. **最后切换目标音源。** SFZ profile 会明显改变音色、奏法与平衡，应在音乐结构稳定后重点试听。
-6. **用 Review 获取备选意见。** Review 是基于证据包的文本评审，不代替试听，也不会直接修改场景。
+1. **Set roles and form first.** Decide who carries melody, harmony, bass, rhythm, and whether the piece needs multiple sections.
+2. **Generate and validate the scene.** Passing `scorekit validate` proves protocol validity, not musical quality.
+3. **Listen with the default sound source.** Use FluidSynth to judge melody, harmony, density, and form quickly.
+4. **Change one class of problem at a time.** Fix phrasing, then orchestration, then sound sources. The semantic diff remains meaningful.
+5. **Move to the target sound source last.** An SFZ profile can change envelopes, balance, articulation, and perceived space, so listen again after switching.
+6. **Use Review for alternatives.** Review is text analysis over an evidence pack. It does not hear the audio or edit the scene directly.
 
-## 怎样提出可执行的修改
+## Make revision requests executable
 
-| 模糊说法 | 更可执行的说法 |
+| Vague request | More executable request |
 | --- | --- |
-| 更史诗 | combat 段强度提高，加入铜管和定音鼓，保留原动机 |
-| 不够伤感 | 降低速度，减少同时发声的旋律声部，增加休止，避免明亮高音区 |
-| 更有层次 | 调整声部角色、声像和远近；不要仅把所有轨道一起加响 |
-| 结尾自然一点 | 如果是 loop，让末和弦与开头形成回归；如果是 one-shot，留出尾音 |
-| 更真人 | 使用小幅、带 seed 的 timing/velocity humanize，并核对 legato 与目标奏法 |
+| Make it more epic | Raise combat intensity, add brass and timpani, and preserve the original motif |
+| It is not sad enough | Slow it down, reduce simultaneous melodic voices, add rests, and avoid a bright upper register |
+| Give it more depth | Separate instrumental roles, pan complementary textures, and adjust near/far placement instead of raising every track |
+| Make the ending natural | For a loop, make the final harmony return to the opening; for a one-shot, leave a clear decay |
+| Make it sound human | Add small seeded timing and velocity variation, then verify legato and the target articulation |
 
-## StylePack、音乐文法与渲染 profile 不是一回事
+## StylePack, grammar, and renderer profile are different
 
-- **StylePack** 是 scorebench 的创作偏好包，告诉 Agent 倾向哪些和声、配器、形式和评审标准。
-- **音乐文法（grammar）** 是 ScoreKit 可量化的审美检查规则，例如速度上限、旋律声部数量和休止比例。
-- **渲染 profile** 是 SFZ 乐器映射，告诉 sfizz 每个 `instrument + articulation` 应加载哪个 `.sfz` 文件。
+- A **StylePack** is a scorebench creative preference package. It guides the Agent toward particular harmony, orchestration, form, and review criteria.
+- A **grammar profile** is a set of measurable ScoreKit aesthetic checks, such as tempo limits, voice count, and melody rest ratio.
+- A **renderer profile** maps ScoreKit instruments and articulations to local SFZ files for sfizz.
 
-StylePack 影响 Agent 的选择，grammar 检查编译后的音乐，渲染 profile 影响最终音色。三者不能互相替代。
+StylePack influences choices, grammar checks the compiled music, and a renderer profile controls timbre. None of them replaces the others.
 
-## 项目文件与可恢复性
+## Project files and recovery
 
-场景、项目 manifest、会话和 Agent memory 都是普通文件。Agent 写场景时会保留语义历史并立即校验；校验失败的 YAML 可能仍会留在磁盘上，界面会把它标为无效，方便继续修复。建议把项目纳入 Git，以便审查和回退。
+Scenes, the project manifest, sessions, and Agent memory are plain files. When the Agent writes a scene, scorebench records semantic history and validates immediately. Invalid YAML may remain on disk with a visible error so the Agent can repair it. Put the project under Git if you want review and rollback.
 
-渲染后端与 SFZ profile 的选择写入 `bench.json`；采样率、增益、质量、格式和 stems 是当前界面的即时参数。不要手工把密钥放进 `bench.json`。
+The selected renderer and SFZ profile are stored in `bench.json`. Sample rate, gain, quality, format, and stems are immediate Render-panel choices. Never put secrets in `bench.json`.

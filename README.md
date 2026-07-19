@@ -4,7 +4,9 @@
 [![Documentation](https://github.com/talkincode/scorebench/actions/workflows/pages.yml/badge.svg)](https://github.com/talkincode/scorebench/actions/workflows/pages.yml)
 
 > **Agent-native workbench for [scorekit](https://github.com/talkincode/scorekit).**
-> You talk to the agent; the agent writes the scene DSL and drives scorekit. The GUI observes — it does not edit.
+> You talk to the agent; the agent writes the scene DSL and drives scorekit. An explicit raw-YAML editor remains available for manual work.
+
+![scorebench Agent workspace](docs/screenshots/screenshots-agent.png)
 
 scorebench is a desktop app (Tauri 2 + Svelte 5) that hosts a minimal ReACT agent for composing and rendering game music with scorekit. It is the *shell*, scorekit is the *compiler*, the LLM is the *composer*.
 
@@ -24,7 +26,7 @@ you ──chat──► agent core (Rust, OpenAI Responses API only)
 ## Product shape
 
 - **One project per window.** Opening scorebench means opening one project directory (scene YAML + rendered assets + agent memory). No multi-project tabs.
-- **Chat is the only write path.** The agent edits scene YAML and re-renders via scorekit. Parameter panels are read-only observations of the current scene/render state.
+- **Agent-first authoring.** The agent is the primary scene writer. Experienced users can also use the raw-source editor with explicit Validate and Save actions; there is no autosave. Parameter panels remain read-only observations.
 - **Playback & spectrum in the webview.** Decoding, FFT, and progress come from the browser's WebAudio API (`AnalyserNode`) — no Rust audio stack, no in-house DSP.
 - **Project memory.** The agent maintains a rolling project summary; when the conversation exceeds the configured context budget it compacts automatically.
 
@@ -32,7 +34,7 @@ you ──chat──► agent core (Rust, OpenAI Responses API only)
 
 1. **Agent core stays minimal.** One provider spec: the OpenAI Responses API (any compatible endpoint via base URL + key). No multi-provider abstraction, no agent framework, no SDK.
 2. **scorebench never renders audio itself.** All compilation/rendering/export goes through the `scorekit` CLI (`--json`). If scorekit can't do it, scorebench doesn't do it.
-3. **No editing UI.** No piano roll, no timeline, no form-based YAML editor. The DSL is edited by the agent (or by the user in their own editor); scorebench observes and plays.
+3. **No structured editing UI.** No piano roll, timeline, or form-based scene editor. The only manual in-app write path is the explicit raw-YAML editor; scorebench otherwise observes and plays.
 4. **Deterministic boundary respected.** scorebench never post-processes rendered artifacts; what scorekit writes is what plays.
 
 ## Status
@@ -48,7 +50,7 @@ npm run tauri dev    # requires Rust toolchain + scorekit on PATH
 
 ## Documentation
 
-The Chinese user manual covers the ScoreKit scene protocol, practical
+The English user guide covers the ScoreKit scene protocol, practical
 arrangement concepts, render backends, sound-source provenance, licensing,
 and troubleshooting. Read it on
 [GitHub Pages](https://talkincode.github.io/scorebench/) or from
@@ -74,7 +76,7 @@ git tag v0.1.1
 git push origin main v0.1.1
 ```
 
-Version tags build macOS (`aarch64` and `x86_64`), Windows, and Linux installers, generate `SHA256SUMS`, and assemble a draft GitHub release. Apple signing/notarization activates when its repository secrets are present; local and non-macOS builds do not require those secrets. scorekit is discovered at runtime and is not bundled.
+Version tags build macOS (`aarch64` and `x86_64`), Windows, and Linux installers, generate `SHA256SUMS`, and assemble a draft GitHub release. Publishing that release updates the Homebrew cask in `talkincode/homebrew-tap` when `HOMEBREW_TAP_TOKEN` is configured. Apple signing/notarization activates when its repository secrets are present; local and non-macOS builds do not require those secrets. scorekit is discovered at runtime and is installed as a Homebrew cask dependency, but is not bundled.
 
 ## License
 

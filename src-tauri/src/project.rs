@@ -1,5 +1,6 @@
 //! Project directory model: one window = one directory of plain files.
-//! scorebench only observes; it never restructures the user's directory.
+//! Writes are explicit, containment-checked, and atomic; scorebench never
+//! restructures the user's directory into an internal database.
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -180,6 +181,77 @@ pub fn read_text_inside(root: &Path, rel_path: &str) -> Result<String, BenchErro
         .map_err(|err| BenchError::io(format!("cannot read `{}`: {err}", path.display())))
 }
 
+fn require_scene_suffix(rel_path: &str) -> Result<(), BenchError> {
+    let lower = rel_path.to_ascii_lowercase();
+    if lower.ends_with(".yaml") || lower.ends_with(".yml") {
+        Ok(())
+    } else {
+        Err(BenchError::invalid("scene path must end in .yaml or .yml"))
+    }
+}
+
+/// Starter content for a manually created scene.
+pub const SCENE_TEMPLATE: &str = "title: New Scene\ntempo: 100\nkey: C_major\ntime_signature: \"4/4\"\nbars: 8\nloop: true\ntracks:\n  - instrument: piano\n    pattern: arpeggio\n    intensity: 0.5\n";
+
+/// Create a new scene file from the starter template. Refuses to overwrite.
+pub fn create_scene(root: &Path, rel_path: &str) -> Result<PathBuf, BenchError> {
+    require_scene_suffix(rel_path)?;
+    let target = resolve_for_write(root, rel_path)?;
+    if target.exists() {
+        return Err(BenchError::invalid(format!("`{rel_path}` already exists")));
+    }
+    atomic_write_with(&target, SCENE_TEMPLATE.as_bytes(), |_| Ok(())).map_err(BenchError::io)?;
+    Ok(target)
+}
+
+/// Snapshot the previous content of `rel_path` into `.scorebench/history/`.
+pub fn snapshot_history(
+    root: &Path,
+    rel_path: &str,
+    previous: &str,
+) -> Result<PathBuf, BenchError> {
+    let safe_name = rel_path
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let rel = format!(".scorebench/history/{stamp}-{safe_name}");
+    write_text_atomic(root, &rel, previous)
+}
+
+/// Explicit manual save of scene source (no autosave path exists). Snapshots
+/// the previous content into history first; a failed snapshot degrades to a
+/// warning, never blocks the save.
+pub fn save_scene_source(
+    root: &Path,
+    rel_path: &str,
+    content: &str,
+) -> Result<Vec<String>, BenchError> {
+    require_scene_suffix(rel_path)?;
+    let target = resolve_for_write(root, rel_path)?;
+    let mut warnings = Vec::new();
+    match std::fs::read_to_string(&target) {
+        Ok(previous) => {
+            if let Err(error) = snapshot_history(root, rel_path, &previous) {
+                warnings.push(format!("history snapshot failed: {error}"));
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(BenchError::io(error)),
+    }
+    write_text_atomic(root, rel_path, content)?;
+    Ok(warnings)
+}
+
 pub fn write_text_atomic(root: &Path, rel_path: &str, text: &str) -> Result<PathBuf, BenchError> {
     let target = resolve_for_write(root, rel_path)?;
     atomic_write_with(&target, text.as_bytes(), |_| Ok(())).map_err(BenchError::io)?;
@@ -267,6 +339,47 @@ mod tests {
     fn scan_rejects_non_directory() {
         let err = scan(Path::new("/definitely/not/a/dir")).unwrap_err();
         assert!(matches!(err, BenchError::InvalidProject { .. }));
+    }
+
+    #[test]
+    fn create_scene_writes_template_and_refuses_overwrite() {
+        let dir = temp_project();
+        let path = create_scene(&dir, "manual.yaml").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), SCENE_TEMPLATE);
+        assert!(create_scene(&dir, "manual.yaml").is_err());
+        assert!(create_scene(&dir, "manual.txt").is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn save_scene_source_snapshots_previous_content() {
+        let dir = temp_project();
+        let warnings = save_scene_source(&dir, "forest.yaml", "title: updated\n").unwrap();
+        assert!(warnings.is_empty());
+        assert_eq!(
+            std::fs::read_to_string(dir.join("forest.yaml")).unwrap(),
+            "title: updated\n"
+        );
+        let history: Vec<_> = std::fs::read_dir(dir.join(".scorebench/history"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        assert_eq!(history.len(), 1);
+        assert_eq!(std::fs::read_to_string(&history[0]).unwrap(), "title: x");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn save_scene_source_creates_new_file_without_history() {
+        let dir = temp_project();
+        save_scene_source(&dir, "fresh.yml", "title: fresh\n").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join("fresh.yml")).unwrap(),
+            "title: fresh\n"
+        );
+        assert!(!dir.join(".scorebench/history").exists());
+        assert!(save_scene_source(&dir, "../escape.yaml", "x").is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

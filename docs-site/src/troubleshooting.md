@@ -1,10 +1,10 @@
-# 故障排查
+# Troubleshooting
 
-先判断问题发生在哪一层：模型连接、场景协议、ScoreKit 环境、渲染后端、音源，还是最终听感。不要用“重新生成”掩盖环境错误。
+First identify the layer that failed: model connection, scene protocol, ScoreKit environment, renderer, sound source, or musical result. Do not hide an environment error by repeatedly asking the Agent to regenerate the scene.
 
-## scorebench 找不到 ScoreKit
+## scorebench cannot find ScoreKit
 
-症状：启动提示 ScoreKit missing，或 Agent/Render 调用失败。
+Typical symptoms are a “ScoreKit missing” startup notice or failed Agent/Render calls.
 
 ```bash
 which scorekit
@@ -12,104 +12,104 @@ scorekit --version
 scorekit doctor
 ```
 
-终端可用但桌面应用不可用时，设置 `SCOREBENCH_SCOREKIT` 为可执行文件绝对路径后重新启动应用。确认文件对当前用户可执行。
+If the CLI works in a terminal but not in the desktop application, set `SCOREBENCH_SCOREKIT` to the executable's absolute path and restart scorebench. Confirm that the current user can execute the file.
 
-## `doctor` 报告环境未就绪
+## `doctor` says the environment is not ready
 
-ScoreKit 完整构建需要 FFmpeg 和至少一个渲染器：
+A complete ScoreKit audio build needs FFmpeg and at least one renderer:
 
-- FluidSynth 缺失：安装 `fluid-synth`/`fluidsynth`；
-- TiMidity++ 缺失：如果不用该后端可忽略；
-- FFmpeg 缺失：安装后重新运行 `scorekit doctor`；
-- 默认 SoundFont `missing`：重新安装 ScoreKit 默认音源，或配置 `SCOREKIT_SOUND_LIBRARY_DIR`。
+- **FluidSynth missing:** install the `fluid-synth` or `fluidsynth` package.
+- **TiMidity++ missing:** ignore it if you do not use that backend.
+- **FFmpeg missing:** install it and run `scorekit doctor` again.
+- **Default SoundFont missing:** reinstall ScoreKit's default sound source or configure `SCOREKIT_SOUND_LIBRARY_DIR`.
 
-`doctor` 的提示比本手册更了解当前平台和 ScoreKit 版本，应优先照它处理。
+`doctor` knows the current platform and ScoreKit version better than this guide, so prefer its specific installation hints.
 
-## YAML 无效或出现 unknown field
+## Invalid YAML or `unknown field`
 
 ```bash
 scorekit schema
 scorekit --json validate path/to/scene.yaml
 ```
 
-常见原因：
+Common causes include:
 
-- 字段拼写错误或缩进错误；
-- 把自然语言标签写成不存在的字段；
-- `melody` 没有 `motif`，或引用了不存在的 motif；
-- 非 `melody` 轨却设置了 motif/glide；
-- `drums` instrument 与非 drums pattern 混用；
-- track 超过 16，或出现多个鼓轨；
-- 使用了比本机 ScoreKit 更新的字段。
+- Misspelled fields or invalid indentation.
+- Prose concepts added as fields that do not exist in the schema.
+- A `melody` track without `motif`, or a missing motif reference.
+- A motif or glide set on a non-`melody` track.
+- A `drums` instrument paired with another pattern, or the reverse.
+- More than 16 tracks or more than one drum track.
+- Fields from a newer ScoreKit than the locally installed version.
 
-让 Agent 根据错误中的 `field` 和 `message` 定点修复，不要删除不理解的整个段落。
+Ask the Agent to repair the exact `field` and `message` from the structured error rather than deleting an entire section it does not understand.
 
-## sfizz 无法渲染
+## sfizz cannot render
 
-按顺序检查：
+Check in this order:
 
-1. Render 面板是否选择了 profile；
-2. profile 的 `root` 和相对 `.sfz` 路径是否存在；
-3. 场景中的每个 instrument 是否都有映射；
-4. 每个 instrument 是否至少有 `sustain`；
-5. `sfizz_render` 是否在 `PATH`；
-6. profile 是否通过 `scorekit profile check profile.yaml`；
-7. `.sfz` 引用的 WAV/FLAC 是否完整。
+1. A profile is selected in the Render panel.
+2. The profile `root` and relative `.sfz` paths exist.
+3. Every instrument in the scene has a profile mapping.
+4. Every mapped instrument has at least `sustain`.
+5. `sfizz_render` is on `PATH`.
+6. `scorekit profile check profile.yaml` succeeds.
+7. Every WAV or FLAC referenced by the SFZ is present.
 
-某个奏法没有专门映射时会回退到 sustain；整件乐器没有映射则会失败。
+A missing dedicated articulation falls back to sustain. A completely unmapped instrument fails the build.
 
-## articulation 没有听感变化
+## Articulation does not change the sound
 
-如果后端是 FluidSynth 或 TiMidity++，这是预期行为：`articulation` 不改变 MIDI，也不切换 SF2 program。只有 sfizz profile 可以把不同奏法映射到不同 `.sfz`。
+This is expected with FluidSynth or TiMidity++: `articulation` does not change MIDI and cannot switch SF2 programs. Only an sfizz renderer profile can map articulations to different `.sfz` files.
 
-如果已经使用 sfizz，检查 profile 是否为该奏法提供专门映射；否则它仍会回退到 sustain。
+With sfizz, verify that the profile has a dedicated mapping for the requested articulation. Otherwise ScoreKit deliberately falls back to sustain.
 
-## 有输出，但乐器错误或没有声音
+## The build succeeds but an instrument is wrong or silent
 
-- SF2：确认是有效且映射完整的 GM SoundFont；
-- SFZ：确认目标 patch 的音域覆盖场景实际音符；
-- 检查 gain、track intensity 和 section intensity 是否过低；
-- 检查 section 是否通过 0-based `mute` 索引静音了该轨；
-- 不要仅看退出码，查看界面显示的结构化 ScoreKit 错误和 `meta.json`。
+- For SF2, confirm that the file is valid and has complete GM mappings.
+- For SFZ, verify that the patch's playable range covers the scene notes.
+- Check gain, track intensity, and section intensity for near-zero values.
+- Check whether a section's zero-based `mute` list silences the track.
+- Inspect the structured ScoreKit error and matching `meta.json`, not only the process exit code.
 
-## 循环接缝听起来突兀
+## The loop seam sounds abrupt
 
-ScoreKit 能保证资产长度和接缝处理，但不能替代音乐上的闭环设计：
+ScoreKit guarantees asset length and performs seam processing, but it cannot replace musical loop design:
 
-- 最后和弦是否愿意回到第一和弦；
-- 末尾旋律是否突然停在强张力音；
-- 末尾是否增加了开头没有的鼓/高频层；
-- 是否使用 `loop: true`；
-- 是否连续播放多轮而不是只听单次结尾。
+- Does the final harmony want to return to the opening harmony?
+- Does the melody stop on a strongly unresolved note?
+- Does a drum or bright layer appear only at the end and disappear at the start?
+- Is `loop: true` set?
+- Have you listened through several consecutive passes rather than only one ending?
 
-## 场景有效，但听起来混浊或平
+## The scene validates but sounds muddy or flat
 
-- 减少同时承担相同角色的轨道；
-- 只保留一个明确低频核心；
-- 给 melody 写休止；
-- 用 section mute 做密度变化；
-- 调整声像和背景强度，而不是所有轨一起加响；
-- 先用默认音源确认编曲，再判断是否需要 SFZ；
-- humanize 只能增加细微变化，不能修复结构问题。
+- Reduce tracks that perform the same role simultaneously.
+- Keep one clear low-frequency anchor.
+- Add rests to melody motifs.
+- Use section mute lists to change density.
+- Adjust pan and background intensity instead of raising every track.
+- Confirm the arrangement with the default source before assuming SFZ is required.
+- Humanization adds nuance; it cannot repair a structural problem.
 
-## 模型连接失败
+## The model connection fails
 
-- 检查 Base URL 是否是 Responses API 兼容端点；
-- 检查 model 名称和 API key 权限；
-- 查看 HTTP 状态是鉴权、限流还是服务端错误；
-- 如果使用 Azure/OpenAI 兼容代理，确认它支持工具调用和流式 Responses 事件；
-- 不要把 key 粘贴到对话、场景或故障截图中。
+- Confirm that Base URL points to a Responses API-compatible endpoint.
+- Check the model name and API-key permissions.
+- Distinguish authentication, rate limiting, and server errors by HTTP status.
+- For an Azure or OpenAI-compatible gateway, confirm support for tool calls and streaming Responses events.
+- Never paste the API key into chat, scenes, or screenshots.
 
-## 仍然无法定位
+## Reporting a reproducible problem
 
-报告问题时附上：
+Include:
 
-- scorebench 与 ScoreKit 版本；
-- 操作系统和架构；
-- `scorekit --json doctor` 的脱敏输出；
-- 最小可复现 scene YAML；
-- 选择的 renderer、采样率、格式和 profile 名称；
-- 完整结构化错误；
-- 是否可用默认 FluidSynth + MuseScore General 复现。
+- scorebench and ScoreKit versions.
+- Operating system and architecture.
+- Redacted output from `scorekit --json doctor`.
+- A minimal scene YAML that reproduces the issue.
+- Renderer, sample rate, format, and profile name.
+- The complete structured error.
+- Whether default FluidSynth plus MuseScore General also reproduces the issue.
 
-不要附 API key、授权头、私有音源文件或许可证不允许公开的采样。
+Do not attach API keys, authorization headers, private sound files, or samples whose license does not permit publication.

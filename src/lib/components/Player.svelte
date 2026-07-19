@@ -121,6 +121,11 @@
     else play();
   }
 
+  // Mirror playback state so other panels (scene rail) can show it.
+  $effect(() => {
+    bench.playing = playing;
+  });
+
   function seekTo(t: number) {
     if (!buffer) return;
     const wasPlaying = playing;

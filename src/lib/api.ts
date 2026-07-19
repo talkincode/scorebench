@@ -128,9 +128,14 @@ export interface SceneDisplay {
 export interface SceneInspection {
   scene?: SceneDisplay | null;
   parse_error?: string | null;
-  validation: { status: "valid" | "invalid" | "unavailable"; error?: BenchError | null };
+  validation: ValidationDisplay;
   render_profile?: RenderProfileCompat | null;
   last_diff?: unknown;
+}
+
+export interface ValidationDisplay {
+  status: "valid" | "invalid" | "unavailable";
+  error?: BenchError | null;
 }
 
 /** Matches the Rust `manifest::RenderConfig` serde shape. */
@@ -261,6 +266,9 @@ export const api = {
   readMeta: (root: string, relPath: string) =>
     invoke<Record<string, unknown>>("read_meta", { root, relPath }),
 
+  stashAttachment: (fileName: string, dataBase64: string) =>
+    invoke<string>("stash_attachment", { fileName, dataBase64 }),
+
   sendChat(
     root: string,
     session: string,
@@ -306,6 +314,15 @@ export const api = {
 
   deleteScene: (root: string, relPath: string) =>
     invoke<void>("delete_scene", { root, relPath }),
+
+  createScene: (root: string, relPath: string) =>
+    invoke<void>("create_scene", { root, relPath }),
+
+  saveSceneSource: (root: string, relPath: string, content: string) =>
+    invoke<string[]>("save_scene_source", { root, relPath, content }),
+
+  validateSceneContent: (root: string, content: string) =>
+    invoke<ValidationDisplay>("validate_scene_content", { root, content }),
 
   runBuild(
     root: string,

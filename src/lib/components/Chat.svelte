@@ -124,6 +124,41 @@
     pendingAttachments = pendingAttachments.filter((entry) => entry !== path);
   }
 
+  const mimeExt: Record<string, string> = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "application/pdf": "pdf",
+  };
+
+  function toBase64(bytes: Uint8Array): string {
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+  }
+
+  // Pasted files carry no filesystem path in the webview, so stash the bytes
+  // through the backend and queue the resulting path like a picked file.
+  async function onPaste(event: ClipboardEvent) {
+    const files = Array.from(event.clipboardData?.files ?? []);
+    if (!files.length) return;
+    event.preventDefault();
+    for (const file of files) {
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const name = file.name || `pasted-${Date.now()}.${mimeExt[file.type] ?? "txt"}`;
+        const path = await api.stashAttachment(name, toBase64(bytes));
+        pendingAttachments = [...new Set([...pendingAttachments, path])];
+      } catch (error) {
+        bench.messages.push({ role: "tool", tone: "err", text: errorText(error) });
+      }
+    }
+  }
+
   function fileName(path: string): string {
     return path.split("/").at(-1) ?? path;
   }
@@ -304,6 +339,7 @@
         disabled={!ready || bench.agentBusy}
         bind:value={input}
         onkeydown={onKeydown}
+        onpaste={onPaste}
       ></textarea>
       {#if bench.agentBusy}
         <button class="stop" onclick={stop} aria-label={t("chat.stop")}>■</button>

@@ -51,9 +51,18 @@
           {#if scene.key}<span class="chip key">{scene.key}</span>{/if}
           {#if scene.time_signature}<span class="chip">{scene.time_signature}</span>{/if}
           {#if scene.bars != null}<span class="chip"><b>{scene.bars}</b> bars</span>{/if}
+          {#if scene.loop_enabled}<span class="chip">loop</span>{/if}
+          {#if scene.has_performance}<span class="chip">performance</span>{/if}
           <span class="chip status {inspection.validation.status}">{inspection.validation.status}</span>
         </div>
       </header>
+
+      {#if scene.story}
+        <section class="story">
+          <h3>{t("preview.story")}</h3>
+          <blockquote>{scene.story}</blockquote>
+        </section>
+      {/if}
 
       {#if scene.harmony.length}
         <section>
@@ -149,13 +158,26 @@
   .scroll {
     flex: 1;
     min-height: 0;
-    padding: 18px 20px 26px;
+    padding: 20px 24px 28px;
     overflow-y: auto;
+  }
+  .head {
+    position: relative;
+    padding-bottom: 16px;
+  }
+  .head::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 1px;
+    background: linear-gradient(90deg, var(--accent-line-strong), var(--line) 55%, transparent);
   }
   .head h2 {
     margin: 0 0 10px;
-    font-size: 20px;
-    font-weight: 550;
+    font-size: 21px;
+    font-weight: 600;
     letter-spacing: 0.01em;
   }
   .chips {
@@ -205,6 +227,18 @@
     color: var(--fg-dim);
     font: 10px var(--mono);
   }
+  .story blockquote {
+    margin: 0;
+    padding: 12px 16px;
+    color: var(--fg);
+    border: 1px solid var(--accent-line);
+    border-radius: 10px;
+    background: linear-gradient(160deg, var(--accent-soft), transparent 75%);
+    font-size: 13px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    opacity: 0.92;
+  }
   .harmony {
     display: flex;
     flex-wrap: wrap;
@@ -218,6 +252,8 @@
     background: linear-gradient(180deg, var(--accent-soft), transparent);
     font: 12px var(--mono);
     font-weight: 550;
+    animation: chord-in 0.32s ease both;
+    animation-delay: calc(var(--i) * 16ms);
   }
   .timeline {
     display: flex;
@@ -283,6 +319,12 @@
     border-bottom: 1px solid var(--line);
     vertical-align: middle;
   }
+  tbody tr {
+    transition: background 0.12s ease;
+  }
+  tbody tr:hover {
+    background: color-mix(in srgb, var(--accent-soft) 55%, transparent);
+  }
   td.idx {
     color: var(--fg-dim);
     font: 10px var(--mono);
@@ -306,5 +348,16 @@
   }
   td.num span {
     color: var(--fg-dim);
+  }
+  @keyframes chord-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chord {
+      animation: none;
+    }
   }
 </style>

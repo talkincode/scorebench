@@ -1,8 +1,8 @@
 [book]
 authors = ["scorebench contributors"]
-language = "zh-CN"
+language = "en"
 src = "src"
-title = "scorebench 用户手册"
+title = "scorebench User Guide"
 
 [build]
 build-dir = "book"

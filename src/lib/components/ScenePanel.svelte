@@ -258,7 +258,7 @@
 
     <section class="module overview">
       <header class="module-head">
-        <h2>{t("panel.sceneSignal")}</h2>
+        <h2>{t("panel.diagnostics")}</h2>
         {#if inspection}
           <span class="badge {inspection.validation.status}">{inspection.validation.status}</span>
         {/if}
@@ -273,31 +273,11 @@
       {:else if inspection.parse_error}
         <p class="status failed">{t("panel.unparseable")} · {inspection.parse_error}</p>
       {:else if inspection.scene}
-        <div class="facts">
-          <span class="wide"><b>{t("panel.title")}</b>{inspection.scene.title ?? t("panel.untitled")}</span>
-          <span><b>{t("panel.tempo")}</b>{inspection.scene.tempo ?? "—"} BPM</span>
-          <span><b>{t("panel.key")}</b>{inspection.scene.key ?? "—"}</span>
-          <span><b>{t("panel.meter")}</b>{inspection.scene.time_signature ?? "—"}</span>
-          <span><b>{t("panel.bars")}</b>{inspection.scene.bars ?? "—"}</span>
-          <span><b>{t("panel.loop")}</b>{inspection.scene.loop_enabled == null ? "—" : inspection.scene.loop_enabled ? t("panel.yes") : t("panel.no")}</span>
-          <span><b>{t("panel.performance")}</b>{inspection.scene.has_performance ? t("panel.present") : t("panel.default")}</span>
+        <div class="stats">
+          <span><b>{inspection.scene.tracks.length}</b><i>{t("preview.tracks")}</i></span>
+          <span><b>{inspection.scene.sections.length}</b><i>{t("preview.sections")}</i></span>
+          <span><b>{inspection.scene.harmony.length}</b><i>{t("preview.harmony")}</i></span>
         </div>
-        {#if inspection.scene.story}
-          <details class="scene-detail story" open>
-            <summary>{t("panel.story")}</summary>
-            <p class="story-text">{inspection.scene.story}</p>
-          </details>
-        {/if}
-        {#if inspection.scene.tracks.length}
-          <details class="scene-detail">
-            <summary>{t("panel.tracksSections", { tracks: inspection.scene.tracks.length, sections: inspection.scene.sections.length })}</summary>
-            <ul>
-              {#each inspection.scene.tracks as track, index}
-                <li><strong>{index + 1}. {track.instrument ?? "unknown"}</strong><span>{track.pattern ?? "—"}</span></li>
-              {/each}
-            </ul>
-          </details>
-        {/if}
         {#if inspection.last_diff}
           <details class="scene-detail diff">
             <summary>{t("panel.lastChange")}</summary>
@@ -500,21 +480,18 @@
   .dial strong { z-index: 1; grid-area: 1 / 1; color: var(--fg); font: 14px var(--mono); font-weight: 400; }
   .dial small { color: var(--fg-muted); font-size: 10px; }
 
-  .facts { display: grid; grid-template-columns: repeat(2, 1fr); }
-  .facts span { min-width: 0; padding: 7px 9px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); color: var(--fg); font: 11px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .facts span:nth-child(even), .facts .wide { border-right: 0; }
-  .facts .wide { grid-column: 1 / -1; }
-  .facts b, .meta-grid b { display: block; margin-bottom: 3px; color: var(--fg-label); font: var(--ui-label-size) var(--sans); font-weight: var(--ui-label-weight); letter-spacing: var(--ui-label-tracking); text-transform: uppercase; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .stats span { display: grid; gap: 3px; justify-items: center; padding: 11px 6px 10px; border-right: 1px solid var(--line); }
+  .stats span:last-child { border-right: 0; }
+  .stats b { color: var(--fg); font: 17px var(--mono); font-weight: 450; }
+  .stats i { color: var(--fg-label); font-size: var(--ui-label-size); font-style: normal; font-weight: var(--ui-label-weight); letter-spacing: var(--ui-label-tracking); text-transform: uppercase; }
+  .meta-grid b { display: block; margin-bottom: 3px; color: var(--fg-label); font: var(--ui-label-size) var(--sans); font-weight: var(--ui-label-weight); letter-spacing: var(--ui-label-tracking); text-transform: uppercase; }
   .empty, .status { margin: 0; padding: 10px; color: var(--fg-dim); font: 11px var(--mono); line-height: 1.45; overflow-wrap: anywhere; }
   .scanning { animation: pulse 1.3s ease-in-out infinite alternate; }
   .status.failed { color: var(--bad); }
   .scene-detail { margin: 6px 8px 8px; color: var(--fg-dim); font: 10px var(--mono); }
   .scene-detail summary { cursor: pointer; }
-  .scene-detail ul { display: grid; gap: 3px; margin: 6px 0 0; padding: 0; list-style: none; }
-  .scene-detail li { display: flex; justify-content: space-between; gap: 8px; }
-  .scene-detail li strong { color: var(--fg); font-weight: 500; }
   .scene-detail pre { max-height: 120px; overflow: auto; white-space: pre-wrap; font: 10px var(--mono); }
-  .story-text { max-height: 110px; margin: 6px 0 0; overflow-y: auto; color: var(--fg-dim); font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
 
   .params { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 10px; }
   .params label { display: grid; min-width: 0; gap: 3px; }

@@ -1,81 +1,81 @@
-# 快速开始
+# Quick Start
 
-目标是完成一条最短闭环：安装依赖、打开项目目录、让 Agent 创建场景、渲染并试听。
+This chapter takes the shortest path through the complete loop: install the dependencies, open a project directory, ask the Agent for a scene, render it, and listen.
 
-## 1. 准备 scorebench 和 ScoreKit
+## 1. Install scorebench and ScoreKit
 
-从 [scorebench Releases](https://github.com/talkincode/scorebench/releases) 下载适合系统的安装包。scorebench 运行时还需要单独安装 ScoreKit；它不会随桌面应用捆绑。
+Download the installer for your system from [scorebench Releases](https://github.com/talkincode/scorebench/releases). scorebench also needs a separate ScoreKit installation; the CLI is not bundled with the desktop application.
 
-macOS 或 Linux 使用 Homebrew：
+On macOS with Homebrew:
 
 ```bash
-brew install talkincode/tap/scorekit
+brew install --cask talkincode/tap/scorebench
 scorekit doctor
 ```
 
-其他平台可从 [ScoreKit Releases](https://github.com/talkincode/scorekit/releases) 下载二进制。`scorekit doctor` 应确认 FFmpeg 和至少一个渲染器可用，并报告默认 SoundFont 的状态。
+The cask installs the `talkincode/tap/scorekit` formula as a dependency. Linux users can install scorebench from the release artifacts and ScoreKit with `brew install talkincode/tap/scorekit` or from [ScoreKit Releases](https://github.com/talkincode/scorekit/releases). `scorekit doctor` should confirm that FFmpeg and at least one renderer are available and report the state of the default SoundFont.
 
-> 如果 scorebench 找不到命令，可把 `SCOREBENCH_SCOREKIT` 设置为 ScoreKit 可执行文件的绝对路径。macOS 图形应用的 `PATH` 往往比终端更短，因此“终端能运行、应用找不到”并不矛盾。
+> If scorebench cannot locate the command, set `SCOREBENCH_SCOREKIT` to the absolute path of the ScoreKit executable. GUI applications on macOS often receive a shorter `PATH` than terminal shells, so a command can work in Terminal and still be invisible to the app.
 
-## 2. 创建项目目录
+## 2. Create a project directory
 
-新建一个普通目录并在 scorebench 中打开它。一个窗口只对应一个项目目录；切换项目就是打开另一个目录。
+Create an ordinary directory and open it in scorebench. One window owns one project directory; opening another directory is how you switch projects.
 
 ```text
 my-score/
-├── scene.yaml          # Agent 创建或修改的场景
-├── bench.json          # 渲染后端、StylePack 等项目选择
-├── sessions/           # 对话会话与记忆
-└── out/                # 渲染产物
+├── scene.yaml          # Created and edited by the Agent
+├── bench.json          # Renderer, StylePack, and other project choices
+├── sessions/           # Conversations and Agent memory
+└── out/                # Rendered artifacts
 ```
 
-目录可以是 Git 仓库，也可以先从空目录开始。scorebench 不会替你初始化或管理 Git。
+The directory may already be a Git repository, or it can start empty. scorebench does not initialize or manage Git for you.
 
-## 3. 配置模型连接
+## 3. Configure the model connection
 
-在 Settings 中填写：
+Open Settings and provide:
 
-- Base URL：兼容 OpenAI Responses API 的端点；
-- Model：端点上可用的模型名；
-- API key：优先存入操作系统钥匙串；
-- Context budget：决定何时压缩较长的对话。
+- **Base URL:** an endpoint compatible with the OpenAI Responses API.
+- **Model:** a model name available at that endpoint.
+- **API key:** stored in the operating-system keychain when available.
+- **Context budget:** the threshold at which long conversations are compacted.
 
-前端不会直接访问模型端点，所有网络请求都由 Rust 后端发出。不要把 API key 写进项目文件或提交到 Git。
+The frontend never contacts the model endpoint directly; the Rust backend owns all model traffic. Never put an API key in project files or commit it to Git.
 
-## 4. 发出第一条创作请求
+## 4. Make the first request
 
-比“做一首好听的音乐”更有效的描述应包含用途、情绪、结构与限制。例如：
+A useful brief includes purpose, mood, structure, and constraints. For example:
 
-> 为夜间森林探索做一段 8 小节、D 小调、92 BPM 的无缝循环。用长弦乐铺底、钢琴分解和弦、低音与很轻的鼓。旋律留出呼吸，不要太明亮；请创建场景、验证并渲染 OGG。
+> Create an eight-bar seamless loop for nighttime forest exploration in D minor at 92 BPM. Use sustained low strings, a piano arpeggio, bass, and very light drums. Give the melody room to breathe and avoid a bright mood. Create the scene, validate it, and render an OGG preview.
 
-Agent 会创建 YAML，并通过 ScoreKit 的校验、构建和差异工具工作。不要要求它发明不存在的字段；如果某个目标超出协议，它应该说明限制并用现有字段寻找近似方案。
+The Agent writes YAML and uses ScoreKit's validation, build, and semantic-diff tools. Do not ask it to invent fields that are absent from the schema. When a goal is outside the protocol, the Agent should explain the limitation and find the closest valid representation.
 
-## 5. 观察、渲染、试听
+## 5. Observe, render, and listen
 
-工作区的常用位置：
+The main workspace areas are:
 
-- **Agent**：继续描述修改意图；
-- **Source**：只读查看场景 YAML；
-- **Preview**：查看编译后的音乐参数和最近一次语义差异；
-- **Review**：从作曲、编曲、制作等视角生成结构化建议；
-- **右侧 Render**：选择渲染器、采样率、格式、增益、质量和 stems；
-- **右侧 Outputs**：加载 `out/` 中的音频并查看 `meta.json` 摘要。
+- **Agent:** continue the conversation and request revisions.
+- **Source:** inspect the scene YAML or use explicit Validate and Save actions for manual raw-YAML editing.
+- **Preview:** inspect compiled musical parameters and the latest semantic diff.
+- **Review:** request structured advice from composing, arranging, production, and media-scoring perspectives.
+- **Render:** select a backend, sample rate, format, gain, quality, and optional stems.
+- **Outputs:** load audio from `out/` and inspect the matching `meta.json` summary.
 
-第一次建议保留默认设置：
+For a first render, keep the defaults:
 
-| 设置 | 建议 | 原因 |
+| Setting | Suggested value | Why |
 | --- | --- | --- |
-| Renderer | `fluidsynth` | 安装简单，使用默认 GM SoundFont |
-| Sample rate | `44100 Hz` | 适合普通试听与多数音乐资产 |
-| Format | `OGG` | 文件较小，适合迭代 |
-| Gain | `0.8` | ScoreKit 默认值，先留出余量 |
-| Quality | `5` | OGG 质量与体积的中间点 |
-| Stems | 关闭 | 先确认完整混音，再按需输出分轨 |
+| Renderer | `fluidsynth` | Simple setup and a default GM SoundFont |
+| Sample rate | `44100 Hz` | Suitable for ordinary listening and most music assets |
+| Format | `OGG` | Small files for fast iteration |
+| Gain | `0.8` | ScoreKit's default leaves useful headroom |
+| Quality | `5` | A middle ground between Vorbis size and quality |
+| Stems | Off | Confirm the full mix before exporting every track |
 
-完成后，`out/` 中会出现音频和同名的 `meta.json`。若启用 stems，还会出现同名 `.stems/` 目录。
+After a successful build, `out/` contains the audio file and a matching `meta.json`. Enabling stems also creates a matching `.stems/` directory.
 
-## 下一步
+## Where to go next
 
-- 不认识 YAML 字段：读[ScoreKit 场景协议](scene-protocol.md)。
-- 场景有效但听起来单薄：读[从协议到编曲](arrangement-basics.md)。
-- 想更换真实乐器采样：读[渲染流程与后端](rendering.md)和[音源、采样库与许可](sound-sources.md)。
+- Unfamiliar with the YAML fields? Read [The ScoreKit Scene Protocol](scene-protocol.md).
+- The scene validates but sounds thin? Read [From Protocol to Arrangement](arrangement-basics.md).
+- Need a different instrument library? Read [Rendering Pipeline and Backends](rendering.md) and [Sound Sources, Sample Libraries, and Licensing](sound-sources.md).

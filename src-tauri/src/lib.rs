@@ -106,6 +106,22 @@ fn active_style(
     }
 }
 
+/// Persist bytes pasted into the chat composer to a temp file so the normal
+/// path-based attachment pipeline can pick them up. Returns the stashed path.
+#[tauri::command]
+async fn stash_attachment(file_name: String, data_base64: String) -> Result<String, BenchError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(data_base64)
+            .map_err(|_| BenchError::invalid("pasted attachment is not valid base64"))?;
+        let path = attachments::stash(&file_name, &bytes)?;
+        Ok(path.display().to_string())
+    })
+    .await
+    .map_err(BenchError::io)?
+}
+
 #[tauri::command]
 async fn send_chat(
     app: AppHandle,
@@ -401,6 +417,44 @@ async fn delete_scene(root: PathBuf, rel_path: String) -> Result<(), BenchError>
     .map_err(BenchError::io)?
 }
 
+/// Create a new scene YAML from the starter template (manual workflow).
+#[tauri::command]
+async fn create_scene(root: PathBuf, rel_path: String) -> Result<(), BenchError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        project::create_scene(&root, &rel_path).map(|_| ())
+    })
+    .await
+    .map_err(BenchError::io)?
+}
+
+/// Explicit manual save of scene source (the editor never autosaves).
+/// Returns non-fatal warnings (e.g. a failed history snapshot).
+#[tauri::command]
+async fn save_scene_source(
+    root: PathBuf,
+    rel_path: String,
+    content: String,
+) -> Result<Vec<String>, BenchError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        project::save_scene_source(&root, &rel_path, &content)
+    })
+    .await
+    .map_err(BenchError::io)?
+}
+
+/// Validate unsaved editor content via `scorekit validate --json`.
+#[tauri::command]
+async fn validate_scene_content(
+    root: PathBuf,
+    content: String,
+) -> Result<observation::ValidationDisplay, BenchError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        observation::validate_scene_content(&root, &content)
+    })
+    .await
+    .map_err(BenchError::io)?
+}
+
 #[derive(Clone, serde::Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum BuildEvent {
@@ -610,6 +664,7 @@ pub fn run() {
             refresh_project,
             inspect_scene,
             read_meta,
+            stash_attachment,
             send_chat,
             cancel_agent,
             run_review,
@@ -620,6 +675,9 @@ pub fn run() {
             session_transcript,
             read_scene_source,
             delete_scene,
+            create_scene,
+            save_scene_source,
+            validate_scene_content,
             run_build,
             load_render_config,
             save_render_config,

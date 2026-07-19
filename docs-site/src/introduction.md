@@ -1,49 +1,49 @@
-# 认识 scorebench
+# Meet scorebench
 
-scorebench 是 [ScoreKit](https://github.com/talkincode/scorekit) 的 Agent 原生桌面工作台。你用自然语言描述音乐，Agent 把意图写成 ScoreKit 场景 YAML，ScoreKit 再把 YAML 编译、渲染成可以播放和交付的音频。
+scorebench is an agent-native desktop workbench for [ScoreKit](https://github.com/talkincode/scorekit). You describe the music in natural language, the Agent turns that intent into a ScoreKit scene YAML file, and ScoreKit compiles and renders the YAML into playable, shippable audio.
 
 ```text
-你的描述
+Your brief
    │
    ▼
-scorebench Agent ──写入──► scene.yaml
-                              │
-                              ▼
-                         ScoreKit CLI
-                              │
-                    MIDI + 渲染后端 + FFmpeg
-                              │
-                              ▼
-                  OGG/WAV + meta.json + stems
-                              │
-                              ▼
-                    scorebench 播放与频谱显示
+scorebench Agent ──writes──► scene.yaml
+                                │
+                                ▼
+                           ScoreKit CLI
+                                │
+                      MIDI + renderer + FFmpeg
+                                │
+                                ▼
+                    OGG/WAV + meta.json + stems
+                                │
+                                ▼
+                  scorebench playback and spectrum
 ```
 
-## 三个角色
+## Three distinct roles
 
-| 组件 | 负责什么 | 不负责什么 |
+| Component | What it does | What it does not do |
 | --- | --- | --- |
-| scorebench | 对话、项目文件、Agent 工具调用、只读观察、试听与频谱 | 不合成、不混音、不在应用内做钢琴卷帘编辑 |
-| Agent | 理解需求、编排音乐、写场景 YAML、根据验证结果迭代 | 不绕过 ScoreKit 直接生成音频 |
-| ScoreKit | 校验场景、确定性编译 MIDI、调用渲染器、导出音频与元数据 | 不理解自然语言，不替你决定作品应该表达什么 |
+| scorebench | Hosts the conversation, project files, Agent tool calls, read-only observation, playback, and spectrum views | It does not synthesize or mix audio, and it is not a piano-roll editor |
+| Agent | Interprets the brief, arranges the music, writes scene YAML, and iterates on validation feedback | It does not bypass ScoreKit to generate audio directly |
+| ScoreKit | Validates scenes, compiles deterministic MIDI, invokes renderers, and exports audio and metadata | It does not interpret natural language or decide what the piece should express |
 
-一句话记忆：**Agent 作曲，ScoreKit 编译，scorebench 承载工作流。**
+The short version is: **the Agent composes, ScoreKit compiles, and scorebench hosts the workflow.**
 
-## 适合的任务
+## Good fits
 
-- 游戏场景循环音乐、战斗/探索/胜利等同主题变体；
-- 电影感或叙事型器乐配乐草图；
-- 可通过 stems 在游戏引擎中动态增减声部的配乐；
-- 希望把音乐描述、场景文件和输出一起纳入 Git 的项目；
-- 想用自然语言迭代，但仍要求结果可复现、可校验。
+- Seamless game-music loops and related exploration, combat, or victory cues.
+- Instrumental sketches for narrative or film-style scoring.
+- Layered scores whose stems can be added or removed dynamically in a game engine.
+- Projects that keep musical descriptions, scene files, and outputs under Git.
+- Natural-language iteration with reproducible, inspectable build results.
 
-## 需要先理解的边界
+## Boundaries to understand first
 
-- scorebench 不是 DAW，没有钢琴卷帘、时间线和插件链。
-- 场景 YAML 是音乐的可执行描述，不是任意自然语言容器。字段必须符合当前 ScoreKit schema。
-- 同一份场景能稳定地产生相同 MIDI；最终音色仍取决于渲染器、音源文件和外部工具版本。
-- ScoreKit 与音源是外部依赖。scorebench 不把 ScoreKit、SoundFont 或 SFZ 采样库打包进项目。
-- Agent 的 Review 面板根据场景、schema、验证和渲染元数据做评审；它没有直接“听见”音频。最终听感仍要由人试听确认。
+- scorebench is not a DAW. It has no piano roll, timeline, or plugin chain.
+- Scene YAML is an executable musical description, not an arbitrary prose container. Every field must match the live ScoreKit schema.
+- The same scene produces stable MIDI. Final timbre still depends on the renderer, sound files, and external tool versions.
+- ScoreKit and its sound sources are external dependencies. scorebench does not bundle ScoreKit, SoundFonts, or SFZ sample libraries into a project.
+- The Review panel evaluates scene data, schema, validation results, semantic diffs, and render metadata. It has not listened to the audio; a human must still judge the sound.
 
-如果这是你第一次使用，继续阅读[快速开始](getting-started.md)。如果你已经能完成渲染，但不知道怎样把需求翻译成场景字段，直接看[从协议到编曲](arrangement-basics.md)。
+If this is your first session, continue with [Quick Start](getting-started.md). If you can already render but need help translating musical intent into scene fields, go to [From Protocol to Arrangement](arrangement-basics.md).

@@ -6,6 +6,9 @@
   let menu = $state<{ x: number; y: number; scene: string } | null>(null);
   let confirming = $state<string | null>(null);
   let deleteError = $state<string | null>(null);
+  let creating = $state(false);
+  let newName = $state("");
+  let createError = $state<string | null>(null);
 
   $effect(() => {
     const scenes = bench.project?.scenes ?? [];
@@ -69,6 +72,26 @@
       deleteError = errorText(error);
     }
   }
+
+  async function createScene() {
+    const root = bench.project?.root;
+    if (!root) return;
+    let name = newName.trim();
+    if (!name) return;
+    if (!/\.ya?ml$/i.test(name)) name += ".yaml";
+    try {
+      await api.createScene(root, name);
+      creating = false;
+      newName = "";
+      createError = null;
+      bench.project = await api.refreshProject(root);
+      bench.projectRevision++;
+      bench.selectedScene = name;
+      bench.workspaceTab = "scene";
+    } catch (error) {
+      createError = errorText(error);
+    }
+  }
 </script>
 
 <svelte:window
@@ -87,8 +110,34 @@
       <span>{t("rail.scenes")}</span>
       <b>{bench.project?.scenes.length ?? 0}</b>
     </div>
-    <span class="rail-signal" aria-hidden="true"></span>
+    <button
+      class="rail-new"
+      onclick={(event) => {
+        event.stopPropagation();
+        creating = !creating;
+        createError = null;
+      }}
+      disabled={!bench.project}
+      aria-label={t("rail.new")}
+      title={t("rail.new")}
+    >＋</button>
   </header>
+
+  {#if creating}
+    <div class="new-scene" role="presentation" onclick={(event) => event.stopPropagation()}>
+      <input
+        type="text"
+        placeholder={t("rail.newPlaceholder")}
+        bind:value={newName}
+        onkeydown={(event) => {
+          if (event.key === "Enter") void createScene();
+          if (event.key === "Escape") creating = false;
+        }}
+      />
+      <button class="mini-create" onclick={createScene} disabled={!newName.trim()}>{t("rail.newCreate")}</button>
+      {#if createError}<p class="create-error">{createError}</p>{/if}
+    </div>
+  {/if}
 
   <div class="scene-scroll">
     {#if !(bench.project?.scenes.length)}
@@ -96,6 +145,7 @@
     {:else}
       {#each bench.project.scenes as scene, index}
         {@const asset = matchingAsset(scene.rel_path)}
+        {@const isPlaying = Boolean(asset) && asset === bench.loadedAsset && bench.playing}
         <button
           class="scene-card"
           class:selected={bench.selectedScene === scene.rel_path}
@@ -114,14 +164,25 @@
           <span
             class="scene-play"
             class:available={Boolean(asset)}
+            class:playing={isPlaying}
             role="button"
             tabindex={asset ? 0 : -1}
-            aria-label={asset ? `${t("rail.play")} ${titleFor(scene.rel_path)}` : t("rail.noAudio")}
+            aria-label={isPlaying
+              ? `${t("rail.playing")} ${titleFor(scene.rel_path)}`
+              : asset
+                ? `${t("rail.play")} ${titleFor(scene.rel_path)}`
+                : t("rail.noAudio")}
             onclick={(event) => play(event, scene.rel_path)}
             onkeydown={(event) => {
               if (event.key === "Enter" || event.key === " ") play(event, scene.rel_path);
             }}
-          >{asset ? "▶" : "·"}</span>
+          >
+            {#if isPlaying}
+              <span class="eq" aria-hidden="true"><i></i><i></i><i></i></span>
+            {:else}
+              {asset ? "▶" : "·"}
+            {/if}
+          </span>
         </button>
       {/each}
     {/if}
@@ -189,12 +250,62 @@
     font: 11px var(--mono);
     font-weight: 500;
   }
-  .rail-signal {
-    width: 38px;
-    height: 10px;
-    opacity: .7;
-    background: repeating-linear-gradient(90deg, transparent 0 3px, var(--accent) 3px 4px);
-    mask-image: linear-gradient(90deg, transparent, #000 30%, #000);
+  .rail-new {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    color: var(--accent);
+    border: 1px solid var(--accent-line);
+    border-radius: 6px;
+    background: transparent;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background .15s ease, border-color .15s ease;
+  }
+  .rail-new:hover:not(:disabled) {
+    border-color: var(--accent-line-strong);
+    background: var(--accent-soft);
+  }
+  .rail-new:disabled { opacity: .4; cursor: default; }
+  .new-scene {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--panel-deep) 72%, transparent);
+  }
+  .new-scene input {
+    height: 26px;
+    min-width: 0;
+    padding: 0 8px;
+    color: var(--fg);
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    background: var(--control-bg);
+    font: 11px var(--mono);
+  }
+  .new-scene input:focus { outline: none; border-color: var(--accent-line-strong); }
+  .new-scene .mini-create {
+    height: 26px;
+    padding: 0 11px;
+    color: var(--bg);
+    border: 1px solid var(--accent-line-strong);
+    border-radius: 6px;
+    background: var(--accent);
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .new-scene .mini-create:hover:not(:disabled) { filter: brightness(1.12); }
+  .new-scene .mini-create:disabled { opacity: .45; cursor: default; }
+  .create-error {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--bad);
+    font: 10.5px var(--mono);
+    overflow-wrap: anywhere;
   }
   .scene-scroll {
     flex: 1;
@@ -278,6 +389,34 @@
   }
   .scene-play.available { color: var(--accent); border-color: var(--accent-line-strong); }
   .scene-play.available:hover { color: var(--bg); background: var(--accent); box-shadow: 0 0 13px var(--accent-glow); }
+  .scene-play.playing {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    box-shadow: 0 0 13px var(--accent-glow);
+  }
+  .eq {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 11px;
+  }
+  .eq i {
+    width: 2px;
+    border-radius: 1px;
+    background: currentColor;
+    animation: eq-pulse 1s ease-in-out infinite;
+  }
+  .eq i:nth-child(1) { height: 6px; animation-delay: 0s; }
+  .eq i:nth-child(2) { height: 10px; animation-delay: .22s; }
+  .eq i:nth-child(3) { height: 7px; animation-delay: .44s; }
+  @keyframes eq-pulse {
+    0%, 100% { transform: scaleY(.45); }
+    50% { transform: scaleY(1); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .eq i { animation: none; }
+  }
   footer {
     display: flex;
     align-items: center;

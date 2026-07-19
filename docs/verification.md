@@ -25,14 +25,14 @@ The Rust suite uses recorded SSE and scene fixtures. It makes no live LLM call. 
 
 The app was exercised as a bundled Tauri application, not as a static browser mock.
 
-- Startup: healthy scorekit status and version-warning states rendered; an explicit missing-binary launch rendered actionable first-run guidance. Evidence: [first-run-scorekit-missing.jpg](screenshots/first-run-scorekit-missing.jpg).
+- Startup: healthy scorekit status and version-warning states rendered; an explicit missing-binary launch rendered actionable first-run guidance. The current healthy welcome state is captured in [screenshots-welcome.png](screenshots/screenshots-welcome.png); the missing-binary path remains covered by the startup checks recorded here.
 - Project opening: scene YAML and audio assets populated the scene rail and read-only inspector. Empty-project behavior is backed by the project scan test and the UI empty state.
 - Observation: tempo/key/meter/bars/loop/tracks updated after an external YAML edit without manual refresh; invalid YAML is covered by the malformed fixture test.
 - Rendering: FluidSynth produced OGG and WAV; Timidity produced WAV. Both WAV files were readable by `afinfo` as stereo 44.1 kHz Int16, 20.869546 seconds, 920,347 packets. Their SHA-256 values differed, proving distinct renderer output.
 - Playback: auto-load, play/pause/resume, seeking while paused and playing, loop toggle, and metadata display were exercised.
 - Spectrum: Bars, Wave, Spectrogram, and Loop ring switched live while audio continued. Style choice persisted across relaunch. The draw-throw test proves fallback to Bars without stopping playback.
 - Filesystem: a live tempo edit changed the inspector from 92 to 93 BPM and was reverted to 92, exercising watcher refresh.
-- Layout: the native window declares and enforces a 960×640 minimum; the final three-column dark-console design was visually inspected at 1280×800. At narrower widths it uses the compact grid breakpoint rather than introducing an editing surface.
+- Layout: the native window declares and enforces a 960×640 minimum; the final three-column dark-console design was visually inspected at 1280×800. At narrower widths it uses the compact grid breakpoint. The manual authoring surface remains raw YAML with explicit Validate/Save actions, not a structured editor.
 - Theme: the default 171° dark teal hue was inspected in the bundled app. Hue is a persisted setting and feeds the CSS token system plus every canvas spectrum style; backend validation rejects values outside 0–359.
 - Azure v1: the bundled app read the existing macOS Keychain entry, `Test connection` returned `connection ok`, and a full Agent request with all eight strict tools returned `OK`. The live model then accepted nullable optional build arguments and completed read/write/validate/build without an HTTP 400.
 

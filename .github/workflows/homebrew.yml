@@ -1,0 +1,126 @@
+name: Homebrew
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish to Homebrew, for example v0.2.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  cask:
+    name: Update Homebrew cask
+    runs-on: ubuntu-latest
+    env:
+      # Set HOMEBREW_TAP_TOKEN to a fine-grained PAT with push access to the
+      # tap repository. Without it this job no-ops, so fork releases and early
+      # releases before the secret exists do not fail.
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      HOMEBREW_TAP_REPO: talkincode/homebrew-tap
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || github.event.inputs.tag }}
+    steps:
+      - name: Skip when tap token is unavailable
+        if: ${{ env.HOMEBREW_TAP_TOKEN == '' }}
+        run: echo "HOMEBREW_TAP_TOKEN is not configured; skipping Homebrew cask update."
+
+      - name: Download published release assets
+        if: ${{ env.HOMEBREW_TAP_TOKEN != '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          gh release download "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern "*.dmg" \
+            --pattern "SHA256SUMS" \
+            --dir release-assets
+
+      - name: Render and push cask
+        if: ${{ env.HOMEBREW_TAP_TOKEN != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_TAG#v}"
+          BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
+          CHECKSUMS="release-assets/SHA256SUMS"
+
+          [ -s "${CHECKSUMS}" ] || { echo "missing SHA256SUMS asset" >&2; exit 1; }
+
+          asset_for() {
+            local regex="$1"
+            local asset
+            asset="$(awk -v re="$regex" '$2 ~ re { print $2; exit }' "${CHECKSUMS}")"
+            [ -n "${asset}" ] || { echo "missing release asset matching ${regex}" >&2; exit 1; }
+            echo "${asset}"
+          }
+
+          sha_for() {
+            local asset="$1"
+            local hash
+            hash="$(awk -v f="${asset}" '$2 == f { print $1; exit }' "${CHECKSUMS}")"
+            [ -n "${hash}" ] || { echo "missing checksum for ${asset}" >&2; exit 1; }
+            echo "${hash}"
+          }
+
+          DARWIN_ARM64_DMG="$(asset_for 'aarch64.*[.]dmg$')"
+          DARWIN_X86_64_DMG="$(asset_for '(x86_64|x64).*[.]dmg$')"
+          [ "${DARWIN_ARM64_DMG}" != "${DARWIN_X86_64_DMG}" ] || {
+            echo "arm64 and x86_64 DMG asset names resolved to the same file" >&2
+            exit 1
+          }
+
+          DARWIN_ARM64_SHA="$(sha_for "${DARWIN_ARM64_DMG}")"
+          DARWIN_X86_64_SHA="$(sha_for "${DARWIN_X86_64_DMG}")"
+
+          git clone --depth 1 \
+            "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${HOMEBREW_TAP_REPO}.git" tap
+          mkdir -p tap/Casks
+
+          cat > tap/Casks/scorebench.rb <<EOF
+          cask "scorebench" do
+            version "${VERSION}"
+
+            on_arm do
+              sha256 "${DARWIN_ARM64_SHA}"
+              url "${BASE_URL}/${DARWIN_ARM64_DMG}"
+            end
+
+            on_intel do
+              sha256 "${DARWIN_X86_64_SHA}"
+              url "${BASE_URL}/${DARWIN_X86_64_DMG}"
+            end
+
+            name "scorebench"
+            desc "Agent-native workbench for ScoreKit"
+            homepage "https://github.com/talkincode/scorebench"
+
+            depends_on formula: "talkincode/tap/scorekit"
+
+            app "scorebench.app"
+
+            caveats <<~EOS
+              scorebench uses the scorekit CLI at runtime. This cask installs the
+              Homebrew scorekit formula as a dependency.
+
+              If scorebench cannot locate scorekit, set SCOREBENCH_SCOREKIT to:
+                #{HOMEBREW_PREFIX}/bin/scorekit
+            EOS
+          end
+          EOF
+
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/scorebench.rb
+          if git diff --cached --quiet; then
+            echo "Cask already up to date for ${VERSION}"
+          else
+            git commit -m "scorebench ${VERSION}"
+            git push
+          fi
