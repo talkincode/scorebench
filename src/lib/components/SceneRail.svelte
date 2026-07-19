@@ -263,7 +263,7 @@
   .art-6 { --art-shift: 330; }
   .scene-copy { min-width: 0; display: grid; gap: 3px; }
   .scene-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 650; }
-  .scene-copy small { overflow: hidden; color: var(--fg-muted); font: 10px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+  .scene-copy small { overflow: hidden; color: var(--fg-dim); font: 10px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
   .scene-tags { display: flex; gap: 4px; }
   .scene-tags i { padding: 1px 4px; color: var(--fg-dim); background: var(--panel-raised); border-radius: 2px; font: normal 9px var(--mono); }
   .scene-play {
@@ -284,7 +284,7 @@
     gap: 7px;
     height: 28px;
     padding: 0 10px;
-    color: var(--fg-muted);
+    color: var(--fg-dim);
     border-top: 1px solid var(--line);
     font: 10px var(--mono);
   }

@@ -123,7 +123,7 @@
   .empty,
   .error {
     margin: auto;
-    color: var(--fg-muted);
+    color: var(--fg-dim);
     font-size: 12px;
   }
   .error {
@@ -137,11 +137,12 @@
     align-items: center;
     gap: 8px;
     padding: 7px 14px;
-    color: var(--fg-dim);
+    color: var(--fg-label);
     border-bottom: 1px solid var(--line);
     background: color-mix(in srgb, var(--panel-deep) 82%, transparent);
-    font-size: 10px;
-    letter-spacing: 0.06em;
+    font-size: var(--ui-label-size);
+    font-weight: var(--ui-label-weight);
+    letter-spacing: var(--ui-label-tracking);
     text-transform: uppercase;
   }
   .banner .lock {
@@ -150,7 +151,7 @@
   .banner code {
     margin-left: auto;
     overflow: hidden;
-    color: var(--fg-muted);
+    color: var(--fg-dim);
     font: 10px var(--mono);
     text-overflow: ellipsis;
     text-transform: none;

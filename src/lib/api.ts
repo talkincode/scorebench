@@ -47,8 +47,27 @@ export interface Settings {
   spectrum_style: string;
   spectrum_bars: number;
   theme_hue: number;
-  personal_instructions: string;
   locale: string;
+}
+
+/** Matches the Rust `styles::StylePack` serde shape. */
+export interface StylePack {
+  id: string;
+  name: string;
+  name_en?: string | null;
+  category?: string | null;
+  builtin: boolean;
+  yaml: string;
+}
+
+/** Matches the Rust `manifest::StyleRef` serde shape. */
+export interface StyleRef {
+  id: string;
+}
+
+/** Locale-appropriate display name for a style pack. */
+export function stylePackName(pack: StylePack, locale: string): string {
+  return locale === "en" ? (pack.name_en ?? pack.name) : pack.name;
 }
 
 export interface SessionMeta {
@@ -94,6 +113,7 @@ export interface TrackDisplay {
 
 export interface SceneDisplay {
   title?: string | null;
+  story?: string | null;
   tempo?: number | null;
   key?: string | null;
   time_signature?: string | null;
@@ -109,7 +129,23 @@ export interface SceneInspection {
   scene?: SceneDisplay | null;
   parse_error?: string | null;
   validation: { status: "valid" | "invalid" | "unavailable"; error?: BenchError | null };
+  render_profile?: RenderProfileCompat | null;
   last_diff?: unknown;
+}
+
+/** Matches the Rust `manifest::RenderConfig` serde shape. */
+export interface RenderConfig {
+  renderer?: string | null;
+  profile?: string | null;
+}
+
+/** Matches the Rust `manifest::ProfileCompat` serde shape. */
+export interface RenderProfileCompat {
+  profile: string;
+  profile_name?: string | null;
+  mapped: string[];
+  unmapped: string[];
+  error?: string | null;
 }
 
 export interface ScorekitHandshake {
@@ -159,6 +195,36 @@ export interface BuildParams {
   soundfont?: string;
   profile?: string;
 }
+
+export interface PerspectiveReview {
+  role: string;
+  headline: string;
+  strengths: string[];
+  issues: string[];
+  severity: string;
+  confidence: string;
+}
+
+export interface ReviewTension {
+  between: string[];
+  point: string;
+}
+
+export interface ReviewSuggestion {
+  text: string;
+  rationale: string;
+  priority: string;
+  severity: string;
+}
+
+export interface ReviewReport {
+  perspectives: PerspectiveReview[];
+  tensions: ReviewTension[];
+  consensus: string[];
+  suggestions: ReviewSuggestion[];
+}
+
+export type ReviewEvent = { type: "delta"; text: string };
 
 export function errorText(err: unknown): string {
   const e = err as BenchError;
@@ -210,6 +276,20 @@ export const api = {
   cancelAgent: (root: string, session: string) =>
     invoke<boolean>("cancel_agent", { root, session }),
 
+  runReview(
+    root: string,
+    session: string,
+    sceneRel: string,
+    perspectives: string[],
+    onEvent: (e: ReviewEvent) => void,
+  ) {
+    const events = new Channel<ReviewEvent>();
+    events.onmessage = onEvent;
+    return invoke<ReviewReport>("run_review", { root, session, sceneRel, perspectives, events });
+  },
+
+  cancelReview: (root: string) => invoke<boolean>("cancel_review", { root }),
+
   listSessions: (root: string) => invoke<SessionsIndex>("list_sessions", { root }),
 
   createSession: (root: string, title: string | null, scene: string | null) =>
@@ -241,4 +321,23 @@ export const api = {
 
   readAsset: (root: string, relPath: string) =>
     invoke<ArrayBuffer>("read_asset", { root, relPath }),
+
+  loadRenderConfig: (root: string) =>
+    invoke<[RenderConfig | null, string | null]>("load_render_config", { root }),
+
+  saveRenderConfig: (root: string, render: RenderConfig | null) =>
+    invoke<void>("save_render_config", { root, render }),
+
+  listStylePacks: () => invoke<[StylePack[], string[]]>("list_style_packs"),
+
+  saveStylePack: (yaml: string, previousId: string | null) =>
+    invoke<StylePack>("save_style_pack", { yaml, previousId }),
+
+  deleteStylePack: (id: string) => invoke<void>("delete_style_pack", { id }),
+
+  loadStyleConfig: (root: string) =>
+    invoke<[StyleRef | null, string | null]>("load_style_config", { root }),
+
+  saveStyleConfig: (root: string, style: StyleRef | null) =>
+    invoke<void>("save_style_config", { root, style }),
 };

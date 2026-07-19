@@ -1,0 +1,49 @@
+id: chiptune-adventure
+name: 八位机冒险芯片音乐
+name_en: 8-bit Adventure Chiptune
+category: game
+
+defaults:
+  tempo_bpm: [120, 160]
+  meters: ["4/4"]
+  density: medium
+  dynamics: bright
+
+harmony:
+  language: tonal
+  colors:
+    - major_triads
+    - mixolydian_flat7
+  modulation: sectional
+
+melody:
+  range: wide
+  character: heroic
+  repetition: high
+  hooks: essential
+
+arrangement:
+  preferred:
+    - square_lead
+    - pulse_bass
+    - chip_arp
+    - noise_percussion
+  avoid:
+    - lush_pads
+    - rubato_phrasing
+  techniques:
+    - ostinato
+    - octave_jump
+    - fast_arpeggio
+
+form:
+  preferred:
+    - loop_with_bridge
+    - aaba_loop
+
+review:
+  criteria:
+    - hook_memorability
+    - loop_seam_smoothness
+    - energy_consistency
+    - voice_economy

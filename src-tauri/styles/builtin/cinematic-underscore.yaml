@@ -1,0 +1,50 @@
+id: cinematic-underscore
+name: 影视氛围底乐
+name_en: Cinematic Underscore
+category: scoring
+
+defaults:
+  tempo_bpm: [50, 80]
+  density: low
+  dynamics: gradual
+
+harmony:
+  language: modal
+  colors:
+    - open_fifths
+    - cluster_tension
+    - suspended
+  modulation: drifting
+  pedal_points: encouraged
+
+melody:
+  range: narrow
+  character: fragmentary
+  repetition: low
+  foreground: minimal
+
+arrangement:
+  preferred:
+    - strings
+    - piano
+    - low_brass
+    - subtle_percussion
+  avoid:
+    - busy_leads
+    - dance_grooves
+  techniques:
+    - sustained_layers
+    - slow_swell
+    - textural_shift
+
+form:
+  preferred:
+    - through_composed
+    - scene_following_arc
+
+review:
+  criteria:
+    - atmosphere_consistency
+    - dialogue_space
+    - tension_pacing
+    - unobtrusiveness

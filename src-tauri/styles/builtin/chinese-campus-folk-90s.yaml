@@ -1,0 +1,48 @@
+id: chinese-campus-folk-90s
+name: 九十年代中国校园民谣
+name_en: 90s Chinese Campus Folk
+category: popular
+
+defaults:
+  tempo_bpm: [72, 96]
+  meters: ["4/4", "6/8"]
+  density: low
+  dynamics: restrained
+
+harmony:
+  language: diatonic
+  colors:
+    - sus2
+    - add9
+    - minor_seventh
+  modulation: rare
+
+melody:
+  range: moderate
+  character: conversational
+  repetition: medium
+  singability: high
+
+arrangement:
+  preferred:
+    - acoustic_guitar
+    - piano
+    - soft_strings
+    - light_percussion
+  avoid:
+    - dense_brass
+    - virtuosic_runs
+    - constant_climax
+
+form:
+  preferred:
+    - verse_chorus
+    - verse_refrain
+    - narrative_arc
+
+review:
+  criteria:
+    - melody_singability
+    - emotional_restraint
+    - lyric_space
+    - natural_development

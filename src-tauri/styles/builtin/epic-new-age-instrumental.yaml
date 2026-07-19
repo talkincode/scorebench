@@ -1,0 +1,43 @@
+id: epic-new-age-instrumental
+name: 宏大新世纪器乐
+name_en: Epic New Age Instrumental
+category: instrumental
+
+defaults:
+  tempo_bpm: [76, 118]
+  density: medium
+  dynamics: wide
+
+harmony:
+  language: tonal
+  modulation: cinematic
+  pedal_points: encouraged
+
+melody:
+  range: wide
+  intervals: expressive
+  motif_development: strong
+
+arrangement:
+  preferred:
+    - piano
+    - synth_strings
+    - orchestral_percussion
+    - bass
+  techniques:
+    - arpeggio
+    - layer_build
+    - crescendo
+    - thematic_restatement
+
+form:
+  preferred:
+    - build_release_arc
+    - theme_and_climax
+
+review:
+  criteria:
+    - climax_clarity
+    - spatial_depth
+    - motif_development
+    - layer_progression

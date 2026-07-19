@@ -1,0 +1,70 @@
+Here is the multi-perspective review of the scene.
+
+```json
+{
+  "perspectives": [
+    {
+      "role": "composer",
+      "headline": "The motif states itself clearly but never develops.",
+      "strengths": [
+        "The piano arpeggio pattern gives the 8-bar form a steady sense of motion.",
+        "Harmony stays inside the key, so the scene reads as intentionally calm."
+      ],
+      "issues": [
+        "Bars 5-8 repeat the material of bars 1-4 with no variation in any track.",
+        "No answering phrase appears in a higher register."
+      ],
+      "severity": "medium",
+      "confidence": "medium"
+    },
+    {
+      "role": "scoring",
+      "headline": "Restraint fits a forest ambience; the loop seam is the real risk.",
+      "strengths": [
+        "Low overall intensity (strings 0.4) matches an exploration scene."
+      ],
+      "issues": [
+        "The final bar ends on an unresolved chord, which may bump at the loop boundary."
+      ],
+      "severity": "low",
+      "confidence": "medium"
+    },
+    {
+      "role": "child",
+      "headline": "It sounds like one picture that never changes.",
+      "strengths": [
+        "The arpeggio is easy to remember."
+      ],
+      "issues": [
+        "Nothing surprising happens; a listener cannot point to a moment where the music changed."
+      ],
+      "severity": "medium",
+      "confidence": "high"
+    }
+  ],
+  "tensions": [
+    {
+      "between": ["composer", "scoring"],
+      "point": "The composer wants bars 5-8 to develop the motif, while the scoring perspective argues the static repetition is what keeps the forest scene functional as a loop."
+    }
+  ],
+  "consensus": [
+    "The repetition of bars 5-8 is the scene's weakest point; even a small audible change there would help every perspective.",
+    "No claim can be made about mix balance without hearing audio; only intensity values were compared."
+  ],
+  "suggestions": [
+    {
+      "text": "Lower the bass track intensity from 0.45 to about 0.32 so the piano arpeggio keeps the foreground.",
+      "rationale": "Both bass and cello sit low with similar intensity values, which risks a crowded low register.",
+      "priority": "medium",
+      "severity": "medium"
+    },
+    {
+      "text": "Introduce a high-register answer to the piano motif in bar 5, one track only.",
+      "rationale": "Gives bars 5-8 a perceivable change without breaking the calm scene function.",
+      "priority": "high",
+      "severity": "low"
+    }
+  ]
+}
+```

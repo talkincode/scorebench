@@ -182,6 +182,12 @@ pub enum ResponseEvent {
         response_id: Option<String>,
         usage: Option<Usage>,
     },
+    /// Terminal: the model stopped early (e.g. `max_output_tokens`).
+    /// Output so far is valid but truncated; consumers decide severity.
+    Incomplete {
+        response_id: Option<String>,
+        reason: Option<String>,
+    },
     Failed {
         response_id: Option<String>,
         code: Option<String>,
@@ -269,6 +275,14 @@ impl ResponseEvent {
                     .map(serde_json::from_value)
                     .transpose()
                     .map_err(|err| BenchError::llm(format!("invalid usage payload: {err}")))?,
+            },
+            "response.incomplete" => Self::Incomplete {
+                response_id: response_id(),
+                reason: response
+                    .and_then(|item| item.get("incomplete_details"))
+                    .and_then(|details| details.get("reason"))
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
             },
             "response.failed" => {
                 let error = response
@@ -400,6 +414,23 @@ mod tests {
         }))
         .unwrap();
         assert!(matches!(event, ResponseEvent::Unknown { .. }));
+    }
+
+    #[test]
+    fn response_incomplete_is_terminal_with_reason() {
+        let event = ResponseEvent::from_value(serde_json::json!({
+            "type": "response.incomplete",
+            "response": {
+                "id": "resp_incomplete",
+                "incomplete_details": {"reason": "max_output_tokens"}
+            }
+        }))
+        .unwrap();
+        assert!(matches!(
+            event,
+            ResponseEvent::Incomplete { reason: Some(reason), .. }
+                if reason == "max_output_tokens"
+        ));
     }
 
     #[test]

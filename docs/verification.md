@@ -52,3 +52,13 @@ The old M0 `/doctor` and `/build` stub commands no longer exist: M1 intentionall
 ## Release boundary
 
 The four-target tag workflow, artifact collection, checksums, version guard, draft release, and conditional notarization are implemented. Local unsigned `.app` and `.dmg` bundles build successfully. The first `v0.1.0` tag dry-run proved the Windows and Linux packages, then exposed that empty Apple environment variables make Tauri attempt an invalid certificate import. The workflow now keeps all Apple variables completely absent on the unsigned path and injects them only when the full six-secret signing/notarization set exists. The repository currently has no Apple secrets, so a notarized public tag cannot be truthfully recorded until release credentials are configured.
+
+## Style pack system (2026-07-19)
+
+Structured style packs replaced the free-text persona setting.
+
+- `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test` (106 passed) ran clean in `src-tauri/` after the change; `npm run check` reported 0 errors and `npm test` passed 5 Vitest files (22 tests).
+- `styles.rs` unit tests cover built-in parsing, envelope validation (id/name/YAML-size), user-pack save/list/find/delete round trips with atomic writes, rename-by-`previous_id`, built-in id collision rejection, and corrupt-file tolerance with warnings.
+- `agent.rs` proves the active pack's YAML plus the mandatory STYLE CONFLICT DETECTION protocol are injected into the system prompt; `review.rs` proves the pack and its `review.criteria` are embedded in review evidence.
+- `manifest.rs` proves the `style.id` reference round-trips through `bench.json` while preserving unknown fields; a dangling reference degrades to no style with a warning event instead of blocking chat or review.
+- Legacy `settings.json` files containing `personal_instructions` still parse (field retained for serde compatibility); the persona settings tab and prompt injection were removed.

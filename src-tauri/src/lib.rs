@@ -2,12 +2,15 @@ mod agent;
 mod attachments;
 mod error;
 mod llm;
+mod manifest;
 mod memory;
 mod observation;
 mod project;
+mod review;
 mod scorekit;
 mod sessions;
 mod settings;
+mod styles;
 mod watcher;
 
 use std::path::PathBuf;
@@ -81,6 +84,28 @@ async fn read_meta(root: PathBuf, rel_path: String) -> Result<serde_json::Value,
         .map_err(BenchError::io)?
 }
 
+/// Resolve the project's active style pack (bench.json `style.id` → global
+/// library). A dangling reference degrades to no pack plus a warning — a
+/// deleted pack must never block chat or review.
+fn active_style(
+    config_dir: &std::path::Path,
+    root: &std::path::Path,
+) -> (Option<styles::StylePack>, Option<String>) {
+    match manifest::load(root).0.style {
+        Some(style) => match styles::find(config_dir, &style.id) {
+            Some(pack) => (Some(pack), None),
+            None => (
+                None,
+                Some(format!(
+                    "style pack `{}` referenced by bench.json was not found; composing without it",
+                    style.id
+                )),
+            ),
+        },
+        None => (None, None),
+    }
+}
+
 #[tauri::command]
 async fn send_chat(
     app: AppHandle,
@@ -95,24 +120,25 @@ async fn send_chat(
     let config_dir = app.path().app_config_dir().map_err(BenchError::io)?;
     let prompt_root = root.clone();
     let prompt_session = session.clone();
-    let (settings, api_key, instructions) = tauri::async_runtime::spawn_blocking(move || {
-        let (settings, _) = settings::load(&config_dir)?;
-        let api_key =
-            settings::load_api_key(&config_dir, &settings::OsKeyring)?.ok_or_else(|| {
-                BenchError::settings(
-                    "api_key_missing",
-                    "set an API key in Settings before chatting",
-                )
-            })?;
-        let instructions = agent::system_prompt(
-            &prompt_root,
-            &prompt_session,
-            &settings.personal_instructions,
-        )?;
-        Ok::<_, BenchError>((settings, api_key, instructions))
-    })
-    .await
-    .map_err(BenchError::io)??;
+    let (settings, api_key, instructions, style_warning) =
+        tauri::async_runtime::spawn_blocking(move || {
+            let (settings, _) = settings::load(&config_dir)?;
+            let api_key =
+                settings::load_api_key(&config_dir, &settings::OsKeyring)?.ok_or_else(|| {
+                    BenchError::settings(
+                        "api_key_missing",
+                        "set an API key in Settings before chatting",
+                    )
+                })?;
+            let (style, style_warning) = active_style(&config_dir, &prompt_root);
+            let instructions = agent::system_prompt(&prompt_root, &prompt_session, style.as_ref())?;
+            Ok::<_, BenchError>((settings, api_key, instructions, style_warning))
+        })
+        .await
+        .map_err(BenchError::io)??;
+    if let Some(text) = style_warning {
+        let _ = events.send(agent::AgentEvent::Warning { text });
+    }
     let max_turns = settings.max_turns;
     let context_budget_tokens = settings.context_budget_tokens;
     let client = llm::ResponsesClient::new(llm::LlmConfig {
@@ -216,6 +242,61 @@ fn cancel_agent(
     state: State<'_, agent::AgentState>,
 ) -> Result<bool, BenchError> {
     state.cancel(&root, &session)
+}
+
+/// One-shot multi-perspective review of a scene. Streams text deltas over the
+/// channel and returns the parsed structured report. The reviewer has no
+/// tools and never writes; the composing agent stays the only writer.
+#[tauri::command]
+async fn run_review(
+    app: AppHandle,
+    state: State<'_, agent::AgentState>,
+    root: PathBuf,
+    session: String,
+    scene_rel: String,
+    perspectives: Vec<String>,
+    events: Channel<review::ReviewEvent>,
+) -> Result<review::ReviewReport, BenchError> {
+    sessions::validate_id(&session)?;
+    let config_dir = app.path().app_config_dir().map_err(BenchError::io)?;
+    let evidence_root = root.clone();
+    let (settings, api_key, evidence) = tauri::async_runtime::spawn_blocking(move || {
+        let (settings, _) = settings::load(&config_dir)?;
+        let api_key =
+            settings::load_api_key(&config_dir, &settings::OsKeyring)?.ok_or_else(|| {
+                BenchError::settings(
+                    "api_key_missing",
+                    "set an API key in Settings before reviewing",
+                )
+            })?;
+        let evidence = {
+            let (style, _) = active_style(&config_dir, &evidence_root);
+            review::gather_evidence(&evidence_root, &session, &scene_rel, style.as_ref())?
+        };
+        Ok::<_, BenchError>((settings, api_key, evidence))
+    })
+    .await
+    .map_err(BenchError::io)??;
+    let instructions = review::instructions(&perspectives, &settings.locale)?;
+    let client = llm::ResponsesClient::new(llm::LlmConfig {
+        base_url: settings.base_url,
+        api_key,
+        model: settings.model,
+        timeout: std::time::Duration::from_secs(120),
+    })?;
+    let root = root.canonicalize().map_err(BenchError::io)?;
+    let cancellation = state.activate(&root, review::CANCEL_KEY)?;
+    let result = review::run_review(&client, instructions, &evidence, cancellation, |event| {
+        let _ = events.send(event);
+    })
+    .await;
+    state.clear_active(&root, review::CANCEL_KEY)?;
+    result
+}
+
+#[tauri::command]
+fn cancel_review(root: PathBuf, state: State<'_, agent::AgentState>) -> Result<bool, BenchError> {
+    state.cancel(&root, review::CANCEL_KEY)
 }
 
 #[tauri::command]
@@ -372,6 +453,93 @@ async fn run_build(
     .map_err(BenchError::io)
 }
 
+/// Load the persisted render configuration from bench.json (tolerant read).
+#[tauri::command]
+async fn load_render_config(
+    root: PathBuf,
+) -> Result<(Option<manifest::RenderConfig>, Option<String>), BenchError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (loaded, warning) = manifest::load(&root);
+        Ok((loaded.render, warning))
+    })
+    .await
+    .map_err(BenchError::io)?
+}
+
+/// Persist the render panel selection so the agent composes for the same
+/// renderer/profile the user renders with.
+#[tauri::command]
+async fn save_render_config(
+    root: PathBuf,
+    render: Option<manifest::RenderConfig>,
+) -> Result<(), BenchError> {
+    tauri::async_runtime::spawn_blocking(move || manifest::save_render(&root, render))
+        .await
+        .map_err(BenchError::io)?
+}
+
+/// The style pack library: built-in presets plus user packs, with warnings
+/// for files that were skipped (corrupt or id-colliding).
+#[tauri::command]
+async fn list_style_packs(
+    app: AppHandle,
+) -> Result<(Vec<styles::StylePack>, Vec<String>), BenchError> {
+    let config_dir = app.path().app_config_dir().map_err(BenchError::io)?;
+    tauri::async_runtime::spawn_blocking(move || Ok(styles::list(&config_dir)))
+        .await
+        .map_err(BenchError::io)?
+}
+
+/// Create or update a user style pack from raw YAML. `previous_id` lets a
+/// rename move the pack file instead of duplicating it.
+#[tauri::command]
+async fn save_style_pack(
+    app: AppHandle,
+    yaml: String,
+    previous_id: Option<String>,
+) -> Result<styles::StylePack, BenchError> {
+    let config_dir = app.path().app_config_dir().map_err(BenchError::io)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        styles::save(&config_dir, &yaml, previous_id.as_deref())
+    })
+    .await
+    .map_err(BenchError::io)?
+}
+
+/// Delete a user style pack (built-ins are read-only). UI confirms first.
+#[tauri::command]
+async fn delete_style_pack(app: AppHandle, id: String) -> Result<(), BenchError> {
+    let config_dir = app.path().app_config_dir().map_err(BenchError::io)?;
+    tauri::async_runtime::spawn_blocking(move || styles::delete(&config_dir, &id))
+        .await
+        .map_err(BenchError::io)?
+}
+
+/// Load the project's style selection from bench.json (tolerant read).
+#[tauri::command]
+async fn load_style_config(
+    root: PathBuf,
+) -> Result<(Option<manifest::StyleRef>, Option<String>), BenchError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (loaded, warning) = manifest::load(&root);
+        Ok((loaded.style, warning))
+    })
+    .await
+    .map_err(BenchError::io)?
+}
+
+/// Persist the style selector choice so the agent and reviewer follow the
+/// same style pack the user picked.
+#[tauri::command]
+async fn save_style_config(
+    root: PathBuf,
+    style: Option<manifest::StyleRef>,
+) -> Result<(), BenchError> {
+    tauri::async_runtime::spawn_blocking(move || manifest::save_style(&root, style))
+        .await
+        .map_err(BenchError::io)?
+}
+
 /// Raw bytes of a project asset (audio/meta) for WebAudio decoding.
 /// Path containment is enforced; binary IPC avoids JSON-encoding megabytes.
 #[tauri::command]
@@ -444,6 +612,8 @@ pub fn run() {
             read_meta,
             send_chat,
             cancel_agent,
+            run_review,
+            cancel_review,
             list_sessions,
             create_session,
             select_session,
@@ -451,6 +621,13 @@ pub fn run() {
             read_scene_source,
             delete_scene,
             run_build,
+            load_render_config,
+            save_render_config,
+            list_style_packs,
+            save_style_pack,
+            delete_style_pack,
+            load_style_config,
+            save_style_config,
             read_asset,
             get_settings,
             save_settings,

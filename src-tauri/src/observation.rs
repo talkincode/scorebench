@@ -10,13 +10,16 @@ use serde_json::Value as JsonValue;
 use serde_yaml::{Mapping, Value};
 
 use crate::error::BenchError;
-use crate::{project, scorekit};
+use crate::{manifest, project, scorekit};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SceneInspection {
     pub scene: Option<SceneDisplay>,
     pub parse_error: Option<String>,
     pub validation: ValidationDisplay,
+    /// Compatibility with the project's persisted render configuration;
+    /// `None` when no sfizz profile is active.
+    pub render_profile: Option<manifest::ProfileCompat>,
     pub last_diff: Option<JsonValue>,
 }
 
@@ -29,6 +32,8 @@ pub struct ValidationDisplay {
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct SceneDisplay {
     pub title: Option<String>,
+    /// Narrative intent (scorekit ≥0.2 `story`): informational only.
+    pub story: Option<String>,
     pub tempo: Option<f64>,
     pub key: Option<String>,
     pub time_signature: Option<String>,
@@ -86,10 +91,15 @@ pub fn inspect_scene(root: &Path, rel_path: &str) -> Result<SceneInspection, Ben
             error: Some(error),
         },
     };
+    let render_profile = manifest::load(root)
+        .0
+        .render
+        .and_then(|render| manifest::check_scene_profile(root, &path, &render));
     Ok(SceneInspection {
         scene,
         parse_error,
         validation,
+        render_profile,
         last_diff: read_last_diff(root, rel_path)?,
     })
 }
@@ -108,6 +118,7 @@ pub fn read_meta(root: &Path, rel_path: &str) -> Result<JsonValue, BenchError> {
 fn display(mapping: &Mapping) -> SceneDisplay {
     SceneDisplay {
         title: string(mapping, "title"),
+        story: string(mapping, "story"),
         tempo: number(mapping, "tempo"),
         key: string(mapping, "key"),
         time_signature: scalar_string(mapping, "time_signature"),
@@ -236,6 +247,20 @@ mod tests {
         assert_eq!(scene.tempo, Some(92.0));
         assert_eq!(scene.time_signature.as_deref(), Some("4/4"));
         assert_eq!(scene.tracks.len(), 4);
+    }
+
+    #[test]
+    fn story_is_extracted_when_present_and_none_otherwise() {
+        let with: Value =
+            serde_yaml::from_str("title: T\nstory: |\n  A quiet dawn over the valley.\n").unwrap();
+        let scene = display(with.as_mapping().unwrap());
+        assert_eq!(
+            scene.story.as_deref(),
+            Some("A quiet dawn over the valley.\n")
+        );
+
+        let without: Value = serde_yaml::from_str(&fixture("forest.yaml")).unwrap();
+        assert_eq!(display(without.as_mapping().unwrap()).story, None);
     }
 
     #[test]
