@@ -59,9 +59,9 @@
   .brand-wave i:nth-child(2), .brand-wave i:nth-child(4) { height: 17px; }
   .brand-wave i:nth-child(3) { height: 25px; }
   .name { font-size: 16px; font-weight: 450; letter-spacing: .015em; }
-  .project-name { max-width: 220px; overflow: hidden; color: var(--fg-muted); font: 9px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+  .project-name { max-width: 220px; overflow: hidden; color: var(--fg-muted); font: 11px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
   .actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-  .scorekit { display: flex; align-items: center; gap: 7px; height: 29px; padding: 0 12px; color: var(--fg-dim); border: 1px solid var(--line-strong); border-radius: 6px; background: rgba(0,0,0,.14); font: 9px var(--mono); }
+  .scorekit { display: flex; align-items: center; gap: 7px; height: 29px; padding: 0 12px; color: var(--fg-dim); border: 1px solid var(--line-strong); border-radius: 6px; background: rgba(0,0,0,.14); font: 11px var(--mono); }
   .scorekit i { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-muted); }
   .scorekit.healthy { color: var(--good); border-color: color-mix(in srgb, var(--good) 26%, transparent); }
   .scorekit.healthy i { background: var(--good); box-shadow: 0 0 8px var(--good); }
@@ -69,7 +69,7 @@
   .scorekit.warn i { background: var(--warning); box-shadow: 0 0 7px var(--warning); }
   .scorekit.missing { color: var(--bad); }
   .scorekit.missing i { background: var(--bad); }
-  .toolbar-btn, .open-project { display: flex; align-items: center; justify-content: center; gap: 7px; height: 30px; padding: 0 13px; border-radius: 6px; font-size: 9px; cursor: pointer; }
+  .toolbar-btn, .open-project { display: flex; align-items: center; justify-content: center; gap: 7px; height: 30px; padding: 0 13px; border-radius: 6px; font-size: 11px; cursor: pointer; }
   .toolbar-btn { color: var(--fg-dim); border: 1px solid var(--line-strong); background: linear-gradient(180deg, rgba(255,255,255,.02), transparent); }
   .toolbar-btn:hover { color: var(--accent); border-color: var(--accent-line-strong); background: var(--accent-soft); }
   .toolbar-btn span { color: var(--accent); }
