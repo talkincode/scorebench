@@ -188,7 +188,7 @@
     background: #020706;
     color: #d8e5e1;
     font-family: "Avenir Next", "Segoe UI", sans-serif;
-    font-size: 13px;
+    font-size: 14px;
     -webkit-font-smoothing: antialiased;
   }
   :global(button), :global(input), :global(select), :global(textarea) { font: inherit; }
@@ -207,7 +207,7 @@
     border-radius: 6px;
     background: linear-gradient(135deg, color-mix(in srgb, var(--warning) 78%, white), var(--warning));
     box-shadow: inset 0 0 0 1px rgba(255,255,255,.16), 0 0 16px color-mix(in srgb, var(--warning) 16%, transparent);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: .02em;
     cursor: pointer;
@@ -220,7 +220,7 @@
     border: 1px solid var(--line-strong);
     border-radius: 6px;
     background: linear-gradient(180deg, rgba(255,255,255,.018), transparent);
-    font-size: 11px;
+    font-size: 12px;
     cursor: pointer;
   }
   :global(button.ghost:hover) { color: var(--accent); border-color: var(--accent-line-strong); background: var(--accent-soft); }
@@ -329,7 +329,7 @@
     color: var(--bad);
     border-bottom: 1px solid color-mix(in srgb, var(--bad) 25%, var(--line));
     background: color-mix(in srgb, var(--bad) 6%, var(--panel-deep));
-    font-size: 11px;
+    font-size: 12px;
   }
   .first-run strong { letter-spacing: .06em; text-transform: uppercase; }
   .first-run .hint { margin-left: auto; color: var(--fg-dim); font-family: var(--mono); }
@@ -343,11 +343,11 @@
   }
   .center-stage { display: flex; min-width: 0; min-height: 0; flex-direction: column; }
   .workspace-tabs { display: flex; min-height: 36px; align-items: flex-end; gap: 2px; padding: 0 3px; }
-  .tab { display: flex; align-items: center; gap: 7px; min-width: 122px; max-width: 180px; height: 32px; padding: 0 13px; overflow: hidden; color: var(--fg-label); border: 1px solid var(--line); border-bottom: 0; border-radius: 7px 7px 0 0; background: color-mix(in srgb, var(--panel) 88%, transparent); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; transition: color .15s ease, background .15s ease; }
+  .tab { display: flex; align-items: center; gap: 7px; min-width: 122px; max-width: 180px; height: 32px; padding: 0 13px; overflow: hidden; color: var(--fg-label); border: 1px solid var(--line); border-bottom: 0; border-radius: 7px 7px 0 0; background: color-mix(in srgb, var(--panel) 88%, transparent); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; transition: color .15s ease, background .15s ease; }
   .tab:hover:not(:disabled):not(.active) { color: var(--fg); background: color-mix(in srgb, var(--panel-raised) 92%, transparent); }
   .tab:disabled { opacity: .45; cursor: default; }
   .tab i { color: var(--accent); font-style: normal; }
-  .tab b.live { margin-left: auto; color: var(--good); font-size: 8px; animation: blink 1.2s ease-in-out infinite alternate; }
+  .tab b.live { margin-left: auto; color: var(--good); font-size: 9px; animation: blink 1.2s ease-in-out infinite alternate; }
   .tab.active { position: relative; color: var(--accent); border-color: var(--accent-line-strong); background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 14%, var(--panel)), var(--panel)); box-shadow: 0 -6px 18px color-mix(in srgb, var(--accent) 8%, transparent); }
   .tab.active::after { content: ""; position: absolute; right: 0; bottom: -1px; left: 0; height: 1px; background: var(--panel-deep); }
   .tab.muted { min-width: 95px; }

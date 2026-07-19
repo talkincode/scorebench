@@ -57,7 +57,7 @@
   .topbar { display: flex; align-items: center; gap: 16px; height: 52px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--panel-deep) 92%, transparent); box-shadow: 0 8px 22px rgba(0,0,0,.16); }
   .brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
   .brand-mark { display: grid; place-items: center; color: var(--accent); filter: drop-shadow(0 0 6px var(--accent-glow)); }
-  .name { font-size: 16px; font-weight: 450; letter-spacing: .015em; }
+  .name { font-size: 17px; font-weight: 450; letter-spacing: .015em; }
   .project-name { max-width: 220px; overflow: hidden; color: var(--fg-dim); font: 11px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
   .actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
   .scorekit { display: flex; align-items: center; gap: 7px; height: 29px; padding: 0 12px; color: var(--fg-dim); border: 1px solid var(--line-strong); border-radius: 6px; background: rgba(0,0,0,.14); font: 11px var(--mono); }
@@ -68,7 +68,7 @@
   .scorekit.warn i { background: var(--warning); box-shadow: 0 0 7px var(--warning); }
   .scorekit.missing { color: var(--bad); }
   .scorekit.missing i { background: var(--bad); }
-  .toolbar-btn, .open-project { display: flex; align-items: center; justify-content: center; gap: 7px; height: 30px; padding: 0 13px; border-radius: 6px; font-size: 11px; cursor: pointer; }
+  .toolbar-btn, .open-project { display: flex; align-items: center; justify-content: center; gap: 7px; height: 30px; padding: 0 13px; border-radius: 6px; font-size: 12px; cursor: pointer; }
   .toolbar-btn { color: var(--fg-label); border: 1px solid var(--line-strong); background: linear-gradient(180deg, rgba(255,255,255,.02), transparent); }
   .toolbar-btn:hover { color: var(--accent); border-color: var(--accent-line-strong); background: var(--accent-soft); }
   .toolbar-btn span { color: var(--accent); }

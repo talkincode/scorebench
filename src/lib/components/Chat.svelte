@@ -320,16 +320,16 @@
   .session-bar { position: relative; display: flex; flex-shrink: 0; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--panel-deep) 72%, transparent); }
   .session-label { color: var(--fg-label); font-size: var(--ui-label-size); font-weight: var(--ui-label-weight); letter-spacing: var(--ui-label-tracking); text-transform: uppercase; }
   .session-bar select { max-width: 260px; height: 26px; padding: 0 8px; color: var(--fg); border: 1px solid var(--line-strong); border-radius: 6px; background-color: var(--control-bg); font: 11px var(--mono); }
-  .session-new { display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px; color: var(--accent); border: 1px solid var(--accent-line); border-radius: 6px; background: transparent; font-size: 10.5px; font-weight: 600; cursor: pointer; transition: background .15s ease, border-color .15s ease; }
+  .session-new { display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px; color: var(--accent); border: 1px solid var(--accent-line); border-radius: 6px; background: transparent; font-size: 11.5px; font-weight: 600; cursor: pointer; transition: background .15s ease, border-color .15s ease; }
   .session-new:hover:not(:disabled) { border-color: var(--accent-line-strong); background: var(--accent-soft); }
   .session-new:disabled { opacity: .45; cursor: default; }
   .new-popover { position: absolute; z-index: 30; top: calc(100% + 6px); left: 12px; display: grid; gap: 9px; width: 290px; padding: 12px; border: 1px solid var(--accent-line); border-radius: 9px; background: var(--panel-raised); box-shadow: 0 18px 40px rgba(0,0,0,.5), 0 0 22px var(--accent-soft); }
-  .new-popover input[type="text"] { height: 28px; padding: 0 9px; color: var(--fg); border: 1px solid var(--line-strong); border-radius: 6px; background: var(--control-bg); font-size: 11.5px; }
+  .new-popover input[type="text"] { height: 28px; padding: 0 9px; color: var(--fg); border: 1px solid var(--line-strong); border-radius: 6px; background: var(--control-bg); font-size: 12.5px; }
   .new-popover input[type="text"]:focus { outline: none; border-color: var(--accent-line-strong); }
-  .link-scene { display: flex; align-items: center; gap: 7px; color: var(--fg-label); font-size: 11px; cursor: pointer; }
+  .link-scene { display: flex; align-items: center; gap: 7px; color: var(--fg-label); font-size: 12px; cursor: pointer; }
   .link-scene input { accent-color: var(--accent); }
   .new-actions { display: flex; justify-content: flex-end; gap: 6px; }
-  .mini-ghost, .mini-primary { height: 25px; padding: 0 11px; border-radius: 5px; font-size: 10.5px; font-weight: 600; cursor: pointer; }
+  .mini-ghost, .mini-primary { height: 25px; padding: 0 11px; border-radius: 5px; font-size: 11.5px; font-weight: 600; cursor: pointer; }
   .mini-ghost { color: var(--fg-dim); border: 1px solid var(--line-strong); background: transparent; }
   .mini-ghost:hover { color: var(--fg); border-color: var(--accent-line-strong); }
   .mini-primary { color: var(--bg); border: 1px solid color-mix(in srgb, var(--accent) 75%, white); background: var(--accent); box-shadow: 0 0 12px var(--accent-glow); }
@@ -340,9 +340,9 @@
   .msg-files em { padding: 2px 7px; color: var(--fg-dim); border: 1px solid var(--line-strong); border-radius: 999px; font: normal 9.5px var(--mono); }
   .attach-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
   .attach-chips .chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 5px 3px 9px; color: var(--fg-dim); border: 1px solid var(--accent-line); border-radius: 999px; background: var(--accent-soft); font: 10px var(--mono); }
-  .attach-chips .chip button { display: grid; place-items: center; width: 15px; height: 15px; color: var(--fg-label); border: 0; border-radius: 50%; background: transparent; font-size: 11px; cursor: pointer; }
+  .attach-chips .chip button { display: grid; place-items: center; width: 15px; height: 15px; color: var(--fg-label); border: 0; border-radius: 50%; background: transparent; font-size: 12px; cursor: pointer; }
   .attach-chips .chip button:hover { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
-  .attach { display: grid; flex-shrink: 0; place-items: center; width: 30px; height: 30px; color: var(--fg-label); border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; font-size: 13px; cursor: pointer; transition: color .15s ease, border-color .15s ease; }
+  .attach { display: grid; flex-shrink: 0; place-items: center; width: 30px; height: 30px; color: var(--fg-label); border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; font-size: 14px; cursor: pointer; transition: color .15s ease, border-color .15s ease; }
   .assist-toggle.on { color: var(--accent); border-color: var(--accent-line-strong); background: var(--accent-soft); box-shadow: 0 0 8px var(--accent-glow); }
   .attach:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-line-strong); }
   .attach:disabled { opacity: .4; cursor: default; }
@@ -356,18 +356,18 @@
   .signal-orbit::after { width: 134px; transform: rotate(90deg); opacity: .18; }
   .signal-orbit i { z-index: 2; display: grid; place-items: center; width: 57px; height: 57px; color: var(--accent); border: 1px solid var(--accent); border-radius: 50%; background: radial-gradient(circle, var(--accent-soft), var(--panel-deep)); box-shadow: 0 0 28px var(--accent-glow), inset 0 0 18px var(--accent-soft); }
   .empty-copy h1 { margin: 0 0 7px; color: var(--fg); font-size: clamp(22px, 2.5vw, 32px); font-weight: 430; letter-spacing: .04em; }
-  .empty-copy p { margin: 0; color: var(--fg-dim); font-size: 12px; }
-  .empty-copy small { display: block; margin-top: 5px; color: var(--fg-dim); font-size: 11px; }
+  .empty-copy p { margin: 0; color: var(--fg-dim); font-size: 13px; }
+  .empty-copy small { display: block; margin-top: 5px; color: var(--fg-dim); font-size: 12px; }
   .prompt-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: min(570px, 100%); margin-top: 25px; }
   .prompt-grid button { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 10px; color: var(--fg); text-align: left; border: 1px solid var(--line-strong); border-radius: 7px; background: linear-gradient(135deg, rgba(255,255,255,.018), transparent); cursor: pointer; transition: border-color .18s ease, transform .18s ease, background .18s ease; }
   .prompt-grid button:hover:not(:disabled) { transform: translateY(-2px); border-color: var(--accent-line-strong); background: var(--accent-soft); }
   .prompt-grid button:disabled { opacity: .42; cursor: default; }
-  .prompt-grid i { color: var(--warning); font-style: normal; font-size: 19px; text-shadow: 0 0 12px color-mix(in srgb, var(--warning) 45%, transparent); }
+  .prompt-grid i { color: var(--warning); font-style: normal; font-size: 20px; text-shadow: 0 0 12px color-mix(in srgb, var(--warning) 45%, transparent); }
   .prompt-grid span { display: grid; min-width: 0; gap: 2px; }
-  .prompt-grid strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 600; }
-  .prompt-grid small { overflow: hidden; color: var(--fg-dim); text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+  .prompt-grid strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
+  .prompt-grid small { overflow: hidden; color: var(--fg-dim); text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
   .message-stream { display: flex; flex-direction: column; gap: 9px; padding: 16px; }
-  .msg { max-width: 82%; padding: 9px 12px; border-radius: 9px; font-size: 11px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+  .msg { max-width: 82%; padding: 9px 12px; border-radius: 9px; font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
   .msg.user { align-self: flex-end; background: var(--accent-soft); border: 1px solid var(--accent-line); }
   .msg.agent { align-self: flex-start; background: var(--panel-raised); border: 1px solid var(--line); }
   .msg.tool { align-self: stretch; max-width: 100%; color: var(--fg-dim); background: var(--control-bg); border: 1px solid var(--line); border-radius: 5px; font: 11px var(--mono); }
@@ -386,13 +386,13 @@
   .composer-wrap { position: relative; padding: 8px 16px 10px; }
   .composer { display: flex; align-items: center; gap: 9px; min-height: 65px; padding: 7px 8px 7px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--control-bg); box-shadow: inset 0 0 25px rgba(0,0,0,.18); }
   .composer.ready:focus-within { border-color: var(--accent-line-strong); box-shadow: 0 0 18px var(--accent-soft), inset 0 0 25px rgba(0,0,0,.18); }
-  textarea { flex: 1; min-height: 46px; resize: none; color: var(--fg); background: transparent; border: 0; outline: none; font-size: 11px; line-height: 1.5; }
+  textarea { flex: 1; min-height: 46px; resize: none; color: var(--fg); background: transparent; border: 0; outline: none; font-size: 12px; line-height: 1.5; }
   textarea::placeholder { color: var(--fg-dim); }
   .send, .stop { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 6px; cursor: pointer; }
-  .send { color: var(--bg); background: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 75%, white); box-shadow: 0 0 17px var(--accent-glow), inset 0 0 0 2px rgba(255,255,255,.12); font-size: 17px; }
+  .send { color: var(--bg); background: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 75%, white); box-shadow: 0 0 17px var(--accent-glow), inset 0 0 0 2px rgba(255,255,255,.12); font-size: 18px; }
   .send:disabled { color: var(--fg-muted); background: var(--panel-raised); border-color: var(--line); box-shadow: none; cursor: default; }
   .stop { color: var(--bad); background: color-mix(in srgb, var(--bad) 9%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent); }
-  .tip { margin: 7px 0 0; color: var(--fg-dim); text-align: center; font-size: 10px; }
+  .tip { margin: 7px 0 0; color: var(--fg-dim); text-align: center; font-size: 11px; }
   .tip span { color: var(--accent); }
   @keyframes orbit-pulse { from { opacity: .35; transform: scale(.96); } to { opacity: 1; transform: scale(1.04); } }
   @keyframes blink { from { opacity: .2; } to { opacity: 1; } }

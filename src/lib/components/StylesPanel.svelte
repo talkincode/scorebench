@@ -243,7 +243,7 @@ review:
     max-width: 60ch;
     margin: 5px 0 0;
     color: var(--fg-dim);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.55;
   }
   .new {
@@ -254,7 +254,7 @@ review:
     border: 1px solid var(--accent-line-strong);
     border-radius: 6px;
     background: var(--accent-soft);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
     cursor: pointer;
   }
@@ -265,7 +265,7 @@ review:
     border-bottom: 1px solid var(--line);
     background: color-mix(in srgb, var(--warning) 8%, transparent);
   }
-  .warnings p { margin: 2px 0; color: var(--warning); font-size: 11px; }
+  .warnings p { margin: 2px 0; color: var(--warning); font-size: 12px; }
   .body {
     display: flex;
     flex: 1;
@@ -300,7 +300,7 @@ review:
     border-color: var(--accent-line-strong);
     background: var(--accent-soft);
   }
-  .item-name { font-size: 12px; font-weight: 600; line-height: 1.35; }
+  .item-name { font-size: 13px; font-weight: 600; line-height: 1.35; }
   .item-meta { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
   .item-meta code { color: var(--fg-label); font: 10px var(--mono); }
   .badge {
@@ -308,7 +308,7 @@ review:
     color: var(--fg-label);
     border: 1px solid var(--line-strong);
     border-radius: 999px;
-    font-size: 9px;
+    font-size: 10px;
     font-style: normal;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -343,7 +343,7 @@ review:
     border: 1px solid var(--line-strong);
     border-radius: 6px;
     background: var(--control-bg);
-    font-size: 11px;
+    font-size: 12px;
     cursor: pointer;
     transition: color 0.13s ease, border-color 0.13s ease;
   }
@@ -374,7 +374,7 @@ review:
   .yaml:focus { outline: none; border-color: var(--accent); }
   .yaml[readonly] { color: var(--fg-dim); }
   .editor-foot { flex-shrink: 0; margin-top: 7px; }
-  .editor-foot p { margin: 0; font-size: 11px; line-height: 1.5; }
+  .editor-foot p { margin: 0; font-size: 12px; line-height: 1.5; }
   .hint { color: var(--fg-dim); }
   .status { color: var(--accent); }
   .error { color: var(--bad); }

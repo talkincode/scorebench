@@ -124,12 +124,12 @@
   .error {
     margin: auto;
     color: var(--fg-dim);
-    font-size: 12px;
+    font-size: 13px;
   }
   .error {
     color: var(--bad);
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: 12px;
   }
   .banner {
     display: flex;

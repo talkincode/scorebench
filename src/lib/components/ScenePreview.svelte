@@ -134,17 +134,17 @@
   .error {
     margin: auto;
     color: var(--fg-dim);
-    font-size: 12px;
+    font-size: 13px;
   }
   .empty.small {
     margin: 4px 0;
-    font-size: 11px;
+    font-size: 12px;
     text-align: left;
   }
   .error {
     color: var(--bad);
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: 12px;
   }
   .scroll {
     flex: 1;
@@ -154,7 +154,7 @@
   }
   .head h2 {
     margin: 0 0 10px;
-    font-size: 19px;
+    font-size: 20px;
     font-weight: 550;
     letter-spacing: 0.01em;
   }
@@ -238,7 +238,7 @@
   }
   .segment strong {
     overflow: hidden;
-    font-size: 11.5px;
+    font-size: 12.5px;
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -266,7 +266,7 @@
   table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 11.5px;
+    font-size: 12.5px;
   }
   th {
     padding: 6px 8px;

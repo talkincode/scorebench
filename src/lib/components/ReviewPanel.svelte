@@ -281,14 +281,14 @@
   .error {
     margin: auto;
     color: var(--fg-dim);
-    font-size: 12px;
+    font-size: 13px;
     padding: 0 24px;
     text-align: center;
   }
   .error {
     color: var(--bad);
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: 12px;
     white-space: pre-wrap;
   }
   .raw {
@@ -341,7 +341,7 @@
     justify-content: space-between;
   }
   .card header strong {
-    font-size: 12.5px;
+    font-size: 13.5px;
     font-weight: 650;
   }
   .badges {
@@ -367,13 +367,13 @@
   }
   .headline {
     margin: 8px 0 0;
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.5;
   }
   .card h4 {
     margin: 10px 0 4px;
     color: var(--good);
-    font-size: 9.5px;
+    font-size: 10.5px;
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -388,7 +388,7 @@
   .card li {
     margin: 3px 0;
     color: var(--fg-dim);
-    font-size: 11.5px;
+    font-size: 12.5px;
     line-height: 1.5;
   }
   section {
@@ -397,7 +397,7 @@
   h3 {
     margin: 0 0 8px;
     color: var(--fg-label);
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -416,7 +416,7 @@
   .tension p {
     margin: 4px 0 0;
     color: var(--fg);
-    font-size: 11.5px;
+    font-size: 12.5px;
     line-height: 1.5;
   }
   .consensus {
@@ -426,7 +426,7 @@
   .consensus li {
     margin: 4px 0;
     color: var(--fg);
-    font-size: 11.5px;
+    font-size: 12.5px;
     line-height: 1.5;
   }
   .suggestion {
@@ -442,7 +442,7 @@
   }
   .suggestion .text p {
     margin: 0;
-    font-size: 11.5px;
+    font-size: 12.5px;
     line-height: 1.5;
   }
   .tags {
@@ -463,7 +463,7 @@
     display: block;
     margin-top: 3px;
     color: var(--fg-dim);
-    font-size: 10.5px;
+    font-size: 11.5px;
     line-height: 1.45;
   }
   .hand {

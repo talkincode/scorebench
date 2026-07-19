@@ -150,7 +150,7 @@
     border: 1px solid var(--line-strong);
     border-radius: 50%;
     background: rgba(0, 0, 0, 0.35);
-    font-size: 11px;
+    font-size: 12px;
     cursor: pointer;
   }
   .close:hover {
@@ -168,7 +168,7 @@
     border-radius: 50%;
     background: radial-gradient(circle, color-mix(in srgb, var(--accent) 14%, transparent), transparent 70%);
     box-shadow: 0 0 16px var(--accent-soft);
-    font-size: 11px;
+    font-size: 12px;
     cursor: pointer;
   }
   .play:hover:not(:disabled) {
@@ -196,7 +196,7 @@
     border: 1px solid var(--line-strong);
     border-radius: 20px;
     background: rgba(0, 0, 0, 0.4);
-    font-size: 11px;
+    font-size: 12px;
     cursor: pointer;
     transition: color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
   }
@@ -204,7 +204,7 @@
     margin-left: 4px;
     color: var(--fg-dim);
     font-style: normal;
-    font-size: 10px;
+    font-size: 11px;
   }
   .styles button:hover {
     color: var(--fg);
@@ -218,7 +218,7 @@
   }
   .hint {
     color: var(--fg-dim);
-    font-size: 10px;
+    font-size: 11px;
     white-space: nowrap;
   }
   @keyframes viz-in {
