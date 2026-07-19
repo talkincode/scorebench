@@ -45,14 +45,18 @@
     failed = false;
     try {
       await api.saveSettings(draft);
-      if (apiKey.trim()) {
+      const changingApiKey = Boolean(apiKey.trim());
+      if (changingApiKey) {
         await api.setApiKey(apiKey.trim(), allowInsecureStorage);
-        apiKey = "";
       }
       const view = await api.getSettings();
+      if (changingApiKey && !view.api_key_set) {
+        throw new Error("API key storage could not be verified. The key was not saved.");
+      }
       bench.settings = view.settings;
       bench.apiKeySet = view.api_key_set;
       bench.settingsWarning = view.warning ?? null;
+      if (changingApiKey) apiKey = "";
       result = "Settings saved.";
       return true;
     } catch (err) {

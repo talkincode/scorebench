@@ -12,7 +12,7 @@ All commands ran from a clean dependency graph on the implementation branch:
 | --- | --- |
 | `cargo fmt --check` | pass |
 | `cargo clippy --all-targets --all-features -- -D warnings` | pass |
-| `cargo test --all-features` | 51 passed after the repeated-compaction test was added |
+| `cargo test --all-features` | 57 passed, including keychain write verification and Azure/OpenAI auth-header coverage |
 | `npm run check` | 0 errors, 0 warnings |
 | `npm test` | 1 Vitest file passed |
 | `npm run build` | production static build passed |
@@ -41,6 +41,8 @@ The old M0 `/doctor` and `/build` stub commands no longer exist: M1 intentionall
 
 - Settings and scene YAML use temp-file + fsync + rename; injected rename failures preserve the prior file.
 - API key tests use a fake secret and confirm the keychain path writes no project/app-config plaintext. The explicit insecure fallback is mode 0600 and is never enabled implicitly.
+- API key writes are read back before success is reported. A keychain false-positive fails closed, or uses the mode-0600 fallback only when the user explicitly opted in; a fallback write outranks a stale keychain value.
+- macOS Keychain access uses the system `security` client with secret input over stdin, so the key is absent from argv and logs. Azure OpenAI/Foundry v1 hosts use the documented `api-key` header; OpenAI hosts retain Bearer authentication.
 - Transcript loading skips corrupt lines with a warning.
 - Compaction has four injected kill points; every point restores the previous readable generation.
 - Three consecutive compaction cycles preserve the rolling memory and the four most recent input items while archiving every folded item.

@@ -67,6 +67,15 @@ impl ResponsesClient {
         Ok(Self { http, config })
     }
 
+    fn authenticated_post(&self) -> reqwest::RequestBuilder {
+        let request = self.http.post(self.config.responses_url());
+        if uses_azure_api_key_auth(&self.config.base_url) {
+            request.header("api-key", &self.config.api_key)
+        } else {
+            request.bearer_auth(&self.config.api_key)
+        }
+    }
+
     pub async fn stream(
         &self,
         mut request: ResponsesRequest,
@@ -77,9 +86,7 @@ impl ResponsesClient {
         request.store = false;
 
         let send = self
-            .http
-            .post(self.config.responses_url())
-            .bearer_auth(&self.config.api_key)
+            .authenticated_post()
             .header(reqwest::header::ACCEPT, "text/event-stream")
             .json(&request)
             .send();
@@ -146,6 +153,15 @@ impl ResponsesClient {
         });
         Ok(Box::pin(events))
     }
+}
+
+fn uses_azure_api_key_auth(base_url: &str) -> bool {
+    reqwest::Url::parse(base_url)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
+        .is_some_and(|host| {
+            host.ends_with(".openai.azure.com") || host.ends_with(".services.ai.azure.com")
+        })
 }
 
 struct StreamState {
@@ -251,6 +267,40 @@ mod tests {
         let rendered = format!("{:?}", config("http://localhost".into()));
         assert!(rendered.contains("[redacted]"));
         assert!(!rendered.contains("test-secret-never-log"));
+    }
+
+    #[test]
+    fn azure_foundry_requests_use_api_key_header() {
+        let client = ResponsesClient::new(config(
+            "https://example.services.ai.azure.com/openai/v1".into(),
+        ))
+        .unwrap();
+
+        let request = client.authenticated_post().build().unwrap();
+
+        assert_eq!(
+            request.headers().get("api-key").unwrap(),
+            "test-secret-never-log"
+        );
+        assert!(!request
+            .headers()
+            .contains_key(reqwest::header::AUTHORIZATION));
+    }
+
+    #[test]
+    fn openai_requests_keep_bearer_auth() {
+        let client = ResponsesClient::new(config("https://api.openai.com/v1".into())).unwrap();
+
+        let request = client.authenticated_post().build().unwrap();
+
+        assert_eq!(
+            request
+                .headers()
+                .get(reqwest::header::AUTHORIZATION)
+                .unwrap(),
+            "Bearer test-secret-never-log"
+        );
+        assert!(!request.headers().contains_key("api-key"));
     }
 
     #[tokio::test]
