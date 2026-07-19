@@ -110,14 +110,14 @@
   header div { display: flex; align-items: center; gap: 8px; }
   header span:first-child {
     color: var(--fg);
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
     letter-spacing: .13em;
     text-transform: uppercase;
   }
   header b {
     color: var(--accent);
-    font: 9px var(--mono);
+    font: 11px var(--mono);
     font-weight: 500;
   }
   .rail-signal {
@@ -194,9 +194,9 @@
   .art-6 { --art-shift: 330; }
   .scene-copy { min-width: 0; display: grid; gap: 3px; }
   .scene-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 650; }
-  .scene-copy small { overflow: hidden; color: var(--fg-muted); font: 8.5px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+  .scene-copy small { overflow: hidden; color: var(--fg-muted); font: 10px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
   .scene-tags { display: flex; gap: 4px; }
-  .scene-tags i { padding: 1px 4px; color: var(--fg-dim); background: var(--panel-raised); border-radius: 2px; font: normal 7.5px var(--mono); }
+  .scene-tags i { padding: 1px 4px; color: var(--fg-dim); background: var(--panel-raised); border-radius: 2px; font: normal 9px var(--mono); }
   .scene-play {
     display: grid;
     place-items: center;
@@ -205,7 +205,7 @@
     color: var(--fg-muted);
     border: 1px solid var(--line-strong);
     border-radius: 50%;
-    font-size: 8px;
+    font-size: 10px;
   }
   .scene-play.available { color: var(--accent); border-color: var(--accent-line-strong); }
   .scene-play.available:hover { color: var(--bg); background: var(--accent); box-shadow: 0 0 13px var(--accent-glow); }
@@ -217,7 +217,7 @@
     padding: 0 10px;
     color: var(--fg-muted);
     border-top: 1px solid var(--line);
-    font: 8px var(--mono);
+    font: 10px var(--mono);
   }
   footer span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pin { color: var(--accent); }

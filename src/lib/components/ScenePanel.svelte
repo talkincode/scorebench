@@ -10,6 +10,7 @@
   } from "../api";
   import { bench } from "../state.svelte";
 
+  let tab = $state<"observe" | "render" | "outputs">("observe");
   let renderer = $state("fluidsynth");
   let sampleRate = $state(44100);
   let gain = $state(0.8);
@@ -22,6 +23,13 @@
   let selectedAsset = $state<string | null>(null);
   let meta = $state<Record<string, unknown> | null>(null);
   let metaError = $state<string | null>(null);
+
+  const GAUGES = [
+    { label: "Density", words: ["Sparse", "Balanced", "Dense"] },
+    { label: "Dynamics", words: ["Flat", "Expressive", "Wild"] },
+    { label: "Complexity", words: ["Simple", "Layered", "Intricate"] },
+    { label: "Energy", words: ["Calm", "Driving", "Intense"] },
+  ];
 
   $effect(() => {
     const root = bench.project?.root;
@@ -59,6 +67,12 @@
       Math.min(100, Math.max(12, Math.round(((scene.tempo ?? 90) - 45) * 0.85 + average * 22))),
     ];
   });
+
+  function gaugeWord(index: number): string {
+    const value = profile[index];
+    const words = GAUGES[index].words;
+    return value < 34 ? words[0] : value < 67 ? words[1] : words[2];
+  }
 
   async function refreshProject() {
     if (!bench.project) return;
@@ -158,173 +172,283 @@
 </script>
 
 <div class="panel">
-  <section class="module overview">
-    <header class="module-head">
-      <h2>Scene overview</h2>
-      {#if inspection}
-        <span class="badge {inspection.validation.status}">{inspection.validation.status}</span>
-      {/if}
-      <button class="mini" onclick={refreshProject}>Refresh</button>
-    </header>
-    {#if inspectionError}
-      <p class="status failed">{inspectionError}</p>
-    {:else if !bench.selectedScene}
-      <p class="empty">Select a scene.</p>
-    {:else if !inspection}
-      <p class="empty scanning">Reading scene signal…</p>
-    {:else if inspection.parse_error}
-      <p class="status failed">Unparseable YAML · {inspection.parse_error}</p>
-    {:else if inspection.scene}
-      <div class="facts">
-        <span class="wide"><b>Title</b>{inspection.scene.title ?? "Untitled scene"}</span>
-        <span><b>Tempo</b>{inspection.scene.tempo ?? "—"} BPM</span>
-        <span><b>Key</b>{inspection.scene.key ?? "—"}</span>
-        <span><b>Meter</b>{inspection.scene.time_signature ?? "—"}</span>
-        <span><b>Bars</b>{inspection.scene.bars ?? "—"}</span>
-        <span><b>Loop</b>{inspection.scene.loop_enabled == null ? "—" : inspection.scene.loop_enabled ? "Yes" : "No"}</span>
-        <span class="wide"><b>Performance</b>{inspection.scene.has_performance ? "Present" : "Default"}</span>
-      </div>
-      {#if inspection.scene.tracks.length}
-        <details class="scene-detail">
-          <summary>{inspection.scene.tracks.length} tracks · {inspection.scene.sections.length} sections</summary>
-          <ul>
-            {#each inspection.scene.tracks as track, index}
-              <li><strong>{index + 1}. {track.instrument ?? "unknown"}</strong><span>{track.pattern ?? "—"}</span></li>
-            {/each}
-          </ul>
-        </details>
-      {/if}
-      {#if inspection.last_diff}
-        <details class="scene-detail diff">
-          <summary>Last agent change</summary>
-          <pre>{JSON.stringify(inspection.last_diff, null, 2)}</pre>
-        </details>
-      {/if}
-      {#if inspection.validation.error}<p class="status failed">{errorText(inspection.validation.error)}</p>{/if}
-    {/if}
-  </section>
-
-  <section class="module profile-module">
-    <header class="module-head"><h2>Musical profile</h2></header>
-    <div class="profile-grid">
-      {#each ["Density", "Dynamics", "Complexity", "Energy"] as label, index}
-        <div class="meter">
-          <span class="arc" style={`--value: ${profile[index]}; --meter-shift: ${index * 38}`}>
-            <strong>{profile[index]}<small>%</small></strong>
-          </span>
-          <b>{label}</b>
-        </div>
-      {/each}
-    </div>
-  </section>
-
-  <section class="module render-module">
-    <header class="module-head"><h2>Render controls</h2></header>
-    <div class="params">
-      <label><span>Renderer</span><select bind:value={renderer} disabled={bench.building}><option value="fluidsynth">fluidsynth</option><option value="timidity">timidity</option><option value="sfizz">sfizz</option></select></label>
-      <label><span>Sample rate</span><select bind:value={sampleRate} disabled={bench.building}><option value={44100}>44100 Hz</option><option value={48000}>48000 Hz</option></select></label>
-      <label><span>Format</span><select bind:value={format} disabled={bench.building}><option value="ogg">OGG</option><option value="wav">WAV</option></select></label>
-      <label><span>Gain</span><input type="number" min="0" max="2" step="0.05" bind:value={gain} disabled={bench.building} /></label>
-      <label><span>Quality</span><input type="number" min="0" max="10" step="1" bind:value={quality} disabled={bench.building} /></label>
-      <label class="check"><input type="checkbox" bind:checked={stems} disabled={bench.building} /><span>Stems</span></label>
-    </div>
-    <button class="render-btn" onclick={render} disabled={!bench.project || !bench.selectedScene || bench.building}>
-      <span class="render-glyph">▮▮▮</span>{bench.building ? "Rendering…" : "Render"}
+  <nav class="tabs">
+    <button class:active={tab === "observe"} onclick={() => (tab = "observe")} aria-pressed={tab === "observe"}>
+      Observe
+      {#if inspection}<i class="dot {inspection.validation.status}" aria-hidden="true"></i>{/if}
     </button>
-    {#if bench.building}<div class="progress" role="progressbar" aria-label="rendering"><div></div></div>{/if}
-    {#if bench.buildStatus}<p class="status" class:failed={bench.buildFailed}>{bench.buildStatus}</p>{/if}
-  </section>
+    <button class:active={tab === "render"} onclick={() => (tab = "render")} aria-pressed={tab === "render"}>
+      Render
+      {#if bench.building}<i class="dot busy" aria-hidden="true"></i>{:else if bench.buildFailed}<i class="dot invalid" aria-hidden="true"></i>{/if}
+    </button>
+    <button class:active={tab === "outputs"} onclick={() => (tab = "outputs")} aria-pressed={tab === "outputs"}>
+      Outputs
+      {#if audioAssets.length}<em>{audioAssets.length}</em>{/if}
+    </button>
+  </nav>
 
-  <section class="module assets-module">
-    <header class="module-head"><h2>Current outputs</h2><span class="count">{audioAssets.length}</span></header>
-    {#if audioAssets.length === 0}
-      <p class="empty">Nothing rendered yet.</p>
-    {:else}
-      <ul class="asset-list">
-        {#each audioAssets as asset}
-          <li class:selected={selectedAsset === asset.rel_path}>
-            <button class="asset-main" onclick={() => selectAsset(asset)} title="Load into player">
-              <strong>{titleForAsset(asset.rel_path)}</strong><span>{fmtSize(asset.size_bytes)}</span><i>▶</i>
-            </button>
-          </li>
+  {#if tab === "observe"}
+    <section class="module gauges-module">
+      <header class="module-head"><h2>Musical profile</h2></header>
+      <div class="gauge-grid">
+        {#each GAUGES as gauge, index}
+          <div class="gauge">
+            <span class="dial" style={`--value: ${profile[index]}; --gauge-shift: ${index * 38}`}>
+              <strong>{profile[index]}<small>%</small></strong>
+            </span>
+            <b>{gauge.label}</b>
+            <em>{inspection?.scene ? gaugeWord(index) : "—"}</em>
+          </div>
         {/each}
-      </ul>
-    {/if}
-    {#if meta}
-      <div class="meta-grid">
-        {#each ["seconds", "sample_rate", "loop_samples", "stems"] as key}<span><b>{key}</b>{displayMeta(meta[key])}</span>{/each}
       </div>
-    {:else if metaError}
-      <p class="status failed">{metaError}</p>
-    {/if}
-    <button class="open-output" onclick={revealOut}><span>□</span> Open output folder</button>
-  </section>
+    </section>
+
+    <section class="module overview">
+      <header class="module-head">
+        <h2>Scene signal</h2>
+        {#if inspection}
+          <span class="badge {inspection.validation.status}">{inspection.validation.status}</span>
+        {/if}
+        <button class="mini" onclick={refreshProject}>Refresh</button>
+      </header>
+      {#if inspectionError}
+        <p class="status failed">{inspectionError}</p>
+      {:else if !bench.selectedScene}
+        <p class="empty">Select a scene.</p>
+      {:else if !inspection}
+        <p class="empty scanning">Reading scene signal…</p>
+      {:else if inspection.parse_error}
+        <p class="status failed">Unparseable YAML · {inspection.parse_error}</p>
+      {:else if inspection.scene}
+        <div class="facts">
+          <span class="wide"><b>Title</b>{inspection.scene.title ?? "Untitled scene"}</span>
+          <span><b>Tempo</b>{inspection.scene.tempo ?? "—"} BPM</span>
+          <span><b>Key</b>{inspection.scene.key ?? "—"}</span>
+          <span><b>Meter</b>{inspection.scene.time_signature ?? "—"}</span>
+          <span><b>Bars</b>{inspection.scene.bars ?? "—"}</span>
+          <span><b>Loop</b>{inspection.scene.loop_enabled == null ? "—" : inspection.scene.loop_enabled ? "Yes" : "No"}</span>
+          <span><b>Performance</b>{inspection.scene.has_performance ? "Present" : "Default"}</span>
+        </div>
+        {#if inspection.scene.tracks.length}
+          <details class="scene-detail">
+            <summary>{inspection.scene.tracks.length} tracks · {inspection.scene.sections.length} sections</summary>
+            <ul>
+              {#each inspection.scene.tracks as track, index}
+                <li><strong>{index + 1}. {track.instrument ?? "unknown"}</strong><span>{track.pattern ?? "—"}</span></li>
+              {/each}
+            </ul>
+          </details>
+        {/if}
+        {#if inspection.last_diff}
+          <details class="scene-detail diff">
+            <summary>Last agent change</summary>
+            <pre>{JSON.stringify(inspection.last_diff, null, 2)}</pre>
+          </details>
+        {/if}
+        {#if inspection.validation.error}<p class="status failed">{errorText(inspection.validation.error)}</p>{/if}
+      {/if}
+    </section>
+  {:else if tab === "render"}
+    <section class="module render-module">
+      <header class="module-head">
+        <h2>Render controls</h2>
+        {#if bench.selectedScene}
+          <span class="scene-chip" title={bench.selectedScene}>{bench.selectedScene.split("/").at(-1)}</span>
+        {/if}
+      </header>
+      <div class="params">
+        <label><span>Renderer</span><select bind:value={renderer} disabled={bench.building}><option value="fluidsynth">fluidsynth</option><option value="timidity">timidity</option><option value="sfizz">sfizz</option></select></label>
+        <label><span>Sample rate</span><select bind:value={sampleRate} disabled={bench.building}><option value={44100}>44100 Hz</option><option value={48000}>48000 Hz</option></select></label>
+        <label><span>Format</span><select bind:value={format} disabled={bench.building}><option value="ogg">OGG</option><option value="wav">WAV</option></select></label>
+        <label><span>Gain</span><input type="number" min="0" max="2" step="0.05" bind:value={gain} disabled={bench.building} /></label>
+        <label><span>Quality</span><input type="number" min="0" max="10" step="1" bind:value={quality} disabled={bench.building} /></label>
+        <label class="check"><input type="checkbox" bind:checked={stems} disabled={bench.building} /><span>Stems</span></label>
+      </div>
+      <button class="render-btn" onclick={render} disabled={!bench.project || !bench.selectedScene || bench.building}>
+        <span class="render-glyph">▮▮▮</span>{bench.building ? "Rendering…" : "Render"}
+      </button>
+      {#if bench.building}<div class="progress" role="progressbar" aria-label="rendering"><div></div></div>{/if}
+      {#if bench.buildStatus}<p class="status" class:failed={bench.buildFailed}>{bench.buildStatus}</p>{/if}
+    </section>
+  {:else}
+    <section class="module assets-module">
+      <header class="module-head"><h2>Current outputs</h2><span class="count">{audioAssets.length}</span></header>
+      {#if audioAssets.length === 0}
+        <p class="empty">Nothing rendered yet.</p>
+      {:else}
+        <ul class="asset-list">
+          {#each audioAssets as asset}
+            <li class:selected={selectedAsset === asset.rel_path}>
+              <button class="asset-main" onclick={() => selectAsset(asset)} title="Load into player">
+                <strong>{titleForAsset(asset.rel_path)}</strong><span>{fmtSize(asset.size_bytes)}</span><i>▶</i>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+      {#if meta}
+        <div class="meta-grid">
+          {#each ["seconds", "sample_rate", "loop_samples", "stems"] as key}<span><b>{key}</b>{displayMeta(meta[key])}</span>{/each}
+        </div>
+      {:else if metaError}
+        <p class="status failed">{metaError}</p>
+      {/if}
+      <button class="open-output" onclick={revealOut}><span>□</span> Open output folder</button>
+    </section>
+  {/if}
 </div>
 
 <style>
   .panel { display: flex; min-height: 0; flex-direction: column; gap: 8px; height: 100%; overflow-y: auto; }
+
+  .tabs {
+    display: flex;
+    flex-shrink: 0;
+    gap: 3px;
+    padding: 3px;
+    border: 1px solid var(--accent-line);
+    border-radius: 9px;
+    background: var(--panel-glass);
+    box-shadow: var(--panel-shadow), inset 0 1px 0 rgba(255,255,255,.022);
+  }
+  .tabs button {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    height: 27px;
+    color: var(--fg-muted);
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    font-size: 10px;
+    font-weight: 650;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color .15s ease, background .15s ease;
+  }
+  .tabs button:hover { color: var(--fg); }
+  .tabs button.active {
+    color: var(--accent);
+    border-color: var(--accent-line-strong);
+    background: linear-gradient(180deg, var(--accent-soft), transparent 80%);
+    box-shadow: 0 0 10px var(--accent-soft), inset 0 1px 0 rgba(255,255,255,.04);
+  }
+  .dot { width: 5px; height: 5px; border-radius: 50%; }
+  .dot.valid { background: var(--good); box-shadow: 0 0 6px var(--good); }
+  .dot.invalid { background: var(--bad); box-shadow: 0 0 6px var(--bad); }
+  .dot.unavailable { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+  .dot.busy { background: var(--warning); box-shadow: 0 0 6px var(--warning); animation: pulse .8s ease-in-out infinite alternate; }
+  .tabs em { color: var(--fg-dim); font: 10px var(--mono); font-style: normal; }
+
   .module {
     border: 1px solid var(--accent-line);
     border-radius: var(--radius-lg);
     background: var(--panel-glass);
     box-shadow: var(--panel-shadow), inset 0 1px 0 rgba(255,255,255,.022);
     overflow: hidden;
+    flex-shrink: 0;
   }
   .module-head { display: flex; align-items: center; min-height: 32px; padding: 0 10px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, var(--accent-soft), transparent 70%); }
-  h2 { margin: 0; color: var(--accent); font-size: 9px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }
-  .mini { margin-left: auto; padding: 3px 7px; color: var(--fg-dim); background: transparent; border: 1px solid var(--line-strong); border-radius: 4px; font-size: 8px; cursor: pointer; }
+  h2 { margin: 0; color: var(--accent); font-size: 11px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }
+  .mini { margin-left: auto; padding: 3px 7px; color: var(--fg-dim); background: transparent; border: 1px solid var(--line-strong); border-radius: 4px; font-size: 10px; cursor: pointer; }
   .mini:hover { color: var(--accent); border-color: var(--accent-line-strong); }
-  .badge { margin-left: 7px; padding: 2px 5px; border-radius: 2px; font: 7px var(--mono); text-transform: uppercase; }
+  .badge { margin-left: 7px; padding: 2px 5px; border-radius: 2px; font: 9px var(--mono); text-transform: uppercase; }
   .badge.valid { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
   .badge.invalid { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
   .badge.unavailable { color: var(--warning); background: color-mix(in srgb, var(--warning) 12%, transparent); }
+  .scene-chip { margin-left: auto; overflow: hidden; max-width: 55%; padding: 2px 6px; color: var(--fg-dim); border: 1px solid var(--line-strong); border-radius: 8px; font: 9px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+
+  .gauge-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 8px; padding: 13px 10px 12px; }
+  .gauge { display: grid; justify-items: center; gap: 3px; }
+  .gauge > b { color: var(--fg-muted); font-size: 9px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
+  .gauge > em { color: var(--accent); font: italic 10px var(--mono); opacity: .85; }
+  .dial {
+    --gauge-color: hsl(calc(var(--theme-hue) + var(--gauge-shift)) 82% 62%);
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 68px;
+    height: 68px;
+    border-radius: 50%;
+    background: conic-gradient(
+      from 225deg,
+      var(--gauge-color) calc(var(--value) * .75%),
+      hsl(var(--theme-hue) 18% 26% / .4) 0 75%,
+      transparent 0
+    );
+    box-shadow: 0 0 16px color-mix(in srgb, var(--gauge-color) 16%, transparent);
+    transition: box-shadow .3s ease;
+  }
+  .dial::after {
+    content: "";
+    position: absolute;
+    inset: -5px;
+    border-radius: 50%;
+    background: repeating-conic-gradient(from 225deg, var(--line-strong) 0 1.4deg, transparent 1.4deg 15deg);
+    -webkit-mask: radial-gradient(circle, transparent 59%, #000 60% 67%, transparent 68%);
+    mask: radial-gradient(circle, transparent 59%, #000 60% 67%, transparent 68%);
+    opacity: .8;
+  }
+  .dial::before {
+    content: "";
+    grid-area: 1 / 1;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 36% 30%, hsl(var(--theme-hue) 22% 12%), var(--panel-deep) 72%);
+    box-shadow: inset 0 1px 4px rgba(0,0,0,.5), inset 0 -1px 0 rgba(255,255,255,.03);
+  }
+  .dial strong { z-index: 1; grid-area: 1 / 1; color: var(--fg); font: 14px var(--mono); font-weight: 400; }
+  .dial small { color: var(--fg-muted); font-size: 9px; }
+
   .facts { display: grid; grid-template-columns: repeat(2, 1fr); }
-  .facts span { min-width: 0; padding: 7px 9px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); color: var(--fg); font: 10px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .facts span { min-width: 0; padding: 7px 9px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); color: var(--fg); font: 11px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .facts span:nth-child(even), .facts .wide { border-right: 0; }
   .facts .wide { grid-column: 1 / -1; }
-  .facts b, .meta-grid b { display: block; margin-bottom: 3px; color: var(--fg-muted); font: 7px var(--sans); font-weight: 500; text-transform: uppercase; }
-  .empty, .status { margin: 0; padding: 10px; color: var(--fg-dim); font: 9px var(--mono); line-height: 1.45; overflow-wrap: anywhere; }
+  .facts b, .meta-grid b { display: block; margin-bottom: 3px; color: var(--fg-muted); font: 9px var(--sans); font-weight: 500; text-transform: uppercase; }
+  .empty, .status { margin: 0; padding: 10px; color: var(--fg-dim); font: 11px var(--mono); line-height: 1.45; overflow-wrap: anywhere; }
   .scanning { animation: pulse 1.3s ease-in-out infinite alternate; }
   .status.failed { color: var(--bad); }
-  .scene-detail { margin: 6px 8px 8px; color: var(--fg-dim); font: 8.5px var(--mono); }
+  .scene-detail { margin: 6px 8px 8px; color: var(--fg-dim); font: 10px var(--mono); }
   .scene-detail summary { cursor: pointer; }
   .scene-detail ul { display: grid; gap: 3px; margin: 6px 0 0; padding: 0; list-style: none; }
   .scene-detail li { display: flex; justify-content: space-between; gap: 8px; }
   .scene-detail li strong { color: var(--fg); font-weight: 500; }
-  .scene-detail pre { max-height: 120px; overflow: auto; white-space: pre-wrap; font: 8px var(--mono); }
-  .profile-grid { display: grid; grid-template-columns: repeat(4, 1fr); padding: 9px 6px 8px; }
-  .meter { display: grid; place-items: center; gap: 3px; }
-  .meter > b { color: var(--fg-muted); font-size: 7px; font-weight: 500; }
-  .arc { --meter-color: hsl(calc(var(--theme-hue) + var(--meter-shift)) 82% 62%); display: grid; place-items: center; width: 45px; height: 45px; border-radius: 50%; background: conic-gradient(from 220deg, var(--meter-color) calc(var(--value) * .72%), var(--line) 0 72%, transparent 0); box-shadow: 0 0 14px color-mix(in srgb, var(--meter-color) 15%, transparent); }
-  .arc::before { content: ""; grid-area: 1 / 1; width: 37px; height: 37px; border-radius: 50%; background: var(--panel-deep); }
-  .arc strong { z-index: 1; grid-area: 1 / 1; color: var(--fg); font: 11px var(--mono); font-weight: 400; }
-  .arc small { color: var(--fg-muted); font-size: 6px; }
-  .params { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; padding: 9px; }
+  .scene-detail pre { max-height: 120px; overflow: auto; white-space: pre-wrap; font: 10px var(--mono); }
+
+  .params { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 10px; }
   .params label { display: grid; min-width: 0; gap: 3px; }
-  .params label > span { color: var(--fg-muted); font-size: 7px; text-transform: uppercase; }
-  .params select, .params input[type="number"] { box-sizing: border-box; min-width: 0; width: 100%; height: 25px; padding: 3px 6px; color: var(--fg); background: var(--control-bg); border: 1px solid var(--line-strong); border-radius: 4px; font: 9px var(--mono); }
-  .params select:focus, .params input:focus { outline: none; border-color: var(--accent); }
+  .params label > span { color: var(--fg-muted); font-size: 9px; text-transform: uppercase; }
+  .params select, .params input[type="number"] { box-sizing: border-box; min-width: 0; width: 100%; height: 26px; padding: 3px 7px; color: var(--fg); background: var(--control-bg); border: 1px solid var(--line-strong); border-radius: 5px; font: 11px var(--mono); }
+  .params select:focus, .params input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
   .params .check { display: flex; align-items: center; gap: 5px; padding-top: 11px; }
   .params input[type="checkbox"] { accent-color: var(--accent); }
-  .render-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: calc(100% - 18px); height: 31px; margin: 0 9px 9px; color: var(--warning); background: linear-gradient(110deg, color-mix(in srgb, var(--warning) 12%, transparent), transparent); border: 1px solid color-mix(in srgb, var(--warning) 65%, transparent); border-radius: 5px; box-shadow: inset 0 0 12px color-mix(in srgb, var(--warning) 7%, transparent), 0 0 10px color-mix(in srgb, var(--warning) 8%, transparent); font-size: 10px; font-weight: 700; cursor: pointer; }
+  .render-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: calc(100% - 20px); height: 32px; margin: 0 10px 10px; color: var(--warning); background: linear-gradient(110deg, color-mix(in srgb, var(--warning) 12%, transparent), transparent); border: 1px solid color-mix(in srgb, var(--warning) 65%, transparent); border-radius: 6px; box-shadow: inset 0 0 12px color-mix(in srgb, var(--warning) 7%, transparent), 0 0 10px color-mix(in srgb, var(--warning) 8%, transparent), inset 0 1px 0 rgba(255,255,255,.05); font-size: 11px; font-weight: 700; cursor: pointer; transition: background .15s ease, color .15s ease, box-shadow .15s ease; }
   .render-btn:hover:not(:disabled) { color: #171004; background: var(--warning); box-shadow: 0 0 16px color-mix(in srgb, var(--warning) 32%, transparent); }
+  .render-btn:active:not(:disabled) { transform: translateY(1px); }
   .render-btn:disabled { opacity: .4; cursor: default; }
-  .render-glyph { font-size: 6px; letter-spacing: 1px; transform: rotate(90deg); }
-  .progress { height: 2px; margin: -4px 9px 8px; overflow: hidden; background: var(--line); }
+  .render-glyph { font-size: 8px; letter-spacing: 1px; transform: rotate(90deg); }
+  .progress { height: 2px; margin: -4px 10px 8px; overflow: hidden; background: var(--line); }
   .progress div { width: 38%; height: 100%; background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: sweep 1.1s ease-in-out infinite alternate; }
-  .count { margin-left: auto; color: var(--fg-muted); font: 8px var(--mono); }
+
+  .count { margin-left: auto; color: var(--fg-muted); font: 10px var(--mono); }
   .asset-list { margin: 0; padding: 5px 8px; list-style: none; }
   .asset-list li { border-bottom: 1px solid var(--line); }
   .asset-list li:last-child { border: 0; }
   .asset-list li.selected { background: var(--accent-soft); }
   .asset-main { display: grid; grid-template-columns: minmax(0, 1fr) auto 22px; align-items: center; gap: 8px; width: 100%; padding: 7px 4px; color: var(--fg); background: transparent; border: 0; text-align: left; cursor: pointer; }
-  .asset-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 9px var(--mono); font-weight: 550; }
-  .asset-main span { color: var(--fg-muted); font: 8px var(--mono); }
-  .asset-main i { display: grid; place-items: center; width: 18px; height: 18px; color: var(--accent); border: 1px solid var(--accent-line-strong); border-radius: 50%; font: normal 6px var(--sans); }
+  .asset-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px var(--mono); font-weight: 550; }
+  .asset-main span { color: var(--fg-muted); font: 10px var(--mono); }
+  .asset-main i { display: grid; place-items: center; width: 18px; height: 18px; color: var(--accent); border: 1px solid var(--accent-line-strong); border-radius: 50%; font: normal 8px var(--sans); }
   .meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); margin: 0 8px 7px; border: 1px solid var(--line); }
-  .meta-grid span { padding: 5px 6px; color: var(--fg); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); font: 8px var(--mono); }
-  .open-output { width: calc(100% - 16px); margin: 0 8px 8px; padding: 6px; color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: 4px; font-size: 8px; cursor: pointer; }
+  .meta-grid span { padding: 5px 6px; color: var(--fg); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); font: 10px var(--mono); }
+  .open-output { width: calc(100% - 16px); margin: 0 8px 8px; padding: 6px; color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: 4px; font-size: 10px; cursor: pointer; transition: box-shadow .15s ease; }
+  .open-output:hover { box-shadow: 0 0 10px var(--accent-soft); }
+
   @keyframes pulse { from { opacity: .45; } to { opacity: 1; } }
   @keyframes sweep { from { transform: translateX(-60%); } to { transform: translateX(260%); } }
-  @media (prefers-reduced-motion: reduce) { .scanning, .progress div { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .scanning, .progress div, .dot.busy { animation: none; } }
 </style>

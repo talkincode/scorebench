@@ -1,55 +1,71 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import { api, errorText } from "../api";
   import { bench } from "../state.svelte";
-  import { drawWithFallback, spectrumStyles, type SpectrumFrame } from "../spectrum";
+  import {
+    AUTO_STYLE_ID,
+    analyzeTraits,
+    pickStyle,
+    visualStyleById,
+    visualStyles,
+  } from "../spectrum";
+  import SeekBar from "./SeekBar.svelte";
+  import SpectrumView from "./SpectrumView.svelte";
+  import VisualizerOverlay from "./VisualizerOverlay.svelte";
 
   let audioCtx: AudioContext | null = null;
-  let analyser: AnalyserNode | null = null;
+  let analyser = $state<AnalyserNode | null>(null);
+  let analyserL: AnalyserNode | null = null;
+  let analyserR: AnalyserNode | null = null;
   let gainNode: GainNode | null = null;
   let source: AudioBufferSourceNode | null = null;
   let buffer = $state<AudioBuffer | null>(null);
-  let freqData: Uint8Array | null = null;
-  let timeData: Uint8Array | null = null;
 
   let playing = $state(false);
   let looping = $state(true);
   let position = $state(0);
   let duration = $state(0);
   let loadError = $state<string | null>(null);
-  let styleId = $state(spectrumStyles[0].id);
+  let styleId = $state(AUTO_STYLE_ID);
+  let autoPicked = $state<string | null>(null);
   let styleOptions = $state<Record<string, number>>({ bars: 64, themeHue: 171 });
-  let prefersReducedMotion = $state(false);
   let seeking = $state(false);
+  let overlayOpen = $state(false);
 
-  let canvas: HTMLCanvasElement | undefined = $state();
+  let meterCanvas: HTMLCanvasElement | undefined = $state();
   let startCtxTime = 0;
   let startOffset = 0;
-  let raf = 0;
   let lastLoadSeq = 0;
   let settingsApplied = false;
-  const failedStyles = new Set<string>();
-  let activeStyle = $derived(spectrumStyles.find((style) => style.id === styleId) ?? spectrumStyles[0]);
+  let meterTime: Uint8Array | null = null;
+  const meterState = { l: 0, r: 0, peakL: 0, peakR: 0, heldL: 0, heldR: 0 };
 
-  onMount(() => {
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => (prefersReducedMotion = query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  });
+  let effectiveStyleId = $derived(styleId === AUTO_STYLE_ID ? (autoPicked ?? "bars") : styleId);
+  let activeEntry = $derived(visualStyleById(effectiveStyleId) ?? visualStyleById("bars")!);
+  let autoLabel = $derived(autoPicked ? (visualStyleById(autoPicked)?.label ?? autoPicked) : null);
 
   function ensureGraph() {
     if (audioCtx) return;
     audioCtx = new AudioContext();
-    analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 2048;
-    analyser.smoothingTimeConstant = 0.82;
+    const mainAnalyser = audioCtx.createAnalyser();
+    mainAnalyser.fftSize = 2048;
+    mainAnalyser.smoothingTimeConstant = 0.82;
     gainNode = audioCtx.createGain();
-    gainNode.connect(analyser);
-    analyser.connect(audioCtx.destination);
-    freqData = new Uint8Array(analyser.frequencyBinCount);
-    timeData = new Uint8Array(analyser.fftSize);
+    gainNode.channelCount = 2;
+    gainNode.channelCountMode = "explicit";
+    gainNode.connect(mainAnalyser);
+    mainAnalyser.connect(audioCtx.destination);
+    const splitter = audioCtx.createChannelSplitter(2);
+    gainNode.connect(splitter);
+    analyserL = audioCtx.createAnalyser();
+    analyserR = audioCtx.createAnalyser();
+    for (const node of [analyserL, analyserR]) {
+      node.fftSize = 512;
+      node.smoothingTimeConstant = 0.55;
+    }
+    splitter.connect(analyserL, 0);
+    splitter.connect(analyserR, 1);
+    meterTime = new Uint8Array(512);
+    analyser = mainAnalyser;
   }
 
   function teardownSource() {
@@ -129,6 +145,7 @@
       buffer = await audioCtx!.decodeAudioData(bytes.slice(0));
       duration = buffer.duration;
       position = 0;
+      autoPicked = pickStyle(analyzeTraits(buffer));
       play();
     } catch (err) {
       buffer = null;
@@ -149,9 +166,8 @@
 
   $effect(() => {
     if (!settingsApplied && bench.settings) {
-      styleId = spectrumStyles.some((style) => style.id === bench.settings!.spectrum_style)
-        ? bench.settings.spectrum_style
-        : "bars";
+      const saved = bench.settings.spectrum_style;
+      styleId = saved === AUTO_STYLE_ID || visualStyleById(saved) ? saved : "bars";
       styleOptions.bars = bench.settings.spectrum_bars;
       settingsApplied = true;
     }
@@ -186,49 +202,85 @@
     void persistSpectrum();
   }
 
-  $effect(() => {
-    const style = spectrumStyles.find((s) => s.id === styleId) ?? spectrumStyles[0];
-    const fallback = spectrumStyles[0];
-    const el = canvas;
+  function meterLevel(node: AnalyserNode | null): number {
+    if (!node || !meterTime) return 0;
+    node.getByteTimeDomainData(meterTime);
+    let sum = 0;
+    for (let i = 0; i < meterTime.length; i++) {
+      const v = (meterTime[i] - 128) / 128;
+      sum += v * v;
+    }
+    return Math.min(1, Math.sqrt(sum / meterTime.length) * 2.6);
+  }
+
+  function drawMeters() {
+    const el = meterCanvas;
     if (!el) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = el.clientWidth;
+    const h = el.clientHeight;
+    if (w <= 0 || h <= 0) return;
+    if (el.width !== w * dpr || el.height !== h * dpr) {
+      el.width = w * dpr;
+      el.height = h * dpr;
+    }
     const ctx = el.getContext("2d");
     if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
 
+    const now = performance.now();
+    for (const side of ["l", "r"] as const) {
+      const raw = playing ? meterLevel(side === "l" ? analyserL : analyserR) : 0;
+      const prev = meterState[side];
+      const next = raw > prev ? prev + (raw - prev) * 0.55 : prev * 0.9;
+      meterState[side] = next;
+      const peakKey = side === "l" ? "peakL" : "peakR";
+      const heldKey = side === "l" ? "heldL" : "heldR";
+      if (next >= meterState[peakKey]) {
+        meterState[peakKey] = next;
+        meterState[heldKey] = now;
+      } else if (now - meterState[heldKey] > 900) {
+        meterState[peakKey] = Math.max(next, meterState[peakKey] - 0.012);
+      }
+    }
+
+    const hue = styleOptions.themeHue ?? 171;
+    const colWidth = 7;
+    const gap = 6;
+    const x0 = (w - colWidth * 2 - gap) / 2;
+    const segments = 16;
+    const segGap = 2;
+    const segHeight = (h - (segments - 1) * segGap) / segments;
+    for (const [column, value, peak] of [
+      [0, meterState.l, meterState.peakL],
+      [1, meterState.r, meterState.peakR],
+    ] as const) {
+      const x = x0 + column * (colWidth + gap);
+      const display = Math.pow(value, 0.72);
+      for (let s = 0; s < segments; s++) {
+        const t = (s + 1) / segments;
+        const y = h - (s + 1) * segHeight - s * segGap;
+        const lit = t <= display;
+        const color = t > 0.86 ? "0 82% 58%" : t > 0.64 ? "40 90% 55%" : `${hue} 78% 52%`;
+        ctx.fillStyle = lit ? `hsl(${color})` : `hsl(${hue} 30% 30% / .2)`;
+        ctx.fillRect(x, y, colWidth, segHeight);
+      }
+      const displayPeak = Math.pow(peak, 0.72);
+      if (displayPeak > 0.02) {
+        const py = h - displayPeak * h;
+        ctx.fillStyle = `hsl(${hue} 90% 72%)`;
+        ctx.fillRect(x, Math.max(0, py - 1), colWidth, 1.5);
+      }
+    }
+  }
+
+  $effect(() => {
+    let raf = 0;
     const tick = () => {
-      const dpr = window.devicePixelRatio || 1;
-      const w = el.clientWidth;
-      const h = el.clientHeight;
-      if (el.width !== w * dpr || el.height !== h * dpr) {
-        el.width = w * dpr;
-        el.height = h * dpr;
-      }
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-      if (analyser && freqData && timeData) {
-        analyser.getByteFrequencyData(freqData);
-        analyser.getByteTimeDomainData(timeData);
-        const frame: SpectrumFrame = {
-          ctx,
-          width: w,
-          height: h,
-          freq: freqData,
-          time: timeData,
-          positionFraction: duration > 0 ? currentPos() / duration : 0,
-          prefersReducedMotion,
-          options: styleOptions,
-        };
-        const used = drawWithFallback(style, fallback, frame, failedStyles, (error) => {
-          console.error(`spectrum style ${style.id} failed`, error);
-        });
-        if (used.id !== style.id && styleId !== used.id) {
-          styleId = used.id;
-          void persistSpectrum();
-        }
-      } else {
-        ctx.clearRect(0, 0, w, h);
-      }
-      if (!seeking) position = currentPos();
       raf = requestAnimationFrame(tick);
+      if (!seeking) position = currentPos();
+      drawMeters();
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
@@ -239,208 +291,423 @@
     const s = Math.floor(t % 60);
     return `${m}:${s.toString().padStart(2, "0")}`;
   }
+
+  function assetTitle(path: string): string {
+    return path.split("/").at(-1) ?? path;
+  }
 </script>
 
 <footer class="player">
   <div class="transport">
     <button class="play" onclick={toggle} disabled={!buffer} aria-label={playing ? "Pause" : "Play"}>
-      {playing ? "❚❚" : "▶"}
+      <span class="play-ring" aria-hidden="true"></span>
+      <span class="play-glyph">{playing ? "❚❚" : "▶"}</span>
     </button>
-    <label class="loop" title="Loop playback">
-      <input type="checkbox" checked={looping} onchange={(e) => setLoop(e.currentTarget.checked)} />
-      <span>loop</span>
-    </label>
-    <span class="time">{fmtTime(position)} / {fmtTime(duration)}</span>
+    <div class="transport-side">
+      <button
+        class="loop"
+        class:on={looping}
+        onclick={() => setLoop(!looping)}
+        aria-pressed={looping}
+        title="Loop playback"
+      >⟳ loop</button>
+      <span class="time"><b>{fmtTime(position)}</b><i>/</i>{fmtTime(duration)}</span>
+    </div>
   </div>
 
-  <div class="middle">
-    <input
-      class="seek"
-      type="range"
-      min="0"
-      max={duration || 1}
-      step="0.01"
+  <div class="stage">
+    <SeekBar
       value={position}
+      max={duration}
       disabled={!buffer}
-      oninput={(e) => {
+      fmt={fmtTime}
+      onscrub={(t) => {
         seeking = true;
-        position = Number(e.currentTarget.value);
+        position = t;
       }}
-      onchange={(e) => {
+      oncommit={(t) => {
         seeking = false;
-        seekTo(Number(e.currentTarget.value));
+        seekTo(t);
       }}
-      aria-label="Seek"
     />
-    <canvas bind:this={canvas} class="spectrum"></canvas>
+    <div class="viz">
+      <SpectrumView
+        {analyser}
+        styleId={effectiveStyleId}
+        options={styleOptions}
+        getPosition={() => (duration > 0 ? currentPos() / duration : 0)}
+        active={!overlayOpen}
+      />
+      <button class="expand" onclick={() => (overlayOpen = true)} title="Expand visualizer" aria-label="Expand visualizer">⛶</button>
+    </div>
   </div>
 
-  <div class="meta">
-    {#if loadError}
-      <span class="err">{loadError}</span>
-    {:else if bench.loadedAsset}
-      <span class="asset" title={bench.loadedAsset}>{bench.loadedAsset}</span>
-    {:else}
-      <span class="idle">nothing loaded</span>
-    {/if}
-    <select value={styleId} onchange={(event) => chooseStyle(event.currentTarget.value)} aria-label="Spectrum style">
-      {#each spectrumStyles as style}
-        <option value={style.id}>{style.label}</option>
+  <div class="side">
+    <div class="asset-row">
+      {#if loadError}
+        <span class="err" title={loadError}>{loadError}</span>
+      {:else if bench.loadedAsset}
+        <span class="asset" title={bench.loadedAsset}>{assetTitle(bench.loadedAsset)}</span>
+        <i class="live" aria-hidden="true"></i>
+      {:else}
+        <span class="idle">nothing loaded</span>
+      {/if}
+    </div>
+    <label class="style-row">
+      <span class="style-label">Visual</span>
+      <select value={styleId} onchange={(event) => chooseStyle(event.currentTarget.value)} aria-label="Spectrum style">
+        <option value={AUTO_STYLE_ID}>Auto{autoLabel && styleId === AUTO_STYLE_ID ? ` · ${autoLabel}` : ""}</option>
+        {#each visualStyles as entry}
+          <option value={entry.id}>{entry.label}</option>
+        {/each}
+      </select>
+    </label>
+    <div class="option-rows">
+      {#each activeEntry.options ?? [] as option}
+        <label class="style-option">
+          <span>{option.label}</span>
+          <input
+            type="range"
+            min={option.min}
+            max={option.max}
+            step={option.step}
+            value={styleOptions[option.key] ?? option.defaultValue}
+            oninput={(event) => setStyleOption(option.key, Number(event.currentTarget.value))}
+          />
+          <b>{Math.round(styleOptions[option.key] ?? option.defaultValue)}</b>
+        </label>
+      {:else}
+        <span class="option-idle">{styleId === AUTO_STYLE_ID ? "style follows the music" : "no parameters"}</span>
       {/each}
-    </select>
-    {#each activeStyle.options ?? [] as option}
-      <label class="style-option">
-        <span>{option.label}</span>
-        <input
-          type="range"
-          min={option.min}
-          max={option.max}
-          step={option.step}
-          value={styleOptions[option.key] ?? option.defaultValue}
-          oninput={(event) => setStyleOption(option.key, Number(event.currentTarget.value))}
-        />
-      </label>
-    {/each}
+    </div>
+  </div>
+
+  <div class="meters" aria-hidden="true">
+    <canvas bind:this={meterCanvas}></canvas>
+    <div class="meter-labels"><span>L</span><span>R</span></div>
   </div>
 </footer>
+
+{#if overlayOpen}
+  <VisualizerOverlay
+    {analyser}
+    {styleId}
+    {effectiveStyleId}
+    {autoLabel}
+    options={styleOptions}
+    getPosition={() => (duration > 0 ? currentPos() / duration : 0)}
+    {playing}
+    canPlay={Boolean(buffer)}
+    timeText={`${fmtTime(position)} / ${fmtTime(duration)}`}
+    assetName={bench.loadedAsset}
+    ontoggle={toggle}
+    onstyle={chooseStyle}
+    onclose={() => (overlayOpen = false)}
+  />
+{/if}
 
 <style>
   .player {
     position: relative;
     display: flex;
-    align-items: center;
-    gap: 12px;
-    height: 116px;
-    padding: 8px 10px;
+    align-items: stretch;
+    gap: 10px;
+    height: 132px;
+    padding: 9px 10px;
     border-top: 1px solid var(--line);
-    background: color-mix(in srgb, var(--panel-deep) 95%, transparent);
-    box-shadow: 0 -12px 30px rgba(0,0,0,.22);
+    background:
+      linear-gradient(180deg, hsl(var(--theme-hue) 30% 9% / 0.5), transparent 40%),
+      color-mix(in srgb, var(--panel-deep) 96%, transparent);
+    box-shadow: 0 -12px 30px rgba(0, 0, 0, 0.22);
   }
   .player::before {
     content: "";
     position: absolute;
-    top: 4px;
+    top: -1px;
     right: 10px;
     left: 10px;
     height: 1px;
-    opacity: .3;
+    opacity: 0.35;
     background: linear-gradient(90deg, transparent, var(--accent), transparent);
   }
+
   .transport {
     display: flex;
-    flex-direction: column;
-    justify-content: center;
     align-items: center;
-    gap: 4px;
-    width: 112px;
-    height: 98px;
+    gap: 10px;
+    width: 184px;
     flex-shrink: 0;
+    padding: 0 12px;
     border: 1px solid var(--accent-line);
-    border-radius: 50px 9px 9px 50px;
-    background: radial-gradient(circle at 38% 50%, var(--accent-soft), transparent 58%);
+    border-radius: 58px 10px 10px 58px;
+    background:
+      radial-gradient(circle at 30% 50%, var(--accent-soft), transparent 62%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 55%),
+      var(--panel-glass);
+    box-shadow: var(--panel-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.03);
   }
   .play {
     position: relative;
-    width: 54px;
-    height: 54px;
-    border-radius: 50%;
-    border: 1px solid var(--accent-line-strong);
-    background: radial-gradient(circle, color-mix(in srgb, var(--accent) 14%, var(--panel-deep)), var(--panel-deep));
+    display: grid;
+    place-items: center;
+    width: 62px;
+    height: 62px;
+    flex-shrink: 0;
     color: var(--accent);
-    box-shadow: 0 0 17px var(--accent-soft), inset 0 0 15px var(--accent-soft), 0 0 0 6px hsl(var(--theme-hue) 70% 55% / .035);
-    font-size: 13px;
-    text-shadow: 0 0 8px var(--accent);
+    border: 1px solid var(--accent-line-strong);
+    border-radius: 50%;
+    background: radial-gradient(circle at 38% 32%, color-mix(in srgb, var(--accent) 20%, var(--panel-deep)), var(--panel-deep) 72%);
+    box-shadow:
+      0 0 18px var(--accent-soft),
+      inset 0 0 16px var(--accent-soft),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 0 0 5px hsl(var(--theme-hue) 70% 55% / 0.04);
     cursor: pointer;
+    transition: box-shadow 0.18s ease, transform 0.12s ease;
+  }
+  .play-ring {
+    position: absolute;
+    inset: 3px;
+    border: 1px dashed hsl(var(--theme-hue) 70% 55% / 0.28);
+    border-radius: 50%;
+  }
+  .play-glyph {
+    font-size: 15px;
+    text-shadow: 0 0 9px var(--accent);
   }
   .play:hover:not(:disabled) {
     color: var(--bg);
     background: var(--accent);
-    box-shadow: 0 0 24px var(--accent-glow), 0 0 0 6px hsl(var(--theme-hue) 70% 55% / .07);
+    box-shadow: 0 0 26px var(--accent-glow), 0 0 0 5px hsl(var(--theme-hue) 70% 55% / 0.08);
   }
-  .play:disabled { opacity: .35; cursor: default; }
+  .play:active:not(:disabled) {
+    transform: scale(0.96);
+  }
+  .play:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+  .transport-side {
+    display: grid;
+    gap: 7px;
+    min-width: 0;
+  }
   .loop {
+    padding: 4px 9px;
+    color: var(--fg-muted);
+    border: 1px solid var(--line-strong);
+    border-radius: 20px;
+    background: rgba(0, 0, 0, 0.22);
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .loop.on {
+    color: var(--accent);
+    border-color: var(--accent-line-strong);
+    background: var(--accent-soft);
+    box-shadow: 0 0 10px var(--accent-soft), inset 0 0 6px var(--accent-soft);
+  }
+  .time {
+    color: var(--fg-muted);
+    font: 11px var(--mono);
+    white-space: nowrap;
+  }
+  .time b {
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .time i {
+    margin: 0 4px;
+    font-style: normal;
+    opacity: 0.5;
+  }
+
+  .stage {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    padding: 6px 9px 8px;
+    border: 1px solid var(--accent-line);
+    border-radius: 10px;
+    background:
+      linear-gradient(180deg, var(--accent-soft), transparent 30%),
+      var(--panel-glass);
+    box-shadow: var(--panel-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.025);
+  }
+  .viz {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    border-radius: 6px;
+    border: 1px solid hsl(var(--theme-hue) 40% 40% / 0.14);
+    background:
+      linear-gradient(hsl(var(--theme-hue) 70% 55% / 0.028) 1px, transparent 1px) 0 0 / 16px 16px,
+      linear-gradient(90deg, hsl(var(--theme-hue) 70% 55% / 0.028) 1px, transparent 1px) 0 0 / 16px 16px,
+      radial-gradient(ellipse at 50% 130%, hsl(var(--theme-hue) 60% 30% / 0.14), transparent 62%),
+      var(--control-bg);
+    box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+  }
+  .expand {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    color: var(--fg-muted);
+    border: 1px solid var(--line-strong);
+    border-radius: 5px;
+    background: rgba(0, 0, 0, 0.45);
+    font-size: 11px;
+    cursor: pointer;
+    opacity: 0.55;
+    transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .viz:hover .expand,
+  .expand:focus-visible {
+    opacity: 1;
+  }
+  .expand:hover {
+    color: var(--accent);
+    border-color: var(--accent-line-strong);
+    box-shadow: 0 0 10px var(--accent-soft);
+  }
+
+  .side {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 216px;
+    flex-shrink: 0;
+    padding: 8px 9px;
+    border: 1px solid var(--accent-line);
+    border-radius: 10px;
+    background: var(--panel-glass);
+    box-shadow: var(--panel-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.025);
+  }
+  .asset-row {
     display: flex;
     align-items: center;
-    gap: 4px;
-    font-size: 8px;
-    color: var(--fg-dim);
-    cursor: pointer;
+    gap: 6px;
+    min-height: 14px;
   }
-  .loop input { width: 10px; height: 10px; accent-color: var(--accent); }
-  .time { color: var(--fg-muted); font: 8px var(--mono); }
-  .middle {
+  .asset {
     flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    height: 98px;
-    min-width: 0;
-    padding: 5px 7px 7px;
-    border: 1px solid var(--accent-line);
-    border-radius: 9px;
-    background: linear-gradient(180deg, var(--accent-soft), transparent 32%), var(--panel-glass);
     overflow: hidden;
-  }
-  .seek {
-    width: 100%;
-    height: 13px;
-    margin: 0;
-    accent-color: var(--accent);
-  }
-  .spectrum {
-    flex: 1;
-    width: 100%;
-    min-height: 0;
-    border-radius: 4px;
-    background:
-      linear-gradient(hsl(var(--theme-hue) 70% 55% / .03) 1px, transparent 1px),
-      linear-gradient(90deg, hsl(var(--theme-hue) 70% 55% / .03) 1px, transparent 1px),
-      var(--control-bg);
-    background-size: 16px 16px;
-  }
-  .meta {
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    align-items: flex-end;
-    gap: 5px;
-    width: 205px;
-    height: 98px;
-    flex-shrink: 0;
-    padding: 8px;
-    border: 1px solid var(--accent-line);
-    border-radius: 9px;
-    background: var(--panel-glass);
-  }
-  .meta .asset {
     color: var(--fg);
-    max-width: 100%;
-    overflow: hidden;
-    font: 8px var(--mono);
+    font: 10px var(--mono);
     text-overflow: ellipsis;
     white-space: nowrap;
-    direction: rtl;
   }
-  .meta .idle { color: var(--fg-muted); font-size: 8px; }
-  .meta .err { color: var(--bad); font-size: 8px; }
-  .meta select {
-    width: 100%;
-    height: 27px;
+  .live {
+    width: 5px;
+    height: 5px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--good);
+    box-shadow: 0 0 7px var(--good);
+  }
+  .idle {
+    color: var(--fg-muted);
+    font-size: 10px;
+  }
+  .err {
+    overflow: hidden;
+    color: var(--bad);
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .style-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .style-label {
+    color: var(--fg-muted);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .style-row select {
+    flex: 1;
+    min-width: 0;
+    height: 26px;
     padding: 3px 7px;
     color: var(--fg);
     border: 1px solid var(--line-strong);
-    border-radius: 5px;
-    background: var(--control-bg);
-    font: 9px var(--mono);
+    border-radius: 6px;
+    background-color: var(--control-bg);
+    font: 11px var(--mono);
+  }
+  .option-rows {
+    display: grid;
+    gap: 4px;
+    min-height: 15px;
   }
   .style-option {
     display: flex;
     align-items: center;
-    gap: 5px;
-    width: 100%;
+    gap: 6px;
     color: var(--fg-muted);
-    font-size: 7px;
+    font-size: 9px;
   }
-  .style-option input { flex: 1; min-width: 0; accent-color: var(--accent); }
-  @media (max-width: 1080px) { .transport { width: 95px; } .meta { width: 170px; } }
+  .style-option input {
+    flex: 1;
+    min-width: 0;
+    height: 3px;
+    accent-color: var(--accent);
+  }
+  .style-option b {
+    min-width: 22px;
+    color: var(--fg-dim);
+    font: 10px var(--mono);
+    font-weight: 400;
+    text-align: right;
+  }
+  .option-idle {
+    color: var(--fg-muted);
+    font-size: 9px;
+    font-style: italic;
+    opacity: 0.7;
+  }
+
+  .meters {
+    display: flex;
+    flex-direction: column;
+    width: 42px;
+    flex-shrink: 0;
+    padding: 7px 5px 4px;
+    border: 1px solid var(--accent-line);
+    border-radius: 10px;
+    background: var(--panel-glass);
+    box-shadow: var(--panel-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.025);
+  }
+  .meters canvas {
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+  }
+  .meter-labels {
+    display: flex;
+    justify-content: space-around;
+    padding-top: 3px;
+    color: var(--fg-muted);
+    font: 9px var(--mono);
+  }
+
+  @media (max-width: 1120px) {
+    .transport {
+      width: 162px;
+    }
+    .side {
+      width: 182px;
+    }
+  }
 </style>

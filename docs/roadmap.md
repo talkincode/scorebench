@@ -76,7 +76,7 @@ Rules (MUST):
 | Settings + API key | 1 | settings/keychain round trip | corrupt-file backup, keychain opt-in fallback, atomic-write kill point, invalid hue |
 | Scene observation + watcher | 1 | scorekit scene fixtures; external-change GUI smoke | malformed YAML and watcher-storm coalescing |
 | Project memory + compaction | 1 | repeated three-cycle compaction keeps recent turns and coherent memory | corrupt line recovery; every two-phase kill point restores a loadable generation |
-| Player + spectrum (WebAudio) | 2 | GUI smoke: OGG/WAV, seek/pause/loop, four live styles | decode errors surface; draw exception falls back to bars without stopping playback |
+| Player + spectrum (WebAudio) | 2 | GUI smoke: OGG/WAV, seek/pause/loop, live style switching incl. three.js scenes, auto style, fullscreen visualizer | decode errors surface; draw/WebGL failure falls back to bars without stopping playback |
 | scorekit startup handshake | 1 | doctor/version fixture and local GUI startup | missing/unversioned binary yields guidance or warning without blocking the app |
 | Release packaging | 1 | local macOS app + DMG build; four-target workflow validated by actionlint | absent Apple secrets leave unsigned/non-mac builds available; tag/version mismatch fails early |
 | Dark hue-variable interface | 2 | native-app visual smoke at default hue; settings round trip | hue outside 0–359 rejected before settings write |

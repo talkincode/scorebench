@@ -278,7 +278,7 @@
   }
   .theme-copy { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
   .theme-copy strong { color: var(--fg); font-size: 12px; letter-spacing: .04em; }
-  .theme-copy span { color: var(--accent); font: 10px var(--mono); }
+  .theme-copy span { color: var(--accent); font: 11px var(--mono); }
   .hue-line { display: flex; align-items: center; gap: 14px; }
   .hue-range {
     flex: 1;

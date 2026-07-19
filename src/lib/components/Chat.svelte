@@ -140,23 +140,23 @@
   .signal-orbit span:nth-child(4) { width: 1px; height: 118px; border: 0; border-left: 1px solid var(--accent-line); border-radius: 0; box-shadow: 40px 0 0 hsl(var(--theme-hue) 70% 55% / .08), -40px 0 0 hsl(var(--theme-hue) 70% 55% / .08); }
   .signal-orbit::before, .signal-orbit::after { content: ""; position: absolute; width: 100%; height: 1px; background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: .35; }
   .signal-orbit::after { width: 134px; transform: rotate(90deg); opacity: .18; }
-  .signal-orbit i { z-index: 2; display: grid; place-items: center; width: 57px; height: 57px; color: var(--accent); border: 1px solid var(--accent); border-radius: 50%; background: radial-gradient(circle, var(--accent-soft), var(--panel-deep)); box-shadow: 0 0 28px var(--accent-glow), inset 0 0 18px var(--accent-soft); font: normal 10px var(--mono); letter-spacing: 2px; text-shadow: 0 0 10px var(--accent); }
+  .signal-orbit i { z-index: 2; display: grid; place-items: center; width: 57px; height: 57px; color: var(--accent); border: 1px solid var(--accent); border-radius: 50%; background: radial-gradient(circle, var(--accent-soft), var(--panel-deep)); box-shadow: 0 0 28px var(--accent-glow), inset 0 0 18px var(--accent-soft); font: normal 11px var(--mono); letter-spacing: 2px; text-shadow: 0 0 10px var(--accent); }
   .empty-copy h1 { margin: 0 0 7px; color: var(--fg); font-size: clamp(22px, 2.5vw, 32px); font-weight: 430; letter-spacing: .04em; }
   .empty-copy p { margin: 0; color: var(--fg-dim); font-size: 12px; }
-  .empty-copy small { display: block; margin-top: 5px; color: var(--fg-muted); font-size: 9px; }
+  .empty-copy small { display: block; margin-top: 5px; color: var(--fg-muted); font-size: 11px; }
   .prompt-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: min(570px, 100%); margin-top: 25px; }
   .prompt-grid button { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 10px; color: var(--fg); text-align: left; border: 1px solid var(--line-strong); border-radius: 7px; background: linear-gradient(135deg, rgba(255,255,255,.018), transparent); cursor: pointer; transition: border-color .18s ease, transform .18s ease, background .18s ease; }
   .prompt-grid button:hover:not(:disabled) { transform: translateY(-2px); border-color: var(--accent-line-strong); background: var(--accent-soft); }
   .prompt-grid button:disabled { opacity: .42; cursor: default; }
   .prompt-grid i { color: var(--warning); font-style: normal; font-size: 19px; text-shadow: 0 0 12px color-mix(in srgb, var(--warning) 45%, transparent); }
   .prompt-grid span { display: grid; min-width: 0; gap: 2px; }
-  .prompt-grid strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; font-weight: 600; }
-  .prompt-grid small { overflow: hidden; color: var(--fg-muted); text-overflow: ellipsis; white-space: nowrap; font-size: 7.5px; }
+  .prompt-grid strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 600; }
+  .prompt-grid small { overflow: hidden; color: var(--fg-muted); text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
   .message-stream { display: flex; flex-direction: column; gap: 9px; padding: 16px; }
   .msg { max-width: 82%; padding: 9px 12px; border-radius: 9px; font-size: 11px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
   .msg.user { align-self: flex-end; background: var(--accent-soft); border: 1px solid var(--accent-line); }
   .msg.agent { align-self: flex-start; background: var(--panel-raised); border: 1px solid var(--line); }
-  .msg.tool { align-self: stretch; max-width: 100%; color: var(--fg-dim); background: var(--control-bg); border: 1px solid var(--line); border-radius: 5px; font: 9px var(--mono); }
+  .msg.tool { align-self: stretch; max-width: 100%; color: var(--fg-dim); background: var(--control-bg); border: 1px solid var(--line); border-radius: 5px; font: 11px var(--mono); }
   .msg.tool .dot { display: inline-block; width: 5px; height: 5px; margin-right: 7px; border-radius: 50%; background: var(--fg-muted); vertical-align: 1px; }
   .msg.tool.run .dot { background: var(--warning); box-shadow: 0 0 7px var(--warning); }
   .msg.tool.ok .dot { background: var(--good); }
@@ -164,7 +164,7 @@
   .msg.tool.err .dot { background: var(--bad); }
   .msg.tool details { margin-top: 5px; }
   .msg.tool summary { cursor: pointer; }
-  .msg.tool pre { max-height: 220px; overflow: auto; white-space: pre-wrap; font: 8px var(--mono); }
+  .msg.tool pre { max-height: 220px; overflow: auto; white-space: pre-wrap; font: 10px var(--mono); }
   .thinking { display: flex; gap: 3px; }
   .thinking i { width: 4px; height: 4px; border-radius: 50%; background: var(--accent); animation: blink .8s ease-in-out infinite alternate; }
   .thinking i:nth-child(2) { animation-delay: .16s; }
@@ -179,7 +179,7 @@
   .send { color: var(--bg); background: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 75%, white); box-shadow: 0 0 17px var(--accent-glow), inset 0 0 0 2px rgba(255,255,255,.12); font-size: 17px; }
   .send:disabled { color: var(--fg-muted); background: var(--panel-raised); border-color: var(--line); box-shadow: none; cursor: default; }
   .stop { color: var(--bad); background: color-mix(in srgb, var(--bad) 9%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent); }
-  .tip { margin: 7px 0 0; color: var(--fg-muted); text-align: center; font-size: 8px; }
+  .tip { margin: 7px 0 0; color: var(--fg-muted); text-align: center; font-size: 10px; }
   .tip span { color: var(--accent); }
   @keyframes orbit-pulse { from { opacity: .35; transform: scale(.96); } to { opacity: 1; transform: scale(1.04); } }
   @keyframes blink { from { opacity: .2; } to { opacity: 1; } }
