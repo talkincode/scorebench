@@ -94,9 +94,49 @@ pub fn definitions() -> Vec<ToolDefinition> {
 
 fn function(name: &str, description: &str, mut parameters: Value) -> ToolDefinition {
     if let Some(object) = parameters.as_object_mut() {
+        let originally_required = object
+            .get("required")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(ToOwned::to_owned)
+            .collect::<std::collections::HashSet<_>>();
+        let mut all_properties = Vec::new();
+        if let Some(properties) = object.get_mut("properties").and_then(Value::as_object_mut) {
+            for (property, schema) in properties {
+                all_properties.push(Value::String(property.clone()));
+                if !originally_required.contains(property) {
+                    make_nullable(schema);
+                }
+            }
+        }
+        object.insert("required".into(), Value::Array(all_properties));
         object.insert("additionalProperties".into(), Value::Bool(false));
     }
     ToolDefinition::function(name, description, parameters)
+}
+
+fn make_nullable(schema: &mut Value) {
+    let Some(object) = schema.as_object_mut() else {
+        return;
+    };
+    if let Some(kind) = object.get_mut("type") {
+        match kind {
+            Value::String(value) => {
+                *kind = serde_json::json!([value.clone(), "null"]);
+            }
+            Value::Array(values) if !values.iter().any(|value| value == "null") => {
+                values.push(Value::String("null".into()));
+            }
+            _ => {}
+        }
+    }
+    if let Some(values) = object.get_mut("enum").and_then(Value::as_array_mut) {
+        if !values.iter().any(Value::is_null) {
+            values.push(Value::Null);
+        }
+    }
 }
 
 fn execute_sync(root: &Path, call: &FunctionCall) -> Result<ToolResult, BenchError> {
@@ -449,5 +489,38 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), 8);
+    }
+
+    #[test]
+    fn strict_tool_schemas_require_every_property_and_make_options_nullable() {
+        for definition in definitions() {
+            let properties = definition.parameters["properties"].as_object().unwrap();
+            let required = definition.parameters["required"].as_array().unwrap();
+            let mut property_names = properties.keys().cloned().collect::<Vec<_>>();
+            let mut required_names = required
+                .iter()
+                .map(|value| value.as_str().unwrap().to_owned())
+                .collect::<Vec<_>>();
+            property_names.sort_unstable();
+            required_names.sort_unstable();
+            assert_eq!(required_names, property_names, "{}", definition.name);
+        }
+
+        let build = definitions()
+            .into_iter()
+            .find(|definition| definition.name == "build_scene")
+            .unwrap();
+        assert_eq!(
+            build.parameters["properties"]["format"]["type"],
+            serde_json::json!(["string", "null"])
+        );
+        assert_eq!(
+            build.parameters["properties"]["format"]["enum"],
+            serde_json::json!(["ogg", "wav", null])
+        );
+        assert_eq!(
+            build.parameters["properties"]["path"]["type"],
+            serde_json::json!("string")
+        );
     }
 }
