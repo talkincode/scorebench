@@ -36,6 +36,7 @@
 
   function play(event: Event, path: string) {
     event.stopPropagation();
+    bench.selectedScene = path;
     const asset = matchingAsset(path);
     if (asset) bench.requestLoad(asset);
   }

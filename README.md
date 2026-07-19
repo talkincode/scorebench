@@ -62,4 +62,8 @@ Version tags build macOS (`aarch64` and `x86_64`), Windows, and Linux installers
 
 ## License
 
-[MIT](LICENSE)
+The source code is licensed under the [MIT License](LICENSE).
+
+Project names, logos, the cat emblem, application icons, and other brand
+assets are excluded from that license. The "talkincode" name and the cat
+emblem are reserved brand assets; see [TRADEMARKS.md](TRADEMARKS.md).

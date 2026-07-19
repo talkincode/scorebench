@@ -10,6 +10,7 @@
   import Player from "$lib/components/Player.svelte";
   import SettingsModal from "$lib/components/SettingsModal.svelte";
   import { api, errorText } from "$lib/api";
+  import BrandMark from "$lib/components/BrandMark.svelte";
   import { setLocale, t } from "$lib/i18n.svelte";
   import { bench } from "$lib/state.svelte";
 
@@ -117,7 +118,7 @@
       </main>
     {:else}
       <div class="welcome">
-        <div class="welcome-signal" aria-hidden="true"><span></span><span></span><span></span><i>▮▮▮</i></div>
+        <div class="welcome-signal" aria-hidden="true"><span></span><span></span><i><BrandMark size={78} ring={false} /></i></div>
         <div class="welcome-card">
           <p class="eyebrow">{t("welcome.eyebrow")}</p>
           <h1>Compose in the <em>signal</em>.</h1>
@@ -311,8 +312,7 @@
   .welcome-signal { position: relative; display: grid; place-items: center; width: 136px; height: 136px; }
   .welcome-signal span { position: absolute; inset: 0; border: 1px solid var(--accent-line-strong); border-radius: 50%; box-shadow: inset 0 0 24px var(--accent-soft), 0 0 24px var(--accent-soft); animation: breathe 3.8s ease-in-out infinite alternate; }
   .welcome-signal span:nth-child(2) { inset: 17px; border-style: dashed; animation-direction: alternate-reverse; }
-  .welcome-signal span:nth-child(3) { inset: 36px; border-color: var(--accent); }
-  .welcome-signal i { z-index: 1; color: var(--accent); font-style: normal; letter-spacing: 5px; text-shadow: 0 0 15px var(--accent); transform: rotate(90deg); }
+  .welcome-signal i { z-index: 1; display: grid; place-items: center; color: var(--accent); filter: drop-shadow(0 0 14px var(--accent-glow)); }
   .welcome-card { max-width: 520px; padding: 0 26px; }
   .eyebrow { margin: 0 0 8px; color: var(--accent); font: 11px var(--mono); letter-spacing: .18em; text-transform: uppercase; }
   h1 { margin: 0 0 12px; font-size: clamp(27px, 3vw, 42px); font-weight: 450; letter-spacing: .01em; }
