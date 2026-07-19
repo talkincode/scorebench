@@ -14,11 +14,12 @@ use serde::{Deserialize, Serialize};
 use crate::error::BenchError;
 use crate::llm::types::InputItem;
 
-const STATE_DIR: &str = ".scorebench";
-const MEMORY_FILE: &str = "memory.md";
-const TRANSCRIPT_FILE: &str = "transcript.jsonl";
-const ARCHIVE_FILE: &str = "transcript-archive.jsonl";
-const TXN_DIR: &str = "compaction-txn";
+pub(crate) const STATE_DIR: &str = ".scorebench";
+pub(crate) const MEMORY_FILE: &str = "memory.md";
+pub(crate) const TRANSCRIPT_FILE: &str = "transcript.jsonl";
+pub(crate) const ARCHIVE_FILE: &str = "transcript-archive.jsonl";
+pub(crate) const TXN_DIR: &str = "compaction-txn";
+pub(crate) const SESSIONS_DIR: &str = "sessions";
 
 #[derive(Debug, Default)]
 pub struct LoadedTranscript {
@@ -41,9 +42,9 @@ enum KillPoint {
     TranscriptInstalled,
 }
 
-pub fn load_transcript(root: &Path) -> Result<LoadedTranscript, BenchError> {
-    recover(root)?;
-    let path = state_path(root, TRANSCRIPT_FILE)?;
+pub fn load_transcript(root: &Path, session: &str) -> Result<LoadedTranscript, BenchError> {
+    recover(root, session)?;
+    let path = state_path(root, session, TRANSCRIPT_FILE)?;
     let raw = match fs::read_to_string(path) {
         Ok(raw) => raw,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -67,12 +68,12 @@ pub fn load_transcript(root: &Path) -> Result<LoadedTranscript, BenchError> {
     Ok(loaded)
 }
 
-pub fn append_items(root: &Path, items: &[InputItem]) -> Result<(), BenchError> {
+pub fn append_items(root: &Path, session: &str, items: &[InputItem]) -> Result<(), BenchError> {
     if items.is_empty() {
         return Ok(());
     }
-    recover(root)?;
-    let path = state_path(root, TRANSCRIPT_FILE)?;
+    recover(root, session)?;
+    let path = state_path(root, session, TRANSCRIPT_FILE)?;
     let parent = path.parent().expect("state path has parent");
     fs::create_dir_all(parent).map_err(BenchError::io)?;
     let mut payload = Vec::new();
@@ -89,9 +90,9 @@ pub fn append_items(root: &Path, items: &[InputItem]) -> Result<(), BenchError> 
     file.sync_data().map_err(BenchError::io)
 }
 
-pub fn read_memory(root: &Path) -> Result<String, BenchError> {
-    recover(root)?;
-    match fs::read_to_string(state_path(root, MEMORY_FILE)?) {
+pub fn read_memory(root: &Path, session: &str) -> Result<String, BenchError> {
+    recover(root, session)?;
+    match fs::read_to_string(state_path(root, session, MEMORY_FILE)?) {
         Ok(value) => Ok(value),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(String::new()),
         Err(error) => Err(BenchError::io(error)),
@@ -107,14 +108,15 @@ pub fn estimate_tokens(items: &[InputItem]) -> u64 {
 
 pub fn compact(
     root: &Path,
+    session: &str,
     new_memory: &str,
     folded: &[InputItem],
     kept: &[InputItem],
 ) -> Result<(), BenchError> {
-    match compact_with_kill(root, new_memory, folded, kept, None) {
+    match compact_with_kill(root, session, new_memory, folded, kept, None) {
         Ok(()) => Ok(()),
         Err(error) => {
-            let recovery = recover(root);
+            let recovery = recover(root, session);
             recovery.and(Err(error))
         }
     }
@@ -122,13 +124,14 @@ pub fn compact(
 
 fn compact_with_kill(
     root: &Path,
+    session: &str,
     new_memory: &str,
     folded: &[InputItem],
     kept: &[InputItem],
     kill: Option<KillPoint>,
 ) -> Result<(), BenchError> {
-    recover(root)?;
-    let state = state_path(root, "")?;
+    recover(root, session)?;
+    let state = state_path(root, session, "")?;
     fs::create_dir_all(&state).map_err(BenchError::io)?;
     let txn = state.join(TXN_DIR);
     fs::create_dir(&txn).map_err(BenchError::io)?;
@@ -176,8 +179,8 @@ fn compact_with_kill(
     Ok(())
 }
 
-pub fn recover(root: &Path) -> Result<(), BenchError> {
-    let state = state_path(root, "")?;
+pub fn recover(root: &Path, session: &str) -> Result<(), BenchError> {
+    let state = state_path(root, session, "")?;
     let txn = state.join(TXN_DIR);
     if !txn.exists() {
         return Ok(());
@@ -239,9 +242,14 @@ fn fail_at(selected: Option<KillPoint>, point: KillPoint) -> Result<(), BenchErr
     }
 }
 
-fn state_path(root: &Path, name: &str) -> Result<PathBuf, BenchError> {
+/// State directory for one session: `.scorebench/sessions/<id>/`.
+pub fn session_state_dir(root: &Path, session: &str) -> Result<PathBuf, BenchError> {
     let root = root.canonicalize().map_err(BenchError::io)?;
-    Ok(root.join(STATE_DIR).join(name))
+    Ok(root.join(STATE_DIR).join(SESSIONS_DIR).join(session))
+}
+
+fn state_path(root: &Path, session: &str, name: &str) -> Result<PathBuf, BenchError> {
+    Ok(session_state_dir(root, session)?.join(name))
 }
 
 fn encode_items(items: &[InputItem]) -> Result<Vec<u8>, BenchError> {
@@ -345,11 +353,11 @@ mod tests {
     #[test]
     fn append_and_corrupt_line_recovery() {
         let root = project("load");
-        append_items(&root, &[item("one"), item("two")]).unwrap();
-        let transcript = state_path(&root, TRANSCRIPT_FILE).unwrap();
+        append_items(&root, "main", &[item("one"), item("two")]).unwrap();
+        let transcript = state_path(&root, "main", TRANSCRIPT_FILE).unwrap();
         let mut file = OpenOptions::new().append(true).open(transcript).unwrap();
         writeln!(file, "not-json").unwrap();
-        let loaded = load_transcript(&root).unwrap();
+        let loaded = load_transcript(&root, "main").unwrap();
         assert_eq!(loaded.items.len(), 2);
         assert_eq!(loaded.warnings.len(), 1);
         fs::remove_dir_all(root).unwrap();
@@ -372,11 +380,19 @@ mod tests {
         ] {
             let root = project(&format!("kill-{kill:?}"));
             let old = vec![item("old-one"), item("old-two")];
-            append_items(&root, &old).unwrap();
-            compact_with_kill(&root, "new memory", &old[..1], &old[1..], Some(kill)).unwrap_err();
-            recover(&root).unwrap();
-            assert_eq!(load_transcript(&root).unwrap().items, old);
-            assert_eq!(read_memory(&root).unwrap(), "");
+            append_items(&root, "main", &old).unwrap();
+            compact_with_kill(
+                &root,
+                "main",
+                "new memory",
+                &old[..1],
+                &old[1..],
+                Some(kill),
+            )
+            .unwrap_err();
+            recover(&root, "main").unwrap();
+            assert_eq!(load_transcript(&root, "main").unwrap().items, old);
+            assert_eq!(read_memory(&root, "main").unwrap(), "");
             fs::remove_dir_all(root).unwrap();
         }
     }
@@ -385,11 +401,11 @@ mod tests {
     fn committed_compaction_archives_folded_items() {
         let root = project("commit");
         let old = vec![item("old"), item("recent")];
-        append_items(&root, &old).unwrap();
-        compact(&root, "summary", &old[..1], &old[1..]).unwrap();
-        assert_eq!(read_memory(&root).unwrap(), "summary");
-        assert_eq!(load_transcript(&root).unwrap().items, old[1..]);
-        let archive = fs::read_to_string(state_path(&root, ARCHIVE_FILE).unwrap()).unwrap();
+        append_items(&root, "main", &old).unwrap();
+        compact(&root, "main", "summary", &old[..1], &old[1..]).unwrap();
+        assert_eq!(read_memory(&root, "main").unwrap(), "summary");
+        assert_eq!(load_transcript(&root, "main").unwrap().items, old[1..]);
+        let archive = fs::read_to_string(state_path(&root, "main", ARCHIVE_FILE).unwrap()).unwrap();
         assert!(archive.contains("old"));
         fs::remove_dir_all(root).unwrap();
     }

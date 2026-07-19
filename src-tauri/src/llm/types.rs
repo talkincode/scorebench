@@ -22,7 +22,7 @@ pub struct ResponsesRequest {
 pub enum InputItem {
     Message {
         role: InputRole,
-        content: String,
+        content: MessageContent,
     },
     FunctionCall {
         call_id: String,
@@ -33,6 +33,66 @@ pub enum InputItem {
         call_id: String,
         output: String,
     },
+}
+
+/// Message content: plain text, or multimodal parts per the Responses API.
+/// Untagged so legacy transcripts (`"content": "hi"`) still deserialize.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum MessageContent {
+    Text(String),
+    Parts(Vec<ContentPart>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+// Variant names mirror the Responses API part types (`input_text`, …).
+#[allow(clippy::enum_variant_names)]
+pub enum ContentPart {
+    InputText {
+        text: String,
+    },
+    /// `image_url` is a data URL (`data:image/png;base64,...`).
+    InputImage {
+        image_url: String,
+    },
+    /// `file_data` is a data URL; used for PDFs.
+    InputFile {
+        filename: String,
+        file_data: String,
+    },
+}
+
+impl MessageContent {
+    /// Human-readable projection for transcripts and compaction display.
+    pub fn display_text(&self) -> String {
+        match self {
+            Self::Text(text) => text.clone(),
+            Self::Parts(parts) => parts
+                .iter()
+                .map(|part| match part {
+                    ContentPart::InputText { text } => text.clone(),
+                    ContentPart::InputImage { .. } => "[image attachment]".into(),
+                    ContentPart::InputFile { filename, .. } => {
+                        format!("[file attachment: {filename}]")
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        }
+    }
+}
+
+impl From<String> for MessageContent {
+    fn from(value: String) -> Self {
+        Self::Text(value)
+    }
+}
+
+impl From<&str> for MessageContent {
+    fn from(value: &str) -> Self {
+        Self::Text(value.into())
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

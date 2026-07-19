@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from "../i18n.svelte";
   import SpectrumView from "./SpectrumView.svelte";
   import { AUTO_STYLE_ID, visualStyles } from "../spectrum";
 
@@ -71,7 +72,7 @@
 
   <header class="hud hud-top">
     {#if assetName}<span class="asset">{assetName}</span>{/if}
-    <button class="close" onclick={() => onclose?.()} aria-label="Close visualizer">✕</button>
+    <button class="close" onclick={() => onclose?.()} aria-label={t("overlay.close")}>✕</button>
   </header>
 
   <footer class="hud hud-bottom">

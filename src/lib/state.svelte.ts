@@ -1,11 +1,14 @@
-import type { ProjectInfo, Settings, VersionInfo } from "./api";
+import type { ProjectInfo, SessionMeta, Settings, VersionInfo } from "./api";
 
 export interface ChatMessage {
   role: "user" | "agent" | "tool";
   text: string;
   tone?: "ok" | "err" | "run";
   detail?: string;
+  attachments?: string[];
 }
+
+export type WorkspaceTab = "agent" | "scene" | "preview";
 
 class BenchState {
   project = $state<ProjectInfo | null>(null);
@@ -21,6 +24,10 @@ class BenchState {
   projectRevision = $state(0);
 
   selectedScene = $state<string | null>(null);
+  workspaceTab = $state<WorkspaceTab>("agent");
+
+  sessions = $state<SessionMeta[]>([]);
+  activeSession = $state<string | null>(null);
 
   messages = $state<ChatMessage[]>([]);
   agentBusy = $state(false);

@@ -7,6 +7,7 @@
     type SpectrumFrame,
     type ThreeInstance,
   } from "../spectrum";
+  import { idleSpectrum } from "../spectrum/dynamics";
 
   let {
     analyser = null,
@@ -97,7 +98,7 @@
       const dt = Math.min(0.1, (now - lastTick) / 1000);
       lastTick = now;
 
-      let freq = emptyFreq;
+      let freq: Uint8Array = idleSpectrum(emptyFreq, (now - startedAt) / 1000);
       let time = emptyTime;
       if (analyser) {
         if (!freqData || freqData.length !== analyser.frequencyBinCount) {
@@ -160,11 +161,16 @@
   });
 
   let showGl = $derived(entry.kind === "three" && instance !== null && instanceStyle === entry.id);
+  // Each three style renders into its own canvas element: dispose() releases
+  // the old WebGL context via loseContext, so a canvas can never be reused.
+  let glKey = $derived(entry.kind === "three" && active ? entry.id : "gl-off");
 </script>
 
 <div class="spectrum-view">
   <canvas bind:this={canvas2d} class="layer" class:hidden={showGl}></canvas>
-  <canvas bind:this={canvasGl} class="layer" class:hidden={!showGl}></canvas>
+  {#key glKey}
+    <canvas bind:this={canvasGl} class="layer" class:hidden={!showGl}></canvas>
+  {/key}
 </div>
 
 <style>

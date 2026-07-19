@@ -47,6 +47,26 @@ export interface Settings {
   spectrum_style: string;
   spectrum_bars: number;
   theme_hue: number;
+  personal_instructions: string;
+  locale: string;
+}
+
+export interface SessionMeta {
+  id: string;
+  title: string;
+  scene?: string | null;
+  created_ms: number;
+  updated_ms: number;
+}
+
+export interface SessionsIndex {
+  active: string;
+  sessions: SessionMeta[];
+}
+
+export interface TranscriptMessage {
+  role: "user" | "agent" | "tool";
+  text: string;
 }
 
 export interface SettingsView {
@@ -175,13 +195,37 @@ export const api = {
   readMeta: (root: string, relPath: string) =>
     invoke<Record<string, unknown>>("read_meta", { root, relPath }),
 
-  sendChat(root: string, message: string, onEvent: (e: AgentEvent) => void) {
+  sendChat(
+    root: string,
+    session: string,
+    message: string,
+    attachments: string[],
+    onEvent: (e: AgentEvent) => void,
+  ) {
     const events = new Channel<AgentEvent>();
     events.onmessage = onEvent;
-    return invoke<void>("send_chat", { root, message, events });
+    return invoke<void>("send_chat", { root, session, message, attachments, events });
   },
 
-  cancelAgent: (root: string) => invoke<boolean>("cancel_agent", { root }),
+  cancelAgent: (root: string, session: string) =>
+    invoke<boolean>("cancel_agent", { root, session }),
+
+  listSessions: (root: string) => invoke<SessionsIndex>("list_sessions", { root }),
+
+  createSession: (root: string, title: string | null, scene: string | null) =>
+    invoke<SessionMeta>("create_session", { root, title, scene }),
+
+  selectSession: (root: string, session: string) =>
+    invoke<void>("select_session", { root, session }),
+
+  sessionTranscript: (root: string, session: string) =>
+    invoke<TranscriptMessage[]>("session_transcript", { root, session }),
+
+  readSceneSource: (root: string, relPath: string) =>
+    invoke<string>("read_scene_source", { root, relPath }),
+
+  deleteScene: (root: string, relPath: string) =>
+    invoke<void>("delete_scene", { root, relPath }),
 
   runBuild(
     root: string,

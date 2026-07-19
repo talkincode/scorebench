@@ -1,9 +1,16 @@
 <script lang="ts">
+  import { open } from "@tauri-apps/plugin-dialog";
   import { api, errorText, type AgentEvent } from "../api";
+  import { t } from "../i18n.svelte";
   import { bench } from "../state.svelte";
 
   let input = $state("");
   let scroller: HTMLDivElement | undefined = $state();
+  let pendingAttachments = $state<string[]>([]);
+  let newOpen = $state(false);
+  let newTitle = $state("");
+  let newLinkScene = $state(true);
+  let transcriptLoading = $state(false);
   let ready = $derived(Boolean(bench.project && bench.settings && bench.apiKeySet));
   const prompts = [
     ["✦", "Nostalgic piano", "in G major, 3/4, 8 bars"],
@@ -15,6 +22,92 @@
     void bench.messages.length;
     if (scroller) scroller.scrollTop = scroller.scrollHeight;
   });
+
+  // Load the session index once per project root.
+  let loadedRoot: string | null = null;
+  $effect(() => {
+    const root = bench.project?.root ?? null;
+    if (root === loadedRoot) return;
+    loadedRoot = root;
+    bench.sessions = [];
+    bench.activeSession = null;
+    bench.messages = [];
+    if (!root) return;
+    void api.listSessions(root).then(
+      (index) => {
+        if (bench.project?.root !== root) return;
+        bench.sessions = index.sessions;
+        bench.activeSession = index.active;
+        void loadTranscript(root, index.active);
+      },
+      (error) => bench.messages.push({ role: "tool", tone: "err", text: errorText(error) }),
+    );
+  });
+
+  async function loadTranscript(root: string, session: string) {
+    transcriptLoading = true;
+    try {
+      const transcript = await api.sessionTranscript(root, session);
+      if (bench.project?.root !== root || bench.activeSession !== session) return;
+      bench.messages = transcript.map((entry) => ({ role: entry.role, text: entry.text }));
+    } catch (error) {
+      bench.messages = [{ role: "tool", tone: "err", text: errorText(error) }];
+    } finally {
+      transcriptLoading = false;
+    }
+  }
+
+  async function switchSession(id: string) {
+    const root = bench.project?.root;
+    if (!root || bench.agentBusy || id === bench.activeSession) return;
+    try {
+      await api.selectSession(root, id);
+      bench.activeSession = id;
+      const meta = bench.sessions.find((session) => session.id === id);
+      if (meta?.scene) bench.selectedScene = meta.scene;
+      await loadTranscript(root, id);
+    } catch (error) {
+      bench.messages.push({ role: "tool", tone: "err", text: errorText(error) });
+    }
+  }
+
+  async function createSession() {
+    const root = bench.project?.root;
+    if (!root || bench.agentBusy) return;
+    const scene = newLinkScene ? (bench.selectedScene ?? null) : null;
+    try {
+      const meta = await api.createSession(root, newTitle.trim() || null, scene);
+      bench.sessions = [...bench.sessions, meta];
+      bench.activeSession = meta.id;
+      bench.messages = [];
+      newOpen = false;
+      newTitle = "";
+    } catch (error) {
+      bench.messages.push({ role: "tool", tone: "err", text: errorText(error) });
+    }
+  }
+
+  async function attach() {
+    const picked = await open({
+      multiple: true,
+      directory: false,
+      filters: [
+        { name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] },
+        { name: "Documents", extensions: ["pdf", "txt", "md", "yaml", "yml", "json"] },
+      ],
+    });
+    if (!picked) return;
+    const paths = Array.isArray(picked) ? picked : [picked];
+    pendingAttachments = [...new Set([...pendingAttachments, ...paths])];
+  }
+
+  function removeAttachment(path: string) {
+    pendingAttachments = pendingAttachments.filter((entry) => entry !== path);
+  }
+
+  function fileName(path: string): string {
+    return path.split("/").at(-1) ?? path;
+  }
 
   function onAgentEvent(event: AgentEvent) {
     switch (event.type) {
@@ -45,12 +138,19 @@
 
   async function send() {
     const message = input.trim();
-    if (!message || !bench.project || !ready || bench.agentBusy) return;
+    const session = bench.activeSession;
+    if (!message || !bench.project || !session || !ready || bench.agentBusy) return;
+    const attachments = pendingAttachments;
     input = "";
-    bench.messages.push({ role: "user", text: message });
+    pendingAttachments = [];
+    bench.messages.push({
+      role: "user",
+      text: message,
+      attachments: attachments.length ? attachments.map(fileName) : undefined,
+    });
     bench.agentBusy = true;
     try {
-      await api.sendChat(bench.project.root, message, onAgentEvent);
+      await api.sendChat(bench.project.root, session, message, attachments, onAgentEvent);
     } catch (error) {
       bench.messages.push({ role: "tool", tone: "err", text: errorText(error) });
       bench.agentBusy = false;
@@ -65,23 +165,61 @@
   }
 
   async function stop() {
-    if (!bench.project || !bench.agentBusy) return;
-    await api.cancelAgent(bench.project.root).catch(() => {});
+    if (!bench.project || !bench.activeSession || !bench.agentBusy) return;
+    await api.cancelAgent(bench.project.root, bench.activeSession).catch(() => {});
   }
 </script>
 
 <div class="chat">
+  {#if bench.project && bench.sessions.length}
+    <div class="session-bar">
+      <span class="session-label">{t("chat.session")}</span>
+      <select
+        value={bench.activeSession}
+        disabled={bench.agentBusy}
+        onchange={(event) => void switchSession(event.currentTarget.value)}
+      >
+        {#each bench.sessions as session (session.id)}
+          <option value={session.id}>{session.title}{session.scene ? ` · ${fileName(session.scene)}` : ""}</option>
+        {/each}
+      </select>
+      <button class="session-new" onclick={() => (newOpen = !newOpen)} disabled={bench.agentBusy}>
+        ＋ {t("chat.newSession")}
+      </button>
+      {#if newOpen}
+        <div class="new-popover">
+          <input
+            type="text"
+            placeholder={t("chat.newSessionTitle")}
+            bind:value={newTitle}
+            onkeydown={(event) => event.key === "Enter" && void createSession()}
+          />
+          <label class="link-scene">
+            <input type="checkbox" bind:checked={newLinkScene} disabled={!bench.selectedScene} />
+            <span>{t("chat.newSessionScene")}{bench.selectedScene ? ` (${fileName(bench.selectedScene)})` : ""}</span>
+          </label>
+          <div class="new-actions">
+            <button class="mini-ghost" onclick={() => (newOpen = false)}>{t("chat.newSessionCancel")}</button>
+            <button class="mini-primary" onclick={createSession}>{t("chat.newSessionCreate")}</button>
+          </div>
+        </div>
+      {/if}
+    </div>
+  {/if}
+
   <div class="messages" bind:this={scroller}>
-    {#if bench.messages.length === 0}
+    {#if transcriptLoading}
+      <p class="transcript-loading">{t("chat.loadingTranscript")}</p>
+    {:else if bench.messages.length === 0}
       <div class="empty-state">
         <div class="signal-orbit" aria-hidden="true">
           <span></span><span></span><span></span><span></span>
           <i>▮ ▮▮ ▮</i>
         </div>
         <div class="empty-copy">
-          <h1>Compose with Agent</h1>
-          <p>{bench.apiKeySet ? "Describe the music or refine the selected scene." : "Connect the Responses API in Settings to begin composing."}</p>
-          <small>scorebench handles scene YAML, scorekit validation, and rendering.</small>
+          <h1>{t("chat.emptyTitle")}</h1>
+          <p>{bench.apiKeySet ? t("chat.emptyReady") : t("chat.emptyNoKey")}</p>
+          <small>{t("chat.emptyHint")}</small>
         </div>
         <div class="prompt-grid">
           {#each prompts as prompt}
@@ -98,9 +236,14 @@
             {#if message.role === "tool"}
               <span class="dot" aria-hidden="true"></span>
               <span class="tool-line">{message.text}</span>
-              {#if message.detail}<details><summary>output</summary><pre>{message.detail}</pre></details>{/if}
+              {#if message.detail}<details><summary>{t("chat.output")}</summary><pre>{message.detail}</pre></details>{/if}
             {:else}
               {message.text}
+              {#if message.attachments?.length}
+                <span class="msg-files">
+                  {#each message.attachments as name}<em>⎘ {name}</em>{/each}
+                </span>
+              {/if}
             {/if}
           </div>
         {/each}
@@ -110,28 +253,65 @@
   </div>
 
   <div class="composer-wrap">
+    {#if pendingAttachments.length}
+      <div class="attach-chips">
+        {#each pendingAttachments as path (path)}
+          <span class="chip" title={path}>
+            ⎘ {fileName(path)}
+            <button onclick={() => removeAttachment(path)} aria-label={t("chat.removeAttachment")}>×</button>
+          </span>
+        {/each}
+      </div>
+    {/if}
     <div class="composer" class:ready>
-      <span class="mic" aria-hidden="true">⌁</span>
+      <button class="attach" onclick={attach} disabled={!ready || bench.agentBusy} aria-label={t("chat.attach")} title={t("chat.attach")}>⎘</button>
       <textarea
         rows="2"
-        placeholder={!bench.project ? "Open a project first" : !bench.apiKeySet ? "Set an API key in Settings" : "Ask scorebench to create, edit, or refine your composition…"}
+        placeholder={!bench.project ? t("chat.placeholderNoProject") : !bench.apiKeySet ? t("chat.placeholderNoKey") : t("chat.placeholder")}
         disabled={!ready || bench.agentBusy}
         bind:value={input}
         onkeydown={onKeydown}
       ></textarea>
       {#if bench.agentBusy}
-        <button class="stop" onclick={stop} aria-label="Stop agent">■</button>
+        <button class="stop" onclick={stop} aria-label={t("chat.stop")}>■</button>
       {:else}
-        <button class="send" onclick={send} disabled={!ready || !input.trim()} aria-label="Send message">➤</button>
+        <button class="send" onclick={send} disabled={!ready || !input.trim()} aria-label={t("chat.send")}>➤</button>
       {/if}
     </div>
-    <p class="tip"><span>♧</span> Tip: select a scene on the left to inspect, refine, and render it.</p>
+    <p class="tip"><span>♧</span> {t("chat.tip")}</p>
   </div>
 </div>
 
 <style>
   .chat { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  .session-bar { position: relative; display: flex; flex-shrink: 0; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--panel-deep) 72%, transparent); }
+  .session-label { color: var(--fg-muted); font-size: 9.5px; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; }
+  .session-bar select { max-width: 260px; height: 26px; padding: 0 8px; color: var(--fg); border: 1px solid var(--line-strong); border-radius: 6px; background-color: var(--control-bg); font: 11px var(--mono); }
+  .session-new { display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px; color: var(--accent); border: 1px solid var(--accent-line); border-radius: 6px; background: transparent; font-size: 10.5px; font-weight: 600; cursor: pointer; transition: background .15s ease, border-color .15s ease; }
+  .session-new:hover:not(:disabled) { border-color: var(--accent-line-strong); background: var(--accent-soft); }
+  .session-new:disabled { opacity: .45; cursor: default; }
+  .new-popover { position: absolute; z-index: 30; top: calc(100% + 6px); left: 12px; display: grid; gap: 9px; width: 290px; padding: 12px; border: 1px solid var(--accent-line); border-radius: 9px; background: var(--panel-raised); box-shadow: 0 18px 40px rgba(0,0,0,.5), 0 0 22px var(--accent-soft); }
+  .new-popover input[type="text"] { height: 28px; padding: 0 9px; color: var(--fg); border: 1px solid var(--line-strong); border-radius: 6px; background: var(--control-bg); font-size: 11.5px; }
+  .new-popover input[type="text"]:focus { outline: none; border-color: var(--accent-line-strong); }
+  .link-scene { display: flex; align-items: center; gap: 7px; color: var(--fg-dim); font-size: 11px; cursor: pointer; }
+  .link-scene input { accent-color: var(--accent); }
+  .new-actions { display: flex; justify-content: flex-end; gap: 6px; }
+  .mini-ghost, .mini-primary { height: 25px; padding: 0 11px; border-radius: 5px; font-size: 10.5px; font-weight: 600; cursor: pointer; }
+  .mini-ghost { color: var(--fg-dim); border: 1px solid var(--line-strong); background: transparent; }
+  .mini-ghost:hover { color: var(--fg); border-color: var(--accent-line-strong); }
+  .mini-primary { color: var(--bg); border: 1px solid color-mix(in srgb, var(--accent) 75%, white); background: var(--accent); box-shadow: 0 0 12px var(--accent-glow); }
+  .mini-primary:hover { filter: brightness(1.1); }
   .messages { flex: 1; min-height: 0; overflow-y: auto; }
+  .transcript-loading { margin: 40px auto; color: var(--fg-muted); text-align: center; font: 11px var(--mono); }
+  .msg-files { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+  .msg-files em { padding: 2px 7px; color: var(--fg-dim); border: 1px solid var(--line-strong); border-radius: 999px; font: normal 9.5px var(--mono); }
+  .attach-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
+  .attach-chips .chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 5px 3px 9px; color: var(--fg-dim); border: 1px solid var(--accent-line); border-radius: 999px; background: var(--accent-soft); font: 10px var(--mono); }
+  .attach-chips .chip button { display: grid; place-items: center; width: 15px; height: 15px; color: var(--fg-muted); border: 0; border-radius: 50%; background: transparent; font-size: 11px; cursor: pointer; }
+  .attach-chips .chip button:hover { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+  .attach { display: grid; flex-shrink: 0; place-items: center; width: 30px; height: 30px; color: var(--fg-muted); border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; font-size: 13px; cursor: pointer; transition: color .15s ease, border-color .15s ease; }
+  .attach:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-line-strong); }
+  .attach:disabled { opacity: .4; cursor: default; }
   .empty-state { display: grid; place-items: center; align-content: center; min-height: 100%; padding: 24px; text-align: center; }
   .signal-orbit { position: relative; display: grid; place-items: center; width: 176px; height: 122px; margin-bottom: 12px; }
   .signal-orbit span { position: absolute; width: 98px; height: 98px; border: 1px solid var(--accent-line-strong); border-radius: 50%; box-shadow: 0 0 22px var(--accent-soft), inset 0 0 20px var(--accent-soft); animation: orbit-pulse 3.2s ease-in-out infinite alternate; }
@@ -170,9 +350,8 @@
   .thinking i:nth-child(2) { animation-delay: .16s; }
   .thinking i:nth-child(3) { animation-delay: .32s; }
   .composer-wrap { padding: 8px 16px 10px; }
-  .composer { display: flex; align-items: center; gap: 9px; min-height: 65px; padding: 7px 8px 7px 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--control-bg); box-shadow: inset 0 0 25px rgba(0,0,0,.18); }
+  .composer { display: flex; align-items: center; gap: 9px; min-height: 65px; padding: 7px 8px 7px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--control-bg); box-shadow: inset 0 0 25px rgba(0,0,0,.18); }
   .composer.ready:focus-within { border-color: var(--accent-line-strong); box-shadow: 0 0 18px var(--accent-soft), inset 0 0 25px rgba(0,0,0,.18); }
-  .mic { color: var(--fg-muted); font-size: 17px; }
   textarea { flex: 1; min-height: 46px; resize: none; color: var(--fg); background: transparent; border: 0; outline: none; font-size: 11px; line-height: 1.5; }
   textarea::placeholder { color: var(--fg-muted); }
   .send, .stop { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 6px; cursor: pointer; }

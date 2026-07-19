@@ -1,5 +1,11 @@
 <script lang="ts">
+  import { api, errorText } from "../api";
+  import { t } from "../i18n.svelte";
   import { bench } from "../state.svelte";
+
+  let menu = $state<{ x: number; y: number; scene: string } | null>(null);
+  let confirming = $state<string | null>(null);
+  let deleteError = $state<string | null>(null);
 
   $effect(() => {
     const scenes = bench.project?.scenes ?? [];
@@ -33,12 +39,51 @@
     const asset = matchingAsset(path);
     if (asset) bench.requestLoad(asset);
   }
+
+  function openMenu(event: MouseEvent, scene: string) {
+    event.preventDefault();
+    const pad = 8;
+    const x = Math.min(event.clientX, window.innerWidth - 180 - pad);
+    const y = Math.min(event.clientY, window.innerHeight - 60 - pad);
+    menu = { x, y, scene };
+  }
+
+  function requestDelete() {
+    if (!menu) return;
+    confirming = menu.scene;
+    deleteError = null;
+    menu = null;
+  }
+
+  async function confirmDelete() {
+    const root = bench.project?.root;
+    const scene = confirming;
+    if (!root || !scene) return;
+    try {
+      await api.deleteScene(root, scene);
+      confirming = null;
+      bench.project = await api.refreshProject(root);
+      bench.projectRevision++;
+    } catch (error) {
+      deleteError = errorText(error);
+    }
+  }
 </script>
+
+<svelte:window
+  onclick={() => (menu = null)}
+  onkeydown={(event) => {
+    if (event.key === "Escape") {
+      menu = null;
+      confirming = null;
+    }
+  }}
+/>
 
 <aside class="scene-rail" aria-label="Project scenes">
   <header>
     <div>
-      <span>Scenes</span>
+      <span>{t("rail.scenes")}</span>
       <b>{bench.project?.scenes.length ?? 0}</b>
     </div>
     <span class="rail-signal" aria-hidden="true"></span>
@@ -46,7 +91,7 @@
 
   <div class="scene-scroll">
     {#if !(bench.project?.scenes.length)}
-      <p class="empty">No scene YAML found.</p>
+      <p class="empty">{t("rail.empty")}</p>
     {:else}
       {#each bench.project.scenes as scene, index}
         {@const asset = matchingAsset(scene.rel_path)}
@@ -54,6 +99,7 @@
           class="scene-card"
           class:selected={bench.selectedScene === scene.rel_path}
           onclick={() => (bench.selectedScene = scene.rel_path)}
+          oncontextmenu={(event) => openMenu(event, scene.rel_path)}
           aria-pressed={bench.selectedScene === scene.rel_path}
         >
           <span class="scene-art art-{index % 7}" aria-hidden="true">
@@ -69,7 +115,7 @@
             class:available={Boolean(asset)}
             role="button"
             tabindex={asset ? 0 : -1}
-            aria-label={asset ? `Play ${titleFor(scene.rel_path)}` : "No rendered audio"}
+            aria-label={asset ? `${t("rail.play")} ${titleFor(scene.rel_path)}` : t("rail.noAudio")}
             onclick={(event) => play(event, scene.rel_path)}
             onkeydown={(event) => {
               if (event.key === "Enter" || event.key === " ") play(event, scene.rel_path);
@@ -82,9 +128,31 @@
 
   <footer>
     <span class="pin">⌖</span>
-    <span>{bench.project?.root ?? "No project"}</span>
+    <span>{bench.project?.root ?? t("rail.noProject")}</span>
   </footer>
 </aside>
+
+{#if menu}
+  <div class="context-menu" role="menu" style={`left: ${menu.x}px; top: ${menu.y}px`}>
+    <button role="menuitem" class="danger" onclick={requestDelete}>
+      <span aria-hidden="true">⌫</span> {t("rail.menu.delete")}
+    </button>
+  </div>
+{/if}
+
+{#if confirming}
+  <div class="confirm-backdrop" role="presentation" onclick={(event) => event.target === event.currentTarget && (confirming = null)}>
+    <div class="confirm" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title">
+      <h3 id="confirm-title">{t("rail.confirm.title")}</h3>
+      <p>{t("rail.confirm.body", { name: confirming.split("/").at(-1) ?? confirming })}</p>
+      {#if deleteError}<p class="confirm-error">{deleteError}</p>{/if}
+      <div class="confirm-actions">
+        <button class="ghost" onclick={() => (confirming = null)}>{t("rail.confirm.cancel")}</button>
+        <button class="delete" onclick={confirmDelete}>{t("rail.confirm.delete")}</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .scene-rail {
@@ -221,4 +289,56 @@
   }
   footer span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pin { color: var(--accent); }
+  .context-menu {
+    position: fixed;
+    z-index: 120;
+    min-width: 170px;
+    padding: 4px;
+    border: 1px solid var(--accent-line);
+    border-radius: 8px;
+    background: var(--panel-raised);
+    box-shadow: 0 16px 38px rgba(0,0,0,.55), 0 0 18px var(--accent-soft);
+  }
+  .context-menu button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    color: var(--fg);
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    font-size: 11.5px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .context-menu button.danger { color: var(--bad); }
+  .context-menu button.danger:hover { background: color-mix(in srgb, var(--bad) 12%, transparent); }
+  .confirm-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 130;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(4, 5, 7, .62);
+    backdrop-filter: blur(3px);
+  }
+  .confirm {
+    width: min(360px, 100%);
+    padding: 18px 20px;
+    border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--line));
+    border-radius: 11px;
+    background: var(--panel-deep);
+    box-shadow: 0 24px 70px rgba(0,0,0,.6);
+  }
+  .confirm h3 { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
+  .confirm p { margin: 0 0 6px; color: var(--fg-dim); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+  .confirm-error { color: var(--bad); font: 11px var(--mono); }
+  .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  .confirm-actions .ghost { padding: 7px 12px; color: var(--fg-dim); border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; font-size: 11px; cursor: pointer; }
+  .confirm-actions .ghost:hover { color: var(--fg); border-color: var(--accent-line-strong); }
+  .confirm-actions .delete { padding: 7px 14px; color: #fff; border: 1px solid color-mix(in srgb, var(--bad) 80%, white); border-radius: 6px; background: color-mix(in srgb, var(--bad) 82%, black); box-shadow: 0 0 14px color-mix(in srgb, var(--bad) 26%, transparent); font-size: 11px; font-weight: 700; cursor: pointer; }
+  .confirm-actions .delete:hover { filter: brightness(1.12); }
 </style>

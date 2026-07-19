@@ -16,7 +16,7 @@ use serde::Serialize;
 use tokio_util::sync::CancellationToken;
 
 use crate::error::BenchError;
-use crate::llm::types::{InputItem, InputRole, ResponseEvent, ResponsesRequest};
+use crate::llm::types::{InputItem, InputRole, MessageContent, ResponseEvent, ResponsesRequest};
 use crate::llm::{ResponseStream, ResponsesClient};
 use crate::{memory, project, scorekit};
 use tools::ToolBelt;
@@ -69,58 +69,68 @@ impl AgentTransport for ResponsesClient {
     }
 }
 
+type SessionKey = (PathBuf, String);
+
 #[derive(Default)]
 pub struct AgentState {
-    histories: Mutex<HashMap<PathBuf, Vec<InputItem>>>,
-    active: Mutex<HashMap<PathBuf, CancellationToken>>,
+    histories: Mutex<HashMap<SessionKey, Vec<InputItem>>>,
+    active: Mutex<HashMap<SessionKey, CancellationToken>>,
 }
 
 impl AgentState {
     pub fn begin(
         &self,
         root: &Path,
-        message: String,
+        session: &str,
+        content: MessageContent,
     ) -> Result<(PathBuf, Vec<InputItem>, CancellationToken, Vec<String>), BenchError> {
         let root = root.canonicalize().map_err(BenchError::io)?;
+        let key = (root.clone(), session.to_owned());
         let mut histories = self
             .histories
             .lock()
             .map_err(|_| BenchError::agent("state_poisoned", "agent history lock is poisoned"))?;
-        let loaded = if histories.contains_key(&root) {
+        let loaded = if histories.contains_key(&key) {
             memory::LoadedTranscript::default()
         } else {
-            memory::load_transcript(&root)?
+            memory::load_transcript(&root, session)?
         };
-        if !histories.contains_key(&root) {
-            histories.insert(root.clone(), loaded.items);
+        if !histories.contains_key(&key) {
+            histories.insert(key.clone(), loaded.items);
         }
         let item = InputItem::Message {
             role: InputRole::User,
-            content: message,
+            content,
         };
-        memory::append_items(&root, std::slice::from_ref(&item))?;
-        let history = histories.get_mut(&root).expect("history inserted");
+        memory::append_items(&root, session, std::slice::from_ref(&item))?;
+        let history = histories.get_mut(&key).expect("history inserted");
         history.push(item);
         let history = history.clone();
         drop(histories);
-        let token = self.activate(&root)?;
+        let token = self.activate(&root, session)?;
         Ok((root, history, token, loaded.warnings))
     }
 
-    pub fn complete(&self, root: &Path, history: Vec<InputItem>) -> Result<(), BenchError> {
+    pub fn complete(
+        &self,
+        root: &Path,
+        session: &str,
+        history: Vec<InputItem>,
+    ) -> Result<(), BenchError> {
+        let key = (root.to_owned(), session.to_owned());
         let mut histories = self
             .histories
             .lock()
             .map_err(|_| BenchError::agent("state_poisoned", "agent history lock is poisoned"))?;
-        let persisted = histories.get(root).map(Vec::len).unwrap_or(0);
+        let persisted = histories.get(&key).map(Vec::len).unwrap_or(0);
         if history.len() < persisted {
             return Err(BenchError::agent(
                 "history_diverged",
                 "agent history became shorter before persistence",
             ));
         }
-        memory::append_items(root, &history[persisted..])?;
-        histories.insert(root.to_owned(), history);
+        memory::append_items(root, session, &history[persisted..])?;
+        histories.insert(key, history);
         drop(histories);
         Ok(())
     }
@@ -128,54 +138,59 @@ impl AgentState {
     pub fn history(
         &self,
         root: &Path,
+        session: &str,
     ) -> Result<(PathBuf, Vec<InputItem>, Vec<String>), BenchError> {
         let root = root.canonicalize().map_err(BenchError::io)?;
+        let key = (root.clone(), session.to_owned());
         let mut histories = self
             .histories
             .lock()
             .map_err(|_| BenchError::agent("state_poisoned", "agent history lock is poisoned"))?;
-        let loaded = if histories.contains_key(&root) {
+        let loaded = if histories.contains_key(&key) {
             memory::LoadedTranscript::default()
         } else {
-            memory::load_transcript(&root)?
+            memory::load_transcript(&root, session)?
         };
-        let history = histories
-            .entry(root.clone())
-            .or_insert(loaded.items)
-            .clone();
+        let history = histories.entry(key).or_insert(loaded.items).clone();
         Ok((root, history, loaded.warnings))
     }
 
-    pub fn replace_history(&self, root: &Path, history: Vec<InputItem>) -> Result<(), BenchError> {
+    pub fn replace_history(
+        &self,
+        root: &Path,
+        session: &str,
+        history: Vec<InputItem>,
+    ) -> Result<(), BenchError> {
         self.histories
             .lock()
             .map_err(|_| BenchError::agent("state_poisoned", "agent history lock is poisoned"))?
-            .insert(root.to_owned(), history);
+            .insert((root.to_owned(), session.to_owned()), history);
         Ok(())
     }
 
-    pub fn activate(&self, root: &Path) -> Result<CancellationToken, BenchError> {
+    pub fn activate(&self, root: &Path, session: &str) -> Result<CancellationToken, BenchError> {
         let token = CancellationToken::new();
         let mut active = self.active.lock().map_err(|_| {
             BenchError::agent("state_poisoned", "agent cancellation lock is poisoned")
         })?;
-        if let Some(previous) = active.insert(root.to_owned(), token.clone()) {
+        if let Some(previous) = active.insert((root.to_owned(), session.to_owned()), token.clone())
+        {
             previous.cancel();
         }
         Ok(token)
     }
 
-    pub fn clear_active(&self, root: &Path) -> Result<(), BenchError> {
+    pub fn clear_active(&self, root: &Path, session: &str) -> Result<(), BenchError> {
         self.active
             .lock()
             .map_err(|_| {
                 BenchError::agent("state_poisoned", "agent cancellation lock is poisoned")
             })?
-            .remove(root);
+            .remove(&(root.to_owned(), session.to_owned()));
         Ok(())
     }
 
-    pub fn cancel(&self, root: &Path) -> Result<bool, BenchError> {
+    pub fn cancel(&self, root: &Path, session: &str) -> Result<bool, BenchError> {
         let root = root.canonicalize().map_err(BenchError::io)?;
         let token = self
             .active
@@ -183,7 +198,7 @@ impl AgentState {
             .map_err(|_| {
                 BenchError::agent("state_poisoned", "agent cancellation lock is poisoned")
             })?
-            .get(&root)
+            .get(&(root, session.to_owned()))
             .cloned();
         if let Some(token) = token {
             token.cancel();
@@ -194,7 +209,7 @@ impl AgentState {
     }
 }
 
-pub fn system_prompt(root: &Path) -> Result<String, BenchError> {
+pub fn system_prompt(root: &Path, session: &str, persona: &str) -> Result<String, BenchError> {
     let snapshot = project::scan(root)?;
     let schema = match scorekit::schema() {
         Ok(schema) => schema,
@@ -206,17 +221,23 @@ pub fn system_prompt(root: &Path) -> Result<String, BenchError> {
     };
     let snapshot = serde_json::to_string_pretty(&snapshot).map_err(BenchError::io)?;
     let schema = serde_json::to_string(&schema).map_err(BenchError::io)?;
-    let project_memory = memory::read_memory(root)?;
+    let project_memory = memory::read_memory(root, session)?;
     let project_memory = if project_memory.is_empty() {
         "(empty)"
     } else {
         &project_memory
     };
+    let persona = persona.trim();
+    let persona_section = if persona.is_empty() {
+        String::new()
+    } else {
+        format!("\n\nUSER STYLE & SKILL DIRECTIVES (follow unless they conflict with the rules above):\n{persona}")
+    };
     Ok(format!(
         "You are scorebench, the composing agent for one scorekit project.\n\
          You are the only writer of scene YAML. Never invent an editing UI or render audio yourself.\n\
          Use the provided tools; scorekit validation errors are authoritative.\n\
-         Keep paths project-relative. Validate before building and explain musical decisions concisely.\n\n\
+         Keep paths project-relative. Validate before building and explain musical decisions concisely.{persona_section}\n\n\
          CURRENT PROJECT SNAPSHOT:\n{snapshot}\n\n\
          ROLLING PROJECT MEMORY:\n{project_memory}\n\n\
          SCOREKIT SCENE JSON SCHEMA:\n{schema}"
@@ -316,7 +337,7 @@ pub async fn run_loop<T: AgentTransport>(
         if !text.is_empty() {
             input.push(InputItem::Message {
                 role: InputRole::Assistant,
-                content: text,
+                content: text.into(),
             });
         }
         if calls.is_empty() {
@@ -380,6 +401,7 @@ pub async fn run_loop<T: AgentTransport>(
 pub async fn compact_project<T: AgentTransport>(
     transport: &T,
     root: &Path,
+    session: &str,
     history: Vec<InputItem>,
     cancellation: CancellationToken,
     mut emit: impl FnMut(AgentEvent),
@@ -392,7 +414,7 @@ pub async fn compact_project<T: AgentTransport>(
     };
     let folded = &history[..split];
     let kept = &history[split..];
-    let previous_memory = memory::read_memory(root)?;
+    let previous_memory = memory::read_memory(root, session)?;
     let payload = serde_json::to_string(folded).map_err(BenchError::io)?;
     let request = ResponsesRequest {
         model: String::new(),
@@ -410,7 +432,8 @@ pub async fn compact_project<T: AgentTransport>(
                     &previous_memory
                 },
                 payload
-            ),
+            )
+            .into(),
         }],
         tools: vec![],
         max_output_tokens: Some(2_048),
@@ -437,7 +460,7 @@ pub async fn compact_project<T: AgentTransport>(
             "compaction summary ended without a complete Markdown summary",
         ));
     }
-    memory::compact(root, summary.trim(), folded, kept)?;
+    memory::compact(root, session, summary.trim(), folded, kept)?;
     let turns = folded
         .iter()
         .filter(|item| {
@@ -710,14 +733,15 @@ mod tests {
         let history = (0..5)
             .map(|turn| InputItem::Message {
                 role: InputRole::User,
-                content: format!("turn {turn}"),
+                content: format!("turn {turn}").into(),
             })
             .collect::<Vec<_>>();
-        memory::append_items(&root, &history).unwrap();
+        memory::append_items(&root, "main", &history).unwrap();
         let mut events = Vec::new();
         let kept = compact_project(
             &transport,
             &root,
+            "main",
             history,
             CancellationToken::new(),
             |event| events.push(event),
@@ -725,7 +749,9 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(kept.len(), 4);
-        assert!(memory::read_memory(&root).unwrap().contains("forest motif"));
+        assert!(memory::read_memory(&root, "main")
+            .unwrap()
+            .contains("forest motif"));
         assert!(events
             .iter()
             .any(|event| matches!(event, AgentEvent::Compacted { turns: 1 })));
@@ -753,16 +779,17 @@ mod tests {
         let mut history = (0..5)
             .map(|turn| InputItem::Message {
                 role: InputRole::User,
-                content: format!("initial turn {turn}"),
+                content: format!("initial turn {turn}").into(),
             })
             .collect::<Vec<_>>();
-        memory::append_items(&root, &history).unwrap();
+        memory::append_items(&root, "main", &history).unwrap();
 
         let mut compacted = 0;
         for cycle in 1..=3 {
             history = compact_project(
                 &transport,
                 &root,
+                "main",
                 history,
                 CancellationToken::new(),
                 |event| {
@@ -777,14 +804,14 @@ mod tests {
                 let next = vec![
                     InputItem::Message {
                         role: InputRole::User,
-                        content: format!("cycle {cycle} user turn"),
+                        content: format!("cycle {cycle} user turn").into(),
                     },
                     InputItem::Message {
                         role: InputRole::Assistant,
-                        content: format!("cycle {cycle} assistant turn"),
+                        content: format!("cycle {cycle} assistant turn").into(),
                     },
                 ];
-                memory::append_items(&root, &next).unwrap();
+                memory::append_items(&root, "main", &next).unwrap();
                 history.extend(next);
             }
         }
@@ -804,19 +831,36 @@ mod tests {
             4
         );
         assert!(history.iter().any(|item| {
-            matches!(item, InputItem::Message { content, .. } if content == "cycle 2 assistant turn")
+            matches!(item, InputItem::Message { content, .. } if content.display_text() == "cycle 2 assistant turn")
         }));
-        assert!(memory::read_memory(&root)
+        assert!(memory::read_memory(&root, "main")
             .unwrap()
             .contains("compaction cycle 3"));
-        assert_eq!(memory::load_transcript(&root).unwrap().items, history);
+        assert_eq!(
+            memory::load_transcript(&root, "main").unwrap().items,
+            history
+        );
         assert!(
-            std::fs::read_to_string(root.join(".scorebench/transcript-archive.jsonl"))
-                .unwrap()
-                .lines()
-                .count()
+            std::fs::read_to_string(
+                root.join(".scorebench/sessions/main/transcript-archive.jsonl")
+            )
+            .unwrap()
+            .lines()
+            .count()
                 >= 3
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn persona_directives_are_injected_into_system_prompt() {
+        let root = temp_project("persona");
+        let with_persona =
+            system_prompt(&root, "main", "Write in a cinematic, minor-key style.").unwrap();
+        assert!(with_persona.contains("USER STYLE & SKILL DIRECTIVES"));
+        assert!(with_persona.contains("cinematic, minor-key style"));
+        let without = system_prompt(&root, "main", "   ").unwrap();
+        assert!(!without.contains("USER STYLE & SKILL DIRECTIVES"));
         std::fs::remove_dir_all(root).unwrap();
     }
 }

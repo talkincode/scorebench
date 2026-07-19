@@ -29,6 +29,10 @@ pub struct Settings {
     pub spectrum_style: String,
     pub spectrum_bars: u16,
     pub theme_hue: u16,
+    /// Free-form style/skill directives appended to the agent system prompt.
+    pub personal_instructions: String,
+    /// UI language: "en" (default) or "zh".
+    pub locale: String,
 }
 
 impl Default for Settings {
@@ -41,6 +45,8 @@ impl Default for Settings {
             spectrum_style: "bars".into(),
             spectrum_bars: 64,
             theme_hue: 171,
+            personal_instructions: String::new(),
+            locale: "en".into(),
         }
     }
 }
@@ -90,6 +96,18 @@ impl Settings {
             return Err(BenchError::settings(
                 "invalid_theme_hue",
                 "theme hue must be between 0 and 359 degrees",
+            ));
+        }
+        if self.personal_instructions.chars().count() > 20_000 {
+            return Err(BenchError::settings(
+                "invalid_personal_instructions",
+                "personal instructions must stay under 20000 characters",
+            ));
+        }
+        if !matches!(self.locale.as_str(), "en" | "zh") {
+            return Err(BenchError::settings(
+                "invalid_locale",
+                "locale must be \"en\" or \"zh\"",
             ));
         }
         Ok(())
@@ -574,6 +592,8 @@ mod tests {
             spectrum_style: "wave".into(),
             spectrum_bars: 96,
             theme_hue: 202,
+            personal_instructions: "Prefer lush jazz voicings.".into(),
+            locale: "zh".into(),
         };
         save(&dir, &value).unwrap();
         assert_eq!(load(&dir).unwrap(), (value, None));
