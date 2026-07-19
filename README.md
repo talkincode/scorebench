@@ -36,7 +36,7 @@ you ──chat──► agent core (Rust, OpenAI Responses API only)
 
 ## Status
 
-Walking skeleton. See [docs/roadmap.md](docs/roadmap.md).
+Core milestones M0–M5 complete (walking skeleton → agent core → observation surfaces → project memory → spectrum modules → release engineering). See [docs/roadmap.md](docs/roadmap.md).
 
 ## Development
 

@@ -58,7 +58,7 @@
   .brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
   .brand-mark { display: grid; place-items: center; color: var(--accent); filter: drop-shadow(0 0 6px var(--accent-glow)); }
   .name { font-size: 16px; font-weight: 450; letter-spacing: .015em; }
-  .project-name { max-width: 220px; overflow: hidden; color: var(--fg-muted); font: 11px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+  .project-name { max-width: 220px; overflow: hidden; color: var(--fg-dim); font: 11px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
   .actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
   .scorekit { display: flex; align-items: center; gap: 7px; height: 29px; padding: 0 12px; color: var(--fg-dim); border: 1px solid var(--line-strong); border-radius: 6px; background: rgba(0,0,0,.14); font: 11px var(--mono); }
   .scorekit i { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-muted); }
@@ -69,7 +69,7 @@
   .scorekit.missing { color: var(--bad); }
   .scorekit.missing i { background: var(--bad); }
   .toolbar-btn, .open-project { display: flex; align-items: center; justify-content: center; gap: 7px; height: 30px; padding: 0 13px; border-radius: 6px; font-size: 11px; cursor: pointer; }
-  .toolbar-btn { color: var(--fg-dim); border: 1px solid var(--line-strong); background: linear-gradient(180deg, rgba(255,255,255,.02), transparent); }
+  .toolbar-btn { color: var(--fg-label); border: 1px solid var(--line-strong); background: linear-gradient(180deg, rgba(255,255,255,.02), transparent); }
   .toolbar-btn:hover { color: var(--accent); border-color: var(--accent-line-strong); background: var(--accent-soft); }
   .toolbar-btn span { color: var(--accent); }
   .open-project { color: var(--warning); border: 1px solid color-mix(in srgb, var(--warning) 60%, transparent); background: linear-gradient(135deg, color-mix(in srgb, var(--warning) 12%, transparent), transparent); box-shadow: inset 0 0 12px color-mix(in srgb, var(--warning) 6%, transparent), 0 0 12px color-mix(in srgb, var(--warning) 8%, transparent); }

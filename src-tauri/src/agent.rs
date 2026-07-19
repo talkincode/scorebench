@@ -18,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 use crate::error::BenchError;
 use crate::llm::types::{InputItem, InputRole, MessageContent, ResponseEvent, ResponsesRequest};
 use crate::llm::{ResponseStream, ResponsesClient};
-use crate::{memory, project, scorekit};
+use crate::{manifest, memory, project, scorekit, styles};
 use tools::ToolBelt;
 
 const TOOL_OUTPUT_LIMIT: usize = 64 * 1024;
@@ -209,7 +209,11 @@ impl AgentState {
     }
 }
 
-pub fn system_prompt(root: &Path, session: &str, persona: &str) -> Result<String, BenchError> {
+pub fn system_prompt(
+    root: &Path,
+    session: &str,
+    style: Option<&styles::StylePack>,
+) -> Result<String, BenchError> {
     let snapshot = project::scan(root)?;
     let schema = match scorekit::schema() {
         Ok(schema) => schema,
@@ -227,21 +231,53 @@ pub fn system_prompt(root: &Path, session: &str, persona: &str) -> Result<String
     } else {
         &project_memory
     };
-    let persona = persona.trim();
-    let persona_section = if persona.is_empty() {
-        String::new()
-    } else {
-        format!("\n\nUSER STYLE & SKILL DIRECTIVES (follow unless they conflict with the rules above):\n{persona}")
-    };
+    let style_section = style.map(styles::prompt_section).unwrap_or_default();
+    let render_section = render_config_section(root);
     Ok(format!(
         "You are scorebench, the composing agent for one scorekit project.\n\
          You are the only writer of scene YAML. Never invent an editing UI or render audio yourself.\n\
          Use the provided tools; scorekit validation errors are authoritative.\n\
-         Keep paths project-relative. Validate before building and explain musical decisions concisely.{persona_section}\n\n\
-         CURRENT PROJECT SNAPSHOT:\n{snapshot}\n\n\
+         Keep paths project-relative. write_scene validates automatically and reports the result;\n\
+         fix any reported problem before building and explain musical decisions concisely.\n\n\
+         CURRENT PROJECT SNAPSHOT:\n{snapshot}\n\n{render_section}{style_section}\
          ROLLING PROJECT MEMORY:\n{project_memory}\n\n\
          SCOREKIT SCENE JSON SCHEMA:\n{schema}"
     ))
+}
+
+/// Prompt block describing the render configuration persisted in bench.json,
+/// including the instrument keys the active sfizz profile maps, so the model
+/// composes with instruments the user's renderer can actually play.
+fn render_config_section(root: &Path) -> String {
+    let Some(render) = manifest::load(root).0.render else {
+        return String::new();
+    };
+    let renderer = render.renderer.as_deref().unwrap_or("(default)");
+    let mut section = format!("ACTIVE RENDER CONFIGURATION (bench.json):\nrenderer: {renderer}\n");
+    match (render.renderer.as_deref(), render.profile.as_deref()) {
+        (Some("sfizz"), Some(profile)) if !profile.trim().is_empty() => {
+            match manifest::profile_instruments(root, profile) {
+                Ok((name, instruments)) => {
+                    let name = name.unwrap_or_else(|| profile.to_owned());
+                    section.push_str(&format!(
+                        "profile: {profile} ({name})\n\
+                         instruments mapped by this profile: {}\n\
+                         Any track instrument outside this list will FAIL the sfizz build.\n\
+                         Compose only with mapped instruments, or tell the user which mapping is missing.\n",
+                        instruments.join(", ")
+                    ));
+                }
+                Err(error) => {
+                    section.push_str(&format!(
+                        "profile: {profile}\nWARNING: the profile could not be read ({error}); builds will fail until it is fixed.\n"
+                    ));
+                }
+            }
+        }
+        _ => {}
+    }
+    section.push('\n');
+    section
 }
 
 #[derive(Debug)]
@@ -315,6 +351,15 @@ pub async fn run_loop<T: AgentTransport>(
                     if let Some(tokens) = usage.and_then(|value| value.input_tokens) {
                         prompt_tokens = Some(prompt_tokens.unwrap_or(0).max(tokens));
                     }
+                }
+                ResponseEvent::Incomplete { reason, .. } => {
+                    terminal = true;
+                    emit(AgentEvent::Warning {
+                        text: format!(
+                            "response truncated ({})",
+                            reason.as_deref().unwrap_or("unknown reason")
+                        ),
+                    });
                 }
                 ResponseEvent::Failed { code, message, .. }
                 | ResponseEvent::Error { code, message } => {
@@ -447,6 +492,13 @@ pub async fn compact_project<T: AgentTransport>(
         match event? {
             ResponseEvent::OutputTextDelta { delta, .. } => summary.push_str(&delta),
             ResponseEvent::Completed { .. } => terminal = true,
+            // A truncated summary would silently lose project history.
+            ResponseEvent::Incomplete { reason, .. } => {
+                return Err(BenchError::llm(format!(
+                    "compaction summary was truncated ({})",
+                    reason.as_deref().unwrap_or("unknown reason")
+                )));
+            }
             ResponseEvent::Failed { message, .. } | ResponseEvent::Error { message, .. } => {
                 return Err(BenchError::llm(format!(
                     "compaction summary failed: {message}"
@@ -853,14 +905,65 @@ mod tests {
     }
 
     #[test]
-    fn persona_directives_are_injected_into_system_prompt() {
-        let root = temp_project("persona");
-        let with_persona =
-            system_prompt(&root, "main", "Write in a cinematic, minor-key style.").unwrap();
-        assert!(with_persona.contains("USER STYLE & SKILL DIRECTIVES"));
-        assert!(with_persona.contains("cinematic, minor-key style"));
-        let without = system_prompt(&root, "main", "   ").unwrap();
-        assert!(!without.contains("USER STYLE & SKILL DIRECTIVES"));
+    fn style_pack_is_injected_with_conflict_protocol() {
+        let root = temp_project("style-pack");
+        let pack = styles::builtins()
+            .into_iter()
+            .find(|pack| pack.id == "chinese-campus-folk-90s")
+            .unwrap();
+        let with_style = system_prompt(&root, "main", Some(&pack)).unwrap();
+        assert!(with_style.contains("ACTIVE STYLE PACK `chinese-campus-folk-90s`"));
+        assert!(
+            with_style.contains("dense_brass"),
+            "structured body present"
+        );
+        assert!(with_style.contains("STYLE CONFLICT DETECTION"));
+        let without = system_prompt(&root, "main", None).unwrap();
+        assert!(!without.contains("ACTIVE STYLE PACK"));
+        assert!(!without.contains("STYLE CONFLICT DETECTION"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn render_config_is_injected_with_mapped_instruments() {
+        let root = temp_project("render-config");
+        assert_eq!(render_config_section(&root), "");
+
+        std::fs::create_dir_all(root.join("profiles")).unwrap();
+        std::fs::write(
+            root.join("profiles/open.yaml"),
+            "name: scoredata-open\ninstruments:\n  piano:\n    sustain: p.sfz\n  strings:\n    sustain: s.sfz\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("bench.json"),
+            r#"{"render":{"renderer":"sfizz","profile":"profiles/open.yaml"}}"#,
+        )
+        .unwrap();
+        let section = render_config_section(&root);
+        assert!(section.contains("ACTIVE RENDER CONFIGURATION"));
+        assert!(section.contains("renderer: sfizz"));
+        assert!(section.contains("piano, strings"));
+        assert!(section.contains("FAIL the sfizz build"));
+        let prompt = system_prompt(&root, "main", None).unwrap();
+        assert!(prompt.contains("ACTIVE RENDER CONFIGURATION"));
+
+        std::fs::write(
+            root.join("bench.json"),
+            r#"{"render":{"renderer":"sfizz","profile":"profiles/missing.yaml"}}"#,
+        )
+        .unwrap();
+        let section = render_config_section(&root);
+        assert!(section.contains("WARNING: the profile could not be read"));
+
+        std::fs::write(
+            root.join("bench.json"),
+            r#"{"render":{"renderer":"fluidsynth"}}"#,
+        )
+        .unwrap();
+        let section = render_config_section(&root);
+        assert!(section.contains("renderer: fluidsynth"));
+        assert!(!section.contains("mapped by this profile"));
         std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -1,4 +1,4 @@
-import type { ProjectInfo, SessionMeta, Settings, VersionInfo } from "./api";
+import type { ProjectInfo, ReviewReport, SessionMeta, Settings, StylePack, VersionInfo } from "./api";
 
 export interface ChatMessage {
   role: "user" | "agent" | "tool";
@@ -8,7 +8,7 @@ export interface ChatMessage {
   attachments?: string[];
 }
 
-export type WorkspaceTab = "agent" | "scene" | "preview";
+export type WorkspaceTab = "agent" | "scene" | "preview" | "review" | "styles";
 
 class BenchState {
   project = $state<ProjectInfo | null>(null);
@@ -35,6 +35,32 @@ class BenchState {
   building = $state(false);
   buildStatus = $state<string | null>(null);
   buildFailed = $state(false);
+
+  reviewBusy = $state(false);
+  /** Raw streamed model text, shown while the report is in flight. */
+  reviewRaw = $state("");
+  reviewReport = $state<ReviewReport | null>(null);
+  reviewError = $state<string | null>(null);
+  /** Scene the current report was produced for. */
+  reviewScene = $state<string | null>(null);
+  reviewPerspectives = $state<string[]>(["composer", "arranger", "producer"]);
+  /** Prefill for the chat input ("hand to Agent"); consumed by Chat once. */
+  chatDraft = $state<string | null>(null);
+
+  /** Creative assist panel visibility (toggled from the chat composer). */
+  assistOpen = $state(false);
+  /** One-shot append into the chat input; new object per request. */
+  chatInsert = $state<{ text: string } | null>(null);
+
+  /** Style pack library (built-ins + user packs) and load warnings. */
+  stylePacks = $state<StylePack[]>([]);
+  styleWarnings = $state<string[]>([]);
+  /** Active style pack id for the open project (bench.json `style.id`). */
+  activeStyleId = $state<string | null>(null);
+
+  requestChatInsert(text: string) {
+    this.chatInsert = { text };
+  }
 
   /** rel_path of the asset currently loaded in the player. */
   loadedAsset = $state<string | null>(null);

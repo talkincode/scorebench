@@ -133,7 +133,7 @@
   .empty,
   .error {
     margin: auto;
-    color: var(--fg-muted);
+    color: var(--fg-dim);
     font-size: 12px;
   }
   .empty.small {
@@ -195,14 +195,14 @@
     align-items: baseline;
     gap: 7px;
     margin: 0 0 9px;
-    color: var(--fg-dim);
-    font-size: 10px;
-    font-weight: 650;
-    letter-spacing: 0.14em;
+    color: var(--fg-label);
+    font-size: var(--ui-label-size);
+    font-weight: var(--ui-label-weight);
+    letter-spacing: var(--ui-label-tracking);
     text-transform: uppercase;
   }
   h3 em {
-    color: var(--fg-muted);
+    color: var(--fg-dim);
     font: 10px var(--mono);
   }
   .harmony {
@@ -244,7 +244,7 @@
     white-space: nowrap;
   }
   .segment span {
-    color: var(--fg-muted);
+    color: var(--fg-dim);
     font: 9.5px var(--mono);
   }
   .meter {
@@ -270,11 +270,11 @@
   }
   th {
     padding: 6px 8px;
-    color: var(--fg-muted);
+    color: var(--fg-label);
     border-bottom: 1px solid var(--line-strong);
-    font-size: 9.5px;
-    font-weight: 650;
-    letter-spacing: 0.1em;
+    font-size: var(--ui-label-size);
+    font-weight: 700;
+    letter-spacing: var(--ui-label-tracking);
     text-align: left;
     text-transform: uppercase;
   }
@@ -284,7 +284,7 @@
     vertical-align: middle;
   }
   td.idx {
-    color: var(--fg-muted);
+    color: var(--fg-dim);
     font: 10px var(--mono);
   }
   td.instrument {

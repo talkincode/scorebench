@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 
 use crate::error::BenchError;
 use crate::llm::types::{FunctionCall, ToolDefinition};
-use crate::{observation, project, scorekit};
+use crate::{manifest, observation, project, scorekit};
 
 pub struct ToolBelt {
     root: PathBuf,
@@ -42,8 +42,8 @@ pub fn definitions() -> Vec<ToolDefinition> {
         ),
         function(
             "write_scene",
-            "Atomically write one scene YAML file inside the project.",
-            json!({"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}),
+            "Atomically write one scene YAML file inside the project. Runs `scorekit validate` and the renderer-profile compatibility check afterwards and reports the result inline; pass validate:false only when writing non-scene YAML (grammar or renderer profile files).",
+            json!({"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"validate":{"type":"boolean","description":"Validate the written file as a scene (default true)."}},"required":["path","content"]}),
         ),
         function(
             "validate_scene",
@@ -159,7 +159,15 @@ fn execute_sync(root: &Path, call: &FunctionCall) -> Result<ToolResult, BenchErr
             let args: PathArgs = args(call)?;
             let path = scene(root, &args.path)?;
             scorekit::validate(&path)?;
-            success(json!({"ok":true,"path":args.path}), "scene valid")
+            let mut output = json!({"ok":true,"path":args.path});
+            let mut summary = String::from("scene valid");
+            if let Some(compat) = profile_check(root, &path) {
+                if !compat.is_compatible() {
+                    summary = format!("scene valid, but {}", compat.message());
+                }
+                output["render_profile"] = serde_json::to_value(&compat).map_err(BenchError::io)?;
+            }
+            success(output, summary)
         }
         "lint_scene" => {
             let args: LintArgs = args(call)?;
@@ -184,20 +192,37 @@ fn execute_sync(root: &Path, call: &FunctionCall) -> Result<ToolResult, BenchErr
                 .unwrap_or("scene");
             let rel_output = format!("{}/{stem}.{format}", project::OUT_DIR);
             let output = project::resolve_for_write(root, &rel_output)?;
+            let project_render = manifest::load(root).0.render.unwrap_or_default();
+            let mut renderer = args.renderer;
+            let inherited_profile =
+                inherit_render_config(&mut renderer, &args.profile, &project_render);
+            let profile = match (resolve_optional(root, args.profile)?, inherited_profile) {
+                (Some(explicit), _) => Some(explicit),
+                // The project profile may live outside the root (GUI allows
+                // it), so resolve like the GUI render path does.
+                (None, Some(inherited)) => Some(
+                    manifest::resolve_profile_path(root, &inherited)
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
+                (None, None) => None,
+            };
             let params = scorekit::BuildParams {
-                renderer: args.renderer,
+                renderer,
                 sample_rate: args.sample_rate,
                 gain: args.gain,
                 quality: args.quality,
                 stems: args.stems,
                 soundfont: resolve_optional(root, args.soundfont)?,
-                profile: resolve_optional(root, args.profile)?,
+                profile,
             };
             let result = scorekit::build(&path, &output, &params)?;
             success(
                 json!({
                     "ok":true,
                     "output":rel_output,
+                    "renderer":params.renderer,
+                    "profile":params.profile,
                     "meta_path":result.meta_path.strip_prefix(root).unwrap_or(&result.meta_path),
                     "meta":result.meta
                 }),
@@ -302,18 +327,73 @@ fn write_scene(root: &Path, args: WriteArgs) -> Result<ToolResult, BenchError> {
         (None, false) => Some(warnings.join("\n")),
         (None, true) => None,
     };
-    let output = json!({
+    let mut summary = String::from("scene written atomically");
+    let mut output = json!({
         "ok": true,
         "path": args.path,
         "bytes": args.content.len(),
         "diff": diff,
         "warnings": warnings
     });
+    if args.validate.unwrap_or(true) {
+        let validation = match scorekit::validate(&target) {
+            Ok(()) => {
+                summary = "scene written and validated".into();
+                json!({"status": "valid"})
+            }
+            Err(error @ BenchError::Scorekit { .. }) => {
+                summary = format!("scene written but INVALID: {error}");
+                json!({
+                    "status": "invalid",
+                    "error": error,
+                    "hint": "fix the scene with write_scene until validation passes"
+                })
+            }
+            // scorekit missing or not runnable: the write itself stands.
+            Err(error) => {
+                summary = "scene written (validation unavailable)".into();
+                json!({"status": "unavailable", "message": error.to_string()})
+            }
+        };
+        output["validation"] = validation;
+        if let Some(compat) = profile_check(root, &target) {
+            if !compat.is_compatible() {
+                summary = format!("{summary}; {}", compat.message());
+            }
+            output["render_profile"] = serde_json::to_value(&compat).map_err(BenchError::io)?;
+        }
+    } else {
+        output["validation"] = json!({"status": "skipped"});
+    }
     Ok(ToolResult {
         output: output.to_string(),
-        summary: "scene written atomically".into(),
+        summary,
         detail,
     })
+}
+
+/// Compatibility of one scene against the project's persisted render
+/// configuration (bench.json). `None` when no sfizz profile is active.
+fn profile_check(root: &Path, scene_path: &Path) -> Option<manifest::ProfileCompat> {
+    let render = manifest::load(root).0.render?;
+    manifest::check_scene_profile(root, scene_path, &render)
+}
+
+/// Fill build parameters the model omitted from the project render config.
+/// Returns the inherited profile path, if any. Pure function for testing.
+fn inherit_render_config(
+    renderer: &mut Option<String>,
+    explicit_profile: &Option<String>,
+    project_render: &manifest::RenderConfig,
+) -> Option<String> {
+    if renderer.is_none() {
+        renderer.clone_from(&project_render.renderer);
+    }
+    if explicit_profile.is_none() && renderer.as_deref() == Some("sfizz") {
+        project_render.profile.clone()
+    } else {
+        None
+    }
 }
 
 fn require_scene_path(path: &str) -> Result<(), BenchError> {
@@ -350,6 +430,8 @@ struct PathArgs {
 struct WriteArgs {
     path: String,
     content: String,
+    #[serde(default)]
+    validate: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -479,6 +561,138 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    #[tokio::test]
+    async fn write_scene_reports_validation_inline() {
+        if scorekit::locate().is_err() {
+            return;
+        }
+        let root = temp_project();
+        let belt = ToolBelt::new(root.clone()).unwrap();
+        let valid = include_str!("../../tests/fixtures/scenes/forest.yaml");
+        let result = belt
+            .execute(FunctionCall {
+                id: None,
+                call_id: "call".into(),
+                name: "write_scene".into(),
+                arguments: serde_json::json!({"path":"forest.yaml","content":valid}).to_string(),
+            })
+            .await
+            .unwrap();
+        let output: serde_json::Value = serde_json::from_str(&result.output).unwrap();
+        assert_eq!(output["validation"]["status"], "valid");
+        assert_eq!(result.summary, "scene written and validated");
+
+        let invalid = valid.replace("tempo: 92", "tempo: -4");
+        let result = belt
+            .execute(FunctionCall {
+                id: None,
+                call_id: "call".into(),
+                name: "write_scene".into(),
+                arguments: serde_json::json!({"path":"forest.yaml","content":invalid}).to_string(),
+            })
+            .await
+            .unwrap();
+        let output: serde_json::Value = serde_json::from_str(&result.output).unwrap();
+        assert_eq!(output["ok"], true, "write persists even when invalid");
+        assert_eq!(output["validation"]["status"], "invalid");
+        assert_eq!(output["validation"]["error"]["kind"], "scorekit");
+        assert!(result.summary.contains("INVALID"));
+        assert!(std::fs::read_to_string(root.join("forest.yaml"))
+            .unwrap()
+            .contains("tempo: -4"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn write_scene_validate_false_skips_validation() {
+        let root = temp_project();
+        let belt = ToolBelt::new(root.clone()).unwrap();
+        let result = belt
+            .execute(FunctionCall {
+                id: None,
+                call_id: "call".into(),
+                name: "write_scene".into(),
+                arguments: serde_json::json!({
+                    "path": "profiles/open.yaml",
+                    "content": "name: open\ninstruments: {}\n",
+                    "validate": false
+                })
+                .to_string(),
+            })
+            .await
+            .unwrap();
+        let output: serde_json::Value = serde_json::from_str(&result.output).unwrap();
+        assert_eq!(output["validation"]["status"], "skipped");
+        assert!(output.get("render_profile").is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn write_scene_flags_instruments_unmapped_by_active_profile() {
+        let root = temp_project();
+        std::fs::create_dir_all(root.join("profiles")).unwrap();
+        std::fs::write(
+            root.join("profiles/open.yaml"),
+            "name: scoredata-open\ninstruments:\n  piano:\n    sustain: piano.sfz\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(manifest::MANIFEST_FILE),
+            r#"{"render":{"renderer":"sfizz","profile":"profiles/open.yaml"}}"#,
+        )
+        .unwrap();
+        let belt = ToolBelt::new(root.clone()).unwrap();
+        let result = belt
+            .execute(FunctionCall {
+                id: None,
+                call_id: "call".into(),
+                name: "write_scene".into(),
+                arguments: serde_json::json!({
+                    "path": "scene.yaml",
+                    "content": "title: Hymn\ntracks:\n  - instrument: choir\n    pattern: pad\n"
+                })
+                .to_string(),
+            })
+            .await
+            .unwrap();
+        let output: serde_json::Value = serde_json::from_str(&result.output).unwrap();
+        assert_eq!(output["render_profile"]["unmapped"][0], "choir");
+        assert!(result.summary.contains("`choir`"), "{}", result.summary);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn build_inherits_project_render_config_unless_overridden() {
+        let project_render = manifest::RenderConfig {
+            renderer: Some("sfizz".into()),
+            profile: Some("profiles/open.yaml".into()),
+        };
+
+        let mut renderer = None;
+        let inherited = inherit_render_config(&mut renderer, &None, &project_render);
+        assert_eq!(renderer.as_deref(), Some("sfizz"));
+        assert_eq!(inherited.as_deref(), Some("profiles/open.yaml"));
+
+        // Explicit renderer wins; a non-sfizz renderer takes no profile.
+        let mut renderer = Some("fluidsynth".to_owned());
+        let inherited = inherit_render_config(&mut renderer, &None, &project_render);
+        assert_eq!(renderer.as_deref(), Some("fluidsynth"));
+        assert!(inherited.is_none());
+
+        // Explicit profile wins over the project profile.
+        let mut renderer = None;
+        let explicit = Some("other.yaml".to_owned());
+        let inherited = inherit_render_config(&mut renderer, &explicit, &project_render);
+        assert!(inherited.is_none());
+
+        // Empty project config changes nothing.
+        let mut renderer = None;
+        let inherited =
+            inherit_render_config(&mut renderer, &None, &manifest::RenderConfig::default());
+        assert!(renderer.is_none());
+        assert!(inherited.is_none());
+    }
+
     #[test]
     fn tool_names_are_stable_and_unique() {
         let definitions = definitions();
@@ -521,6 +735,15 @@ mod tests {
         assert_eq!(
             build.parameters["properties"]["path"]["type"],
             serde_json::json!("string")
+        );
+
+        let write = definitions()
+            .into_iter()
+            .find(|definition| definition.name == "write_scene")
+            .unwrap();
+        assert_eq!(
+            write.parameters["properties"]["validate"]["type"],
+            serde_json::json!(["boolean", "null"])
         );
     }
 }

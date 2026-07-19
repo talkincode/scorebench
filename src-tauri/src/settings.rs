@@ -29,7 +29,9 @@ pub struct Settings {
     pub spectrum_style: String,
     pub spectrum_bars: u16,
     pub theme_hue: u16,
-    /// Free-form style/skill directives appended to the agent system prompt.
+    /// Legacy persona text. No longer injected or shown in the UI (style
+    /// packs replaced it); kept so older `settings.json` files still parse
+    /// under `deny_unknown_fields` and user text is never destroyed.
     pub personal_instructions: String,
     /// UI language: "en" (default) or "zh".
     pub locale: String,

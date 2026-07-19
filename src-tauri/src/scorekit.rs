@@ -18,7 +18,7 @@ use crate::error::BenchError;
 
 /// Environment variable that pins the scorekit binary explicitly.
 pub const SCOREKIT_ENV: &str = "SCOREBENCH_SCOREKIT";
-pub const TESTED_SCOREKIT_RANGE: &str = ">=0.1.0, <0.2.0";
+pub const TESTED_SCOREKIT_RANGE: &str = ">=0.2.0, <0.3.0";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Handshake {
@@ -522,12 +522,22 @@ mod tests {
     fn handshake_gates_machine_readable_version() {
         let report = serde_json::json!({
             "ready": true,
-            "scorekit_version": "0.1.3",
+            "scorekit_version": "0.2.0",
             "hints": ["install a renderer"]
         });
         let handshake = handshake_from_report(PathBuf::from("scorekit"), report);
         assert_eq!(handshake.compatible, Some(true));
         assert_eq!(handshake.hints, vec!["install a renderer"]);
+
+        let outdated = handshake_from_report(
+            PathBuf::from("scorekit"),
+            serde_json::json!({"ready":true,"scorekit_version":"0.1.3","hints":[]}),
+        );
+        assert_eq!(outdated.compatible, Some(false));
+        assert!(outdated
+            .warning
+            .unwrap()
+            .contains("outside the tested range"));
 
         let legacy = handshake_from_report(
             PathBuf::from("scorekit"),

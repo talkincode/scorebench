@@ -29,6 +29,10 @@ pub struct LlmConfig {
     pub base_url: String,
     pub api_key: String,
     pub model: String,
+    /// Idle timeout: connection establishment and the gap between response
+    /// bytes. Deliberately NOT a whole-request deadline — a healthy SSE
+    /// stream may take minutes to finish a long structured answer, and
+    /// cutting it mid-stream surfaces as a spurious "timed out".
     pub timeout: Duration,
 }
 
@@ -61,7 +65,8 @@ pub struct ResponsesClient {
 impl ResponsesClient {
     pub fn new(config: LlmConfig) -> Result<Self, BenchError> {
         let http = reqwest::Client::builder()
-            .timeout(config.timeout)
+            .connect_timeout(config.timeout)
+            .read_timeout(config.timeout)
             .build()
             .map_err(|err| BenchError::llm(format!("failed to build HTTP client: {err}")))?;
         Ok(Self { http, config })

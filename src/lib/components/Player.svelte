@@ -495,7 +495,7 @@
   }
   .loop {
     padding: 4px 9px;
-    color: var(--fg-muted);
+    color: var(--fg-label);
     border: 1px solid var(--line-strong);
     border-radius: 20px;
     background: rgba(0, 0, 0, 0.22);
@@ -511,7 +511,7 @@
     box-shadow: 0 0 10px var(--accent-soft), inset 0 0 6px var(--accent-soft);
   }
   .time {
-    color: var(--fg-muted);
+    color: var(--fg-dim);
     font: 11px var(--mono);
     white-space: nowrap;
   }
@@ -561,7 +561,7 @@
     place-items: center;
     width: 22px;
     height: 22px;
-    color: var(--fg-muted);
+    color: var(--fg-label);
     border: 1px solid var(--line-strong);
     border-radius: 5px;
     background: rgba(0, 0, 0, 0.45);
@@ -615,7 +615,7 @@
     box-shadow: 0 0 7px var(--good);
   }
   .idle {
-    color: var(--fg-muted);
+    color: var(--fg-dim);
     font-size: 10px;
   }
   .err {
@@ -631,9 +631,10 @@
     gap: 7px;
   }
   .style-label {
-    color: var(--fg-muted);
-    font-size: 9px;
-    letter-spacing: 0.08em;
+    color: var(--fg-label);
+    font-size: var(--ui-label-size);
+    font-weight: var(--ui-label-weight);
+    letter-spacing: var(--ui-label-tracking);
     text-transform: uppercase;
   }
   .style-row select {
@@ -656,8 +657,9 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    color: var(--fg-muted);
-    font-size: 9px;
+    color: var(--fg-label);
+    font-size: var(--ui-label-size);
+    font-weight: var(--ui-label-weight);
   }
   .style-option input {
     flex: 1;
@@ -673,10 +675,9 @@
     text-align: right;
   }
   .option-idle {
-    color: var(--fg-muted);
-    font-size: 9px;
+    color: var(--fg-dim);
+    font-size: var(--ui-label-size);
     font-style: italic;
-    opacity: 0.7;
   }
 
   .meters {
@@ -699,8 +700,9 @@
     display: flex;
     justify-content: space-around;
     padding-top: 3px;
-    color: var(--fg-muted);
-    font: 9px var(--mono);
+    color: var(--fg-label);
+    font: var(--ui-label-size) var(--mono);
+    font-weight: var(--ui-label-weight);
   }
 
   @media (max-width: 1120px) {

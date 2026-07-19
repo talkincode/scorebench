@@ -202,7 +202,7 @@
   }
   .styles button i {
     margin-left: 4px;
-    color: var(--fg-muted);
+    color: var(--fg-dim);
     font-style: normal;
     font-size: 10px;
   }
@@ -217,7 +217,7 @@
     box-shadow: 0 0 12px var(--accent-soft);
   }
   .hint {
-    color: var(--fg-muted);
+    color: var(--fg-dim);
     font-size: 10px;
     white-space: nowrap;
   }

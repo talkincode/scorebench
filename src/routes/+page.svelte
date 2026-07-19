@@ -7,6 +7,8 @@
   import ScenePanel from "$lib/components/ScenePanel.svelte";
   import SceneSource from "$lib/components/SceneSource.svelte";
   import ScenePreview from "$lib/components/ScenePreview.svelte";
+  import ReviewPanel from "$lib/components/ReviewPanel.svelte";
+  import StylesPanel from "$lib/components/StylesPanel.svelte";
   import Player from "$lib/components/Player.svelte";
   import SettingsModal from "$lib/components/SettingsModal.svelte";
   import { api, errorText } from "$lib/api";
@@ -48,6 +50,13 @@
         },
         (error) => (bench.settingsWarning = errorText(error)),
       ),
+      api.listStylePacks().then(
+        ([packs, warnings]) => {
+          bench.stylePacks = packs;
+          bench.styleWarnings = warnings;
+        },
+        () => {},
+      ),
     ]);
     return () => void unlisten.then((stop) => stop());
   });
@@ -58,7 +67,21 @@
 
   // Scene/preview tabs need a selected scene; fall back to the agent view.
   $effect(() => {
-    if (!bench.selectedScene && bench.workspaceTab !== "agent") bench.workspaceTab = "agent";
+    if (!bench.selectedScene && bench.workspaceTab !== "agent" && bench.workspaceTab !== "styles")
+      bench.workspaceTab = "agent";
+  });
+
+  // Load the project's active style pack whenever the project root changes.
+  $effect(() => {
+    const root = bench.project?.root;
+    if (!root) {
+      bench.activeStyleId = null;
+      return;
+    }
+    void api.loadStyleConfig(root).then(
+      ([style]) => (bench.activeStyleId = style?.id ?? null),
+      () => (bench.activeStyleId = null),
+    );
   });
 </script>
 
@@ -104,6 +127,23 @@
             >
               <i>▶</i> {t("tabs.preview")}
             </button>
+            <button
+              class="tab muted"
+              class:active={bench.workspaceTab === "review"}
+              onclick={() => (bench.workspaceTab = "review")}
+              aria-pressed={bench.workspaceTab === "review"}
+              disabled={!bench.selectedScene}
+            >
+              <i>⚖</i> {t("tabs.review")} {#if bench.reviewBusy}<b class="live">◆</b>{/if}
+            </button>
+            <button
+              class="tab muted"
+              class:active={bench.workspaceTab === "styles"}
+              onclick={() => (bench.workspaceTab = "styles")}
+              aria-pressed={bench.workspaceTab === "styles"}
+            >
+              <i>◈</i> {t("tabs.styles")}
+            </button>
           </nav>
           <div class="chat-frame">
             <div class="workspace-pane" class:hidden={bench.workspaceTab !== "agent"}><Chat /></div>
@@ -111,6 +151,10 @@
               <div class="workspace-pane"><SceneSource /></div>
             {:else if bench.workspaceTab === "preview"}
               <div class="workspace-pane"><ScenePreview /></div>
+            {:else if bench.workspaceTab === "review"}
+              <div class="workspace-pane"><ReviewPanel /></div>
+            {:else if bench.workspaceTab === "styles"}
+              <div class="workspace-pane"><StylesPanel /></div>
             {/if}
           </div>
         </section>
@@ -186,7 +230,7 @@
     appearance: none;
     -webkit-appearance: none;
     padding-right: 22px;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='5'%3E%3Cpath d='M0 0l3.5 5L7 0z' fill='%2352615d'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='5'%3E%3Cpath d='M0 0l3.5 5L7 0z' fill='%239eaaa6'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 8px center;
     cursor: pointer;
@@ -233,8 +277,12 @@
     --accent-line-strong: hsl(var(--theme-hue) 82% 62% / .62);
     --accent-glow: hsl(var(--theme-hue) 88% 58% / .32);
     --fg: #dbe7e3;
+    --fg-label: #9eaaa6;
     --fg-dim: #84928e;
     --fg-muted: #52615d;
+    --ui-label-size: 10px;
+    --ui-label-weight: 650;
+    --ui-label-tracking: .08em;
     --warning: #f2b946;
     --good: #62d184;
     --bad: #f06f62;
@@ -284,7 +332,7 @@
     font-size: 11px;
   }
   .first-run strong { letter-spacing: .06em; text-transform: uppercase; }
-  .first-run .hint { margin-left: auto; color: var(--fg-muted); font-family: var(--mono); }
+  .first-run .hint { margin-left: auto; color: var(--fg-dim); font-family: var(--mono); }
   .workbench {
     flex: 1;
     display: grid;
@@ -295,7 +343,7 @@
   }
   .center-stage { display: flex; min-width: 0; min-height: 0; flex-direction: column; }
   .workspace-tabs { display: flex; min-height: 36px; align-items: flex-end; gap: 2px; padding: 0 3px; }
-  .tab { display: flex; align-items: center; gap: 7px; min-width: 122px; max-width: 180px; height: 32px; padding: 0 13px; overflow: hidden; color: var(--fg-dim); border: 1px solid var(--line); border-bottom: 0; border-radius: 7px 7px 0 0; background: color-mix(in srgb, var(--panel) 88%, transparent); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; transition: color .15s ease, background .15s ease; }
+  .tab { display: flex; align-items: center; gap: 7px; min-width: 122px; max-width: 180px; height: 32px; padding: 0 13px; overflow: hidden; color: var(--fg-label); border: 1px solid var(--line); border-bottom: 0; border-radius: 7px 7px 0 0; background: color-mix(in srgb, var(--panel) 88%, transparent); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; transition: color .15s ease, background .15s ease; }
   .tab:hover:not(:disabled):not(.active) { color: var(--fg); background: color-mix(in srgb, var(--panel-raised) 92%, transparent); }
   .tab:disabled { opacity: .45; cursor: default; }
   .tab i { color: var(--accent); font-style: normal; }

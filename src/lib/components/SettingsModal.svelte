@@ -12,10 +12,9 @@
     spectrum_style: "bars",
     spectrum_bars: 64,
     theme_hue: 171,
-    personal_instructions: "",
     locale: "en",
   });
-  let tab = $state<"connection" | "persona" | "interface">("connection");
+  let tab = $state<"connection" | "interface">("connection");
   let apiKey = $state("");
   let allowInsecureStorage = $state(false);
   let busy = $state(false);
@@ -133,7 +132,6 @@
 
       <nav class="tab-nav" aria-label="Settings sections">
         <button class:active={tab === "connection"} onclick={() => (tab = "connection")} aria-pressed={tab === "connection"}>{t("settings.tab.connection")}</button>
-        <button class:active={tab === "persona"} onclick={() => (tab = "persona")} aria-pressed={tab === "persona"}>{t("settings.tab.persona")}</button>
         <button class:active={tab === "interface"} onclick={() => (tab = "interface")} aria-pressed={tab === "interface"}>{t("settings.tab.interface")}</button>
       </nav>
 
@@ -182,17 +180,6 @@
               {/if}
             </div>
           {/if}
-        {:else if tab === "persona"}
-          <label class="persona-label">
-            <span>{t("settings.personaLabel")}</span>
-            <textarea
-              rows="12"
-              bind:value={draft.personal_instructions}
-              placeholder={t("settings.personaPlaceholder")}
-              spellcheck="false"
-            ></textarea>
-          </label>
-          <p class="persona-hint">{t("settings.personaHint")}</p>
         {:else}
           <section class="theme-editor" aria-labelledby="theme-title">
             <div class="theme-copy">
@@ -300,13 +287,10 @@
   h2 { margin: 0; font-size: 19px; }
   .modal-head p { margin: 5px 0 0; color: var(--fg-dim); font-size: 12px; }
   .tab-nav { display: flex; flex-shrink: 0; gap: 2px; padding: 0 20px; border-bottom: 1px solid var(--line); }
-  .tab-nav button { position: relative; padding: 10px 14px; color: var(--fg-dim); border: 0; background: transparent; font-size: 11.5px; font-weight: 600; letter-spacing: .05em; cursor: pointer; transition: color .15s ease; }
+  .tab-nav button { position: relative; padding: 10px 14px; color: var(--fg-label); border: 0; background: transparent; font-size: 11.5px; font-weight: 600; letter-spacing: .05em; cursor: pointer; transition: color .15s ease; }
   .tab-nav button:hover { color: var(--fg); }
   .tab-nav button.active { color: var(--accent); }
   .tab-nav button.active::after { content: ""; position: absolute; right: 10px; bottom: -1px; left: 10px; height: 2px; border-radius: 2px; background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); }
-  .persona-label textarea { box-sizing: border-box; width: 100%; min-height: 220px; padding: 11px 12px; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); font: 12px/1.6 var(--mono); resize: vertical; }
-  .persona-label textarea:focus { outline: none; border-color: var(--accent); }
-  .persona-hint { margin: 2px 0 0; color: var(--fg-muted); font-size: 11px; line-height: 1.55; }
   select { box-sizing: border-box; width: 100%; padding: 9px 10px; color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; font: 13px var(--mono); }
   select:focus { outline: none; border-color: var(--accent); }
   .theme-editor {
@@ -361,7 +345,7 @@
     background: var(--accent-soft);
   }
   label { display: grid; gap: 6px; margin-bottom: 14px; flex: 1; }
-  label > span { color: var(--fg-dim); font-size: 12px; }
+  label > span { color: var(--fg-label); font-size: 12px; font-weight: var(--ui-label-weight); }
   input {
     box-sizing: border-box;
     width: 100%;
@@ -385,9 +369,9 @@
   }
   .result.failed { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
   .versions { margin-top: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
-  .versions h3 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; color: var(--fg-dim); }
+  .versions h3 { margin: 0 0 8px; color: var(--fg-label); font-size: 11px; font-weight: var(--ui-label-weight); text-transform: uppercase; }
   .versions dl { display: grid; grid-template-columns: 95px 1fr; gap: 5px 8px; margin: 0; font: 11px var(--mono); }
-  .versions dt { color: var(--fg-dim); }
+  .versions dt { color: var(--fg-label); font-weight: var(--ui-label-weight); }
   .versions dd { margin: 0; overflow-wrap: anywhere; }
   .versions p, .versions ul { color: var(--bad); font-size: 11px; line-height: 1.45; }
   .versions ul { color: var(--fg-dim); padding-left: 18px; }
