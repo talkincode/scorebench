@@ -1,6 +1,6 @@
-# 渲染流程与后端
+# Rendering Pipeline and Backends
 
-scorebench 不在进程内生成或处理声音。它把参数交给 ScoreKit，ScoreKit 再调用外部渲染器和 FFmpeg：
+scorebench does not generate or process audio in its own process. It passes build parameters to ScoreKit, which invokes external renderers and FFmpeg:
 
 ```text
 scene.yaml
@@ -13,41 +13,41 @@ MIDI
    └── sfizz_render + SFZ profile
             │
             ▼
-        raw audio
+         raw audio
             │ loop seal / tail / export
             ▼
- OGG 或 WAV + meta.json + 可选 stems
+ OGG or WAV + meta.json + optional stems
 ```
 
-ScoreKit 负责调用这些工具、检查退出状态并原子写入产物。scorebench 只读取最终文件，通过 WebAudio 播放、求频谱和绘制可视化。
+ScoreKit launches the tools, checks their results, and writes artifacts atomically. scorebench reads the finished files and uses WebAudio only for playback, spectrum analysis, and visualization.
 
-## 三种渲染后端
+## Three rendering backends
 
-| 后端 | 音源输入 | 适合 | 注意事项 |
+| Backend | Sound-source input | Best for | Important limitation |
 | --- | --- | --- | --- |
-| `fluidsynth` | 一个 GM 兼容 SF2 | 默认草图、快速迭代、安装简单 | 所有乐器来自同一 SoundFont；`articulation` 不生效 |
-| `timidity` | 一个 GM 兼容 SF2 | 备用 SF2 路径、交叉检查 | 不同实现的混音与音色响应可能不同；`articulation` 不生效 |
-| `sfizz` | SFZ 文件集合 + renderer profile | 使用更细致的开放采样库和奏法 | 必须提供 profile；每个场景乐器都要有映射，先做 profile check |
+| `fluidsynth` | One GM-compatible SF2 | Default sketches, fast iteration, easy setup | Every instrument comes from one SoundFont; `articulation` has no effect |
+| `timidity` | One GM-compatible SF2 | An alternate SF2 path or cross-check | Mixing and controller response can differ; `articulation` has no effect |
+| `sfizz` | SFZ files plus a renderer profile | Detailed sample libraries and multiple articulations | Requires a profile and a mapping for every scene instrument |
 
-`fluidsynth` 是 scorebench 的默认选择。只有在音乐结构已经可靠、并且你愿意管理采样库、路径与许可时，才需要切换 sfizz。
+FluidSynth is the default. Switch to sfizz only when the musical structure is stable and you are ready to manage sample libraries, file paths, compatibility, and licensing.
 
-## Render 面板参数
+## Render-panel controls
 
-| 参数 | 含义 | 使用建议 |
+| Control | Meaning | Guidance |
 | --- | --- | --- |
-| Renderer | MIDI 到 PCM 的合成后端 | 默认 FluidSynth；sfizz 需要 profile |
-| Sample rate | 每秒采样数，44100 或 48000 Hz | 音乐发行常用 44100；视频/部分游戏管线常用 48000 |
-| Format | `OGG` 或 `WAV` | OGG 适合小体积交付；WAV 适合后续制作或无损存档 |
-| Gain | 传给合成器的整体增益，界面范围 0–2 | 先用 0.8；爆音时降低，不要靠它修复编曲平衡 |
-| Quality | Vorbis 质量 0–10 | 主要影响 OGG 编码质量和体积，默认 5 |
-| Stems | 是否逐轨输出等长音频 | 需要游戏内动态混音或后期分轨时开启 |
-| SFZ profile | 乐器/奏法到 `.sfz` 的映射 | 仅 sfizz 使用；缺少映射时构建会失败 |
+| Renderer | The MIDI-to-PCM synthesis backend | Start with FluidSynth; sfizz requires a profile |
+| Sample rate | 44,100 or 48,000 samples per second | 44.1 kHz is common for music; 48 kHz is common in video and some game pipelines |
+| Format | `OGG` or `WAV` | OGG is compact; WAV is lossless and better for later production |
+| Gain | Overall renderer amplitude, from 0 to 2 in the UI | Start at 0.8; reduce clipping here, but do not use gain to fix arrangement balance |
+| Quality | Vorbis quality from 0 to 10 | Primarily affects OGG size and encoding quality; default 5 |
+| Stems | Render every track as aligned audio | Enable for adaptive playback or downstream mixing |
+| SFZ profile | Maps instruments and articulations to `.sfz` files | Used only by sfizz; missing mappings fail the build |
 
-渲染器与 SFZ profile 会保存在项目的 `bench.json` 中，并被 Agent 读取，用于在写场景时提前检查乐器映射。其他面板参数是当前运行时选择。
+The renderer and SFZ profile are stored in the project's `bench.json`, allowing the Agent to check instrument compatibility while writing a scene. The other controls are immediate Render-panel choices.
 
-## 输出文件
+## Output files
 
-单场景 `forest.yaml` 通常得到：
+A single `forest.yaml` scene typically produces:
 
 ```text
 out/
@@ -59,20 +59,20 @@ out/
     └── ...
 ```
 
-`meta.json` 是机器可读的构建结果，包含采样率、总采样数、循环区间、音频和 stems 等信息。scorebench 依赖这个文件判断构建成功，不解析 ScoreKit 的人类可读 stdout。
+`meta.json` is the machine-readable build result. It records the sample rate, total samples, loop range, audio asset, stems, and related metadata. scorebench uses this file to determine build success rather than parsing human-oriented ScoreKit stdout.
 
-带 `sections` 的 suite 会按 section 输出多个音频资产。每条 stem 与对应完整混音采样对齐，可在游戏运行时增加或移除声部；它们不是“自动母带后的独立歌曲”。
+A suite with `sections` emits separate audio assets per section. Every stem is sample-aligned with the corresponding full mix so a game can add or remove layers at runtime. Stems are not independently mastered songs.
 
-## 确定性边界
+## Determinism boundary
 
-- 同一场景、同一 ScoreKit 版本和同一 humanize seed 会生成相同 MIDI。
-- 音频还依赖渲染器、SoundFont/SFZ、FFmpeg、采样率等外部环境。需要字节级一致时，应固定完整工具链和音源校验值。
-- 更换音源不改变场景的音符结构，但可能显著改变包络、响度、频谱、空间感和奏法效果，必须重新试听。
-- scorebench 不在渲染后追加压限、均衡、响度标准化或母带处理。
+- The same scene, ScoreKit version, and humanize seed produce the same MIDI.
+- Audio also depends on the renderer, SoundFont or SFZ files, FFmpeg, sample rate, and external tool versions. Pin the complete toolchain and file checksums when byte-level audio identity matters.
+- Changing the sound source preserves note structure but can change envelope, loudness, spectrum, space, and articulation dramatically. Listen again after every source change.
+- scorebench does not add limiting, EQ, loudness normalization, or mastering after ScoreKit renders the file.
 
-## 选择后端的简单决策
+## A simple backend decision
 
-1. 还在改旋律/和声/段落？使用 FluidSynth。
-2. 只想比较另一个 SF2 后端？尝试 TiMidity++。
-3. 需要真实采样细节或多奏法？准备 SFZ 库和经过检查的 profile，再使用 sfizz。
-4. 需要商业插件、DAW 效果链或复杂母带？导出 WAV/stems，交给外部制作流程；不要期待 scorebench 内置完成。
+1. Still changing melody, harmony, or form? Use FluidSynth.
+2. Want to compare a second SF2 renderer? Try TiMidity++.
+3. Need detailed samples or multiple articulations? Prepare and certify an SFZ profile, then use sfizz.
+4. Need commercial plugins, a DAW effect chain, or mastering? Export WAV or stems and continue in an external production workflow.

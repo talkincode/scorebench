@@ -64,6 +64,8 @@ class BenchState {
 
   /** rel_path of the asset currently loaded in the player. */
   loadedAsset = $state<string | null>(null);
+  /** True while the player is actively playing (mirrored by Player). */
+  playing = $state(false);
   /** Bumped on every load request so re-loading the same path re-triggers. */
   loadSeq = $state(0);
 

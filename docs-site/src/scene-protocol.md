@@ -1,21 +1,21 @@
-# ScoreKit 场景协议
+# The ScoreKit Scene Protocol
 
-场景文件是 Agent 与 ScoreKit 编译器之间的协议。它是严格的 UTF-8 YAML：未知字段会报错，字段范围和交叉约束会被校验，不会静默忽略拼写错误。
+A scene file is the protocol between the Agent and the ScoreKit compiler. It is strict UTF-8 YAML: unknown fields are errors, ranges and cross-field rules are validated, and misspelled fields are never ignored silently.
 
-规范的机器真相始终是当前安装版本输出的 JSON Schema：
+The machine-readable source of truth is always the schema exported by the installed ScoreKit binary:
 
 ```bash
 scorekit schema
 scorekit --json validate scene.yaml
 ```
 
-当本手册、示例与本机二进制不一致时，以本机 `scorekit schema` 为准。
+If this guide or an example disagrees with your local binary, `scorekit schema` wins.
 
-## 最小但完整的场景
+## A minimal but complete scene
 
 ```yaml
 title: Forest at Dusk
-story: 夜间森林探索，安全、克制、带一点未知感。
+story: Nighttime forest exploration: safe, restrained, with a hint of mystery.
 tempo: 92
 key: D_minor
 time_signature: "4/4"
@@ -52,60 +52,60 @@ tracks:
     intensity: 0.3
 ```
 
-`story` 只为人和评审 Agent 保留叙事意图，并被带入 `meta.json`；它不改变任何音符或音频。
+`story` preserves narrative intent for people and review agents and is copied into `meta.json`. It never changes the notes or the rendered audio.
 
-## 场景顶层字段
+## Top-level fields
 
-| 字段 | 音乐含义 | 关键约束 |
+| Field | Musical meaning | Important constraints |
 | --- | --- | --- |
-| `title` | 人类可读标题 | 可选，不影响输出 |
-| `story` | 主题、情绪、戏剧意图 | 可选，只提供信息 |
-| `tempo` | 每分钟拍数 BPM | 20–300，必填 |
-| `key` | 主音与大小调音阶 | 如 `C_major`、`F#_minor`；默认 `C_major` |
-| `time_signature` | 拍号 | 如 `4/4`、`3/4`、`6/8`；默认 `4/4` |
-| `bars` | 场景小节数 | 1–256，必填 |
-| `loop` | 是否输出无缝循环 | 默认 `false` |
-| `harmony` | 每小节一个罗马数字和弦 | 循环到场景结束 |
-| `motifs` | 命名旋律动机 | 由 `melody` 轨引用 |
-| `performance` | 摇摆、连奏、力度弧线、确定性人性化 | 可选 |
-| `tracks` | 乐器轨道 | 1–16，最多一个鼓轨 |
-| `sections` | 共享材料的多个段落/状态 | 可选，构建时逐段输出 |
+| `title` | Human-readable title | Optional; does not affect output |
+| `story` | Theme, mood, and dramatic intent | Optional; informational only |
+| `tempo` | Beats per minute | Required; 20–300 |
+| `key` | Tonic and major/minor scale | For example `C_major` or `F#_minor`; default `C_major` |
+| `time_signature` | Meter | For example `4/4`, `3/4`, or `6/8`; default `4/4` |
+| `bars` | Scene length in bars | Required; 1–256 |
+| `loop` | Whether the output is a seamless loop | Default `false` |
+| `harmony` | One Roman-numeral chord per bar | Cycles until the scene ends |
+| `motifs` | Named melodic material | Referenced by `melody` tracks |
+| `performance` | Swing, legato, dynamics, and deterministic humanization | Optional |
+| `tracks` | Instrument tracks | 1–16, with at most one drum track |
+| `sections` | Named cues that share the scene's material | Optional; build emits one output per section |
 
-ScoreKit 当前根据场景音阶构造自然音三和弦。罗马数字大小写是书写习惯，`VI` 与 `vi` 在当前协议中选择相同的音阶级数，并不会强制不同和弦性质。不要把它当作完整的古典和声记谱系统。
+ScoreKit currently builds diatonic triads from the scene scale. Roman-numeral case is conventional: `VI` and `vi` select the same scale degree in the current protocol. This field is not a complete classical-harmony notation system.
 
-## 轨道与五种 pattern
+## Tracks and the five patterns
 
-每条轨道必须选择 `instrument` 和 `pattern`：
+Every track selects an `instrument` and a `pattern`:
 
-| pattern | 生成内容 | 常见角色 |
+| Pattern | Generated material | Typical role |
 | --- | --- | --- |
-| `melody` | 循环或截断指定 `motif` | 主题、对位、短句、带休止的进出 |
-| `sustain` | 每小节持续完整和弦 | Pad、弦乐铺底、和声背景 |
-| `arpeggio` | 以八分音符轮转根音、三音、五音、三音 | 流动织体、钢琴/竖琴分解 |
-| `bass` | 当前和弦根音的低音型 | 低频支撑 |
-| `drums` | 固定的底鼓、军鼓、踩镲节奏 | 基础律动；只能配 `instrument: drums` |
+| `melody` | Repeats or truncates a named `motif` | Theme, counterline, phrase, or timed entrance with rests |
+| `sustain` | Holds the full chord for each bar | Pads, string beds, and harmonic background |
+| `arpeggio` | Eighth notes in root–third–fifth–third order | Motion, piano or harp figures |
+| `bass` | Low roots derived from the current chord | Low-frequency foundation |
+| `drums` | A fixed kick, snare, and hi-hat groove | Basic pulse; must use `instrument: drums` |
 
-轨道还可设置：
+Tracks can also define:
 
-- `intensity`：0.0–1.0，缩放该轨音符力度；
-- `articulation`：`sustain`、`staccato`、`spiccato`、`pizzicato`、`tremolo`、`mute`；只用于 SFZ profile 选择样本，SF2 后端忽略；
-- `pan`：0.0 最左、0.5 居中、1.0 最右，对应 MIDI CC10；
-- `reverb`：0.0–1.0 的 MIDI CC91 发送量；SFZ 是否响应取决于 patch；
-- `glide`：仅 `melody` 可用，控制每个音末尾滑向下一个音的比例。
+- `intensity`: velocity scaling from 0.0 to 1.0.
+- `articulation`: `sustain`, `staccato`, `spiccato`, `pizzicato`, `tremolo`, or `mute`. It selects SFZ samples only; SF2 backends ignore it.
+- `pan`: 0.0 hard left, 0.5 center, 1.0 hard right, compiled to MIDI CC10.
+- `reverb`: a 0.0–1.0 MIDI CC91 send. An SFZ patch responds only if it maps the controller.
+- `glide`: on `melody` tracks only, the fraction of each note tail that bends toward the next pitch.
 
-## motif 与音级
+## Motifs and scale degrees
 
-motif 由 `{ degree, beats }` 组成：
+A motif is a list of `{ degree, beats }` entries:
 
-- `degree: 1` 是当前调的主音；
-- `degree: 8` 是高八度主音；
-- `degree: 0` 是休止；
-- 负数向下方音区延伸；
-- `beats` 是以四分音符为一拍的时值，范围 0.125–16。
+- `degree: 1` is the tonic in the current key.
+- `degree: 8` is the tonic one octave higher.
+- `degree: 0` is a rest.
+- Negative degrees extend below the reference register.
+- `beats` is measured in quarter-note beats and ranges from 0.125 to 16.
 
-旋律会重复或截断以精确填满场景/section。超过 16 拍的长休止要拆成多个条目。
+A melody repeats or truncates its motif to fill the scene or section exactly. Split a rest longer than 16 beats into multiple entries.
 
-## performance
+## Performance
 
 ```yaml
 performance:
@@ -120,12 +120,12 @@ performance:
     peak: f
 ```
 
-- `swing` 延迟反拍八分音符，范围 0.0–0.5；
-- `legato` 轻微延长非鼓音符，使相邻音衔接；
-- `humanize` 对起音和力度做带 seed 的小幅变化，同一 seed 可复现；
-- `dynamics` 使用 `pp p mp mf f ff`，从 `start` 上升到中点 `peak`，再回到 `start`，天然适合循环。
+- `swing` delays offbeat eighth notes and ranges from 0.0 to 0.5.
+- `legato` slightly extends non-drum notes so adjacent notes overlap.
+- `humanize` varies onset and velocity using a fixed seed, so the result is reproducible.
+- `dynamics` uses `pp p mp mf f ff`, rises from `start` to `peak` at the midpoint, then returns to `start` for a loop-safe arc.
 
-## sections：共享材料的场景组
+## Sections: related cues that share material
 
 ```yaml
 sections:
@@ -135,13 +135,13 @@ sections:
   - { name: victory, bars: 4, loop: false, mute: [3], intensity: 1.1 }
 ```
 
-section 可以改变 `bars`、`tempo`、`loop`、整体 `intensity`，或通过 **从 0 开始的轨道索引** `mute` 声部。它们共享顶层的 key、harmony、motifs、tracks 和 performance；当前协议不能为每个 section 单独换和声或改 motif 内容。
+A section can change `bars`, `tempo`, `loop`, and overall `intensity`, or silence tracks through the **zero-based** `mute` indexes. Sections inherit the top-level key, harmony, motifs, tracks, and performance. The current protocol cannot replace harmony or motif contents per section.
 
-## 不属于场景协议的内容
+## What does not belong in the scene protocol
 
-- SoundFont、SFZ 文件路径和渲染器；这些属于构建参数/渲染 profile。
-- 任意的 `mood`、`danger`、`avoid` 等无编译语义标签；请写在对话或 `story` 中。
-- 效果器链、母带、插件、音频后期；ScoreKit 不提供这些字段。
-- MIDI 手工事件、自动化曲线和逐音符任意编辑；协议只支持 schema 声明的确定性结构。
+- SoundFont, SFZ, and renderer paths. They are build parameters or renderer-profile data.
+- Arbitrary `mood`, `danger`, or `avoid` fields without compile semantics. Keep them in the conversation or `story`.
+- Plugin chains, mastering, equalization, or post-processing instructions.
+- Arbitrary MIDI events, automation curves, or free-form per-note editing outside the schema.
 
-需要完整字段范围和当前乐器枚举时，不要复制旧列表，直接运行 `scorekit schema`，或查阅 [ScoreKit Scene Protocol](https://talkincode.github.io/scorekit/scene-protocol.html)。
+For the complete current field ranges and instrument enum, run `scorekit schema` instead of copying an old list, or consult the [ScoreKit Scene Protocol](https://talkincode.github.io/scorekit/scene-protocol.html).

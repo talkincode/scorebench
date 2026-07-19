@@ -13,7 +13,7 @@ Origin ruling (2026-07): a "simple render GUI inside scorekit" was audited and r
 
 - **No agent frameworks, no LLM SDKs.** The ReACT loop is hand-rolled against the OpenAI Responses API spec (configurable base URL/key/model — works with any compatible endpoint). No multi-provider abstraction until a second provider spec is a proven need.
 - **No in-house audio.** No rendering, mixing, decoding, or DSP in Rust. scorekit produces every artifact; the webview's WebAudio API handles playback and FFT for the spectrum display.
-- **No editing UI.** No piano roll, timeline, or YAML form editors. Parameters are read-only observations; the agent is the only writer. (The user can always edit files in their own editor — scorebench watches the directory.)
+- **No structured editing UI.** No piano roll, timeline, or YAML form editors. Parameters are read-only observations. Scene YAML has exactly two writers: the agent's tools, and a manual raw-source editor (explicit Validate/Save buttons, never autosave) so experienced users can create and edit scenes without an API key. (The user can always edit files in their own editor too — scorebench watches the directory.)
 - **No multi-project workspace.** One window, one project. Project switching = open a different directory.
 - **No in-house version control.** Project directories are plain files, git-managed by the user.
 - **Host-agnostic core, no second host.** Tauri APIs are confined to the host layer (`lib.rs`, `main.rs`, `watcher.rs`, `settings.rs`); core modules (agent, llm, scorekit, project, sessions, memory, observation, attachments) stay framework-free — enforced by `src-tauri/tests/tauri_boundary.rs`. No web server / second host is built until a concrete deployment need exists; the rule exists so that extraction stays mechanical if that day comes.
@@ -48,7 +48,7 @@ The spectrum view becomes a pluggable module with a stable interface (bars/wavef
 
 Signed binaries via GitHub Actions for macOS/Windows/Linux; scorekit discovery and version check at startup (`scorekit doctor --json`).
 
-The release workflow builds both macOS architectures plus Windows and Linux, collects platform installers and checksums, and creates a draft release. macOS signing/notarization is conditional on repository Apple credentials; local unsigned bundles remain supported. A real notarized tag is an operational release action, not something the application can synthesize without those credentials.
+The release workflow builds both macOS architectures plus Windows and Linux, collects platform installers and checksums, and creates a draft release. Publishing that release updates the Homebrew cask in `talkincode/homebrew-tap` when `HOMEBREW_TAP_TOKEN` is configured. macOS signing/notarization is conditional on repository Apple credentials; local unsigned bundles remain supported. A real notarized tag is an operational release action, not something the application can synthesize without those credentials.
 
 ### M6 — Review panel (status: complete)
 
@@ -91,12 +91,13 @@ Rules (MUST):
 | Project memory + compaction | 1 | repeated three-cycle compaction keeps recent turns and coherent memory | corrupt line recovery; every two-phase kill point restores a loadable generation |
 | Player + spectrum (WebAudio) | 2 | GUI smoke: OGG/WAV, seek/pause/loop, live style switching incl. three.js scenes, auto style, fullscreen visualizer | decode errors surface; draw/WebGL failure falls back to bars without stopping playback |
 | scorekit startup handshake | 1 | doctor/version fixture and local GUI startup | missing/unversioned binary yields guidance or warning without blocking the app |
-| Release packaging | 1 | local macOS app + DMG build; four-target workflow validated by actionlint | absent Apple secrets leave unsigned/non-mac builds available; tag/version mismatch fails early |
+| Release packaging | 1 | local macOS app + DMG build; four-target workflow validated by actionlint; published releases update the Homebrew cask when the tap token is configured | absent Apple secrets leave unsigned/non-mac builds available; absent tap token skips Homebrew without failing; tag/version mismatch fails early |
 | Dark hue-variable interface | 2 | native-app visual smoke at default hue; settings round trip | hue outside 0–359 rejected before settings write |
 | Chat sessions (per-session memory) | 1 | session create/list/select round trip; legacy single-session state migrates to `sessions/main/` | invalid session ids rejected; corrupt index rebuilt from directory scan (`sessions.rs`) |
-| Message attachments (image/pdf/text) | 1 | paths become typed `ContentPart`s with data URLs (`attachments.rs`) | oversize and unsupported files yield typed errors, no partial sends |
+| Message attachments (image/pdf/text) | 1 | paths become typed `ContentPart`s with data URLs (`attachments.rs`); clipboard pastes are stashed to temp files (`stash`) and reuse the same path pipeline | oversize and unsupported files yield typed errors, no partial sends |
 | Scene deletion (GUI-confirmed) | 1 | `delete_scene` removes scene inside root | non-scene paths and traversal rejected by `resolve_inside` |
 | Scene source read (workspace tabs) | 1 | `read_scene_source` returns raw YAML for source/preview tabs | out-of-root and non-YAML paths rejected |
+| Manual scene authoring (create/edit/validate/save) | 1 | `create_scene` template + refuse-overwrite; `save_scene_source` snapshots history then writes atomically; `validate_scene_content` stages a hidden temp file for `scorekit validate --json` (`project.rs`, `observation.rs`) | non-YAML names, traversal, and existing files rejected; failed history snapshot degrades to a warning; editor never autosaves — Validate/Save are explicit buttons |
 | Locale + interface settings | 2 | persist/load round trip incl. `locale`; unknown locale falls back to `en` before write | legacy `personal_instructions` field still parses (persona retired in favor of style packs) |
 | Spectrum dynamics helpers | 2 | envelope/smoother/impact unit tests (`dynamics.test.ts`) | idle spectrum stays below quiet ceiling; impact decays without audio |
 | Review panel (multi-perspective critique) | 1 | recorded report fixture streams through scripted transport and parses into a typed report; evidence pack assembled from scene/validation/meta/memory/intents (`review.rs`) | non-JSON reply, empty-perspective report, unknown perspective id, transport failure, and missing terminal event are typed errors; evidence gathering rejects out-of-root scenes and tolerates unbuilt projects |

@@ -15,6 +15,7 @@ use crate::llm::types::ContentPart;
 const MAX_IMAGE_BYTES: u64 = 12 * 1024 * 1024;
 const MAX_PDF_BYTES: u64 = 24 * 1024 * 1024;
 const MAX_TEXT_BYTES: u64 = 256 * 1024;
+const MAX_STASH_BYTES: usize = 24 * 1024 * 1024;
 
 fn image_mime(ext: &str) -> Option<&'static str> {
     match ext {
@@ -41,6 +42,39 @@ fn file_name(path: &Path) -> String {
     path.file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "attachment".into())
+}
+
+/// Persist bytes pasted into the chat composer (clipboard has no file path)
+/// so they can flow through the normal path-based attachment pipeline.
+/// Returns the absolute path of the stashed copy.
+pub fn stash(file_name: &str, bytes: &[u8]) -> Result<std::path::PathBuf, BenchError> {
+    if bytes.is_empty() {
+        return Err(BenchError::invalid("pasted attachment is empty"));
+    }
+    if bytes.len() > MAX_STASH_BYTES {
+        return Err(BenchError::invalid(format!(
+            "pasted attachment is {} bytes; the limit is {MAX_STASH_BYTES}",
+            bytes.len()
+        )));
+    }
+    // Keep only the final path component so a hostile name cannot escape the stash dir.
+    let name = Path::new(file_name)
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .filter(|name| !name.is_empty() && name != "." && name != "..")
+        .unwrap_or_else(|| "pasted".into());
+    let dir = std::env::temp_dir().join(format!(
+        "scorebench-paste-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(BenchError::io)?
+            .as_nanos()
+    ));
+    fs::create_dir_all(&dir).map_err(BenchError::io)?;
+    let path = dir.join(name);
+    fs::write(&path, bytes).map_err(BenchError::io)?;
+    Ok(path)
 }
 
 /// Convert one absolute path into a content part.
@@ -157,6 +191,29 @@ mod tests {
     fn message_without_attachments_stays_plain_text() {
         let content = build_content("hello", &[]).unwrap();
         assert_eq!(content, MessageContent::Text("hello".into()));
+    }
+
+    #[test]
+    fn stash_writes_bytes_and_survives_round_trip() {
+        let path = stash("shot.png", &[0x89, 0x50, 0x4e, 0x47]).unwrap();
+        assert_eq!(path.file_name().unwrap(), "shot.png");
+        assert_eq!(fs::read(&path).unwrap(), vec![0x89, 0x50, 0x4e, 0x47]);
+        let part = content_part(&path).unwrap();
+        assert!(matches!(part, ContentPart::InputImage { .. }));
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn stash_strips_directory_components_from_name() {
+        let path = stash("../../etc/passwd", b"x").unwrap();
+        assert_eq!(path.file_name().unwrap(), "passwd");
+        assert!(path.starts_with(std::env::temp_dir()));
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn stash_rejects_empty_payload() {
+        assert!(stash("empty.txt", &[]).is_err());
     }
 
     #[test]

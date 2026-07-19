@@ -1,66 +1,66 @@
-# 从协议到编曲
+# From Protocol to Arrangement
 
-“场景有效”只表示它能被编译。让结果具有方向、层次与记忆点，还需要把音乐角色有意识地分配到 ScoreKit 能表达的字段上。
+A valid scene is merely compilable. Giving it direction, depth, and a memorable identity requires deliberate assignment of musical roles to the structures ScoreKit can express.
 
-## 先分配五种角色
+## Start with five roles
 
-| 编曲角色 | 常用协议映射 | 需要控制什么 |
+| Arrangement role | Common protocol mapping | What to control |
 | --- | --- | --- |
-| 主题/旋律 | `pattern: melody` + `motif` | 音级轮廓、节奏、休止、音区、动机重复 |
-| 和声背景 | `sustain` | 和弦进行、音色厚度、强度、远近 |
-| 流动织体 | `arpeggio` | 脉冲感、亮度、密度 |
-| 低频支撑 | `bass` | 稳定根基，避免与低音乐器过度叠加 |
-| 节奏骨架 | `drums` | 是否需要明确拍点；并非所有场景都需要鼓 |
+| Theme or melody | `pattern: melody` + `motif` | Contour, rhythm, rests, register, and repetition |
+| Harmonic bed | `sustain` | Progression, weight, intensity, and perceived distance |
+| Moving texture | `arpeggio` | Pulse, brightness, and density |
+| Low foundation | `bass` | Stability without unnecessary low-frequency doubling |
+| Rhythmic frame | `drums` | Whether the scene needs an explicit beat at all |
 
-一条轨道应先有清楚的角色。把很多相似音色同时设为 `sustain`，通常只会变厚和变浑；它不会自动形成“层次”。
+Give each track a clear job first. Several similar instruments all using `sustain` usually create thickness and masking, not automatically “more layers.”
 
-## 用动机建立记忆点
+## Build identity with a motif
 
-动机不必很长。4–6 个有辨识度的音级加上明确节奏，往往比不断添加新旋律更容易被记住。
+A motif does not need to be long. Four to six recognizable scale degrees with a deliberate rhythm are often more memorable than a stream of unrelated melodies.
 
-可用的变化方法：
+Ways to develop the same motif include:
 
-- 同一轮廓移高或移低八度；
-- 改变时值，但保留关键落点；
-- 用另一件乐器回应；
-- 在重复之间插入 `degree: 0` 的休止；
-- 在 combat 中保留动机，只改变强度和配器，而不是换掉作品身份。
+- Move the contour up or down an octave.
+- Change durations while keeping important arrival points.
+- Let another instrument answer it.
+- Insert `degree: 0` rests between statements.
+- Preserve it in combat while changing intensity and instrumentation.
 
-ScoreKit 的 `melody` 会自动重复到填满长度，所以要主动设计动机末尾的休止，否则短动机会像持续不停的循环句。
+ScoreKit repeats a `melody` motif until the target length is filled. Design rests at the end of a short motif or it may sound like a phrase that never breathes.
 
-## 用和声控制方向
+## Use harmony to create direction
 
-`harmony` 每小节使用一个自然音级三和弦，并循环到结束。编写时先问两个问题：
+`harmony` supplies one diatonic triad per bar and cycles to the end. Ask two questions:
 
-1. 最后一小节是否自然地引回第一小节？这对 loop 尤其重要。
-2. 和声变化速度是否适合场景？每小节一个和弦是当前协议的固定颗粒度，不能写半小节换和弦。
+1. Does the final bar lead naturally back to the first? This matters especially for loops.
+2. Is one chord per bar the right harmonic rhythm? That is the protocol's fixed resolution; it cannot change chords halfway through a bar.
 
-小调示例 `i, VI, III, VII` 倾向稳定循环；`i, iv, VI, v` 更有回归张力。它们是起点，不是情绪公式，仍需结合旋律与配器试听。
+In minor, `i, VI, III, VII` often forms a stable cycle, while `i, iv, VI, v` can create a stronger pull back toward the start. Treat these as starting points, not emotion formulas, and judge them with the melody and orchestration.
 
-## 密度比“全部加响”更重要
+## Density matters more than making everything louder
 
-情绪弧线可以通过三件事共同完成：
+Build an emotional arc with three independent controls:
 
-- **发声数量**：section 的 `mute` 决定哪些轨道进入；
-- **相对强度**：轨道 `intensity` 决定角色权重，section `intensity` 调整整段；
-- **音区与音色**：选择高音乐器、低音乐器、明亮或柔和音色。
+- **Voice count:** section `mute` controls which tracks enter.
+- **Relative weight:** track `intensity` sets role balance, while section `intensity` scales the complete cue.
+- **Register and color:** choose high, mid, or low instruments and brighter or softer timbres.
 
-例如探索到战斗的变化可以是：探索段静音鼓和铜管；战斗段解除静音、提高整体强度和速度，但继续使用同一 motif。这样变化明显，身份仍连续。
+An exploration-to-combat transition might mute drums and brass during exploration, then restore them and raise tempo and intensity for combat while preserving the same motif. The energy changes without losing identity.
 
-当前 `sustain`、`arpeggio`、`bass`、`drums` 会贯穿整个场景/section。需要一条轨在中途出现和消失时，用 `melody` pattern 配合休止来写入场时机，或拆成不同 sections。
+The `sustain`, `arpeggio`, `bass`, and `drums` patterns fill the entire scene or section. For a mid-section entrance or exit, use a `melody` track with rests, or split the form into sections.
 
-## 空间与前后层次
+## Stereo and depth
 
-- `pan` 负责左右位置。主旋律通常接近中间；互补织体可以适度分开。
-- `reverb` 表示发送量，不等于内置了同一种混响。不同后端和音源对 CC91 的响应可能不同。
-- 降低背景轨 `intensity` 往往比把主旋律加到最大更自然。
-- 低频乐器过多时，即使每轨都不响，也可能互相遮蔽。优先明确唯一的低频核心。
+- `pan` places a track left or right. Keep a primary melody near the center and separate complementary textures modestly.
+- `reverb` is a send value, not a guaranteed built-in acoustic space. Different renderers and sources may respond differently to CC91.
+- Lowering background `intensity` is often more natural than pushing the lead to maximum velocity.
+- Too many low instruments can mask each other even when none is loud. Choose one clear low-frequency anchor.
 
-## 机械感与人性化
+## Mechanical feel and humanization
 
-先修正旋律、节奏和密度，再加 humanize。随机偏移不能挽救没有呼吸的句子。
+Fix phrasing, rhythm, and density before adding humanization. Random offsets cannot repair a phrase with no breathing room.
 
-一个克制的起点：
+A restrained starting point is:
 
 ```yaml
 performance:
@@ -69,39 +69,39 @@ performance:
   dynamics: { start: mp, peak: f }
 ```
 
-- timing 太大会损害节奏清晰度；
-- velocity 太大会破坏声部平衡；
-- `seed` 应固定，方便复现和比较；
-- swing 只在需要摇摆律动时使用，不是通用的“真人按钮”；
-- `legato` 是时值重叠，不会自动切换到采样库中的连奏 patch。
+- Excessive timing variation weakens rhythmic clarity.
+- Excessive velocity variation destabilizes role balance.
+- Keep the seed fixed so revisions are reproducible and comparable.
+- Use swing only when the groove calls for it; it is not a universal “human” switch.
+- Protocol `legato` overlaps durations. It does not select a sample library's scripted legato patch.
 
-## 循环与一次性段落
+## Loops and one-shot cues
 
-### 无缝循环
+### Seamless loops
 
-- 使用 `loop: true`；
-- 让和声末尾愿意回到开头；
-- 避免只在结尾出现、回到开头便突兀消失的高能材料；
-- `dynamics` 会回到起始级别，但配器和和声仍需人工设计闭环；
-- 渲染后检查 `meta.json` 的循环采样信息，并实际连续播放多轮。
+- Set `loop: true`.
+- Let the final harmony want to return to the opening.
+- Avoid high-energy material that appears only at the end and vanishes at the loop point.
+- `dynamics` returns to its start level, but orchestration and harmony still need a musical loop design.
+- Inspect loop sample metadata and listen through several consecutive passes.
 
-### 一次性 cue
+### One-shot cues
 
-- 使用 `loop: false`；
-- 可以让最后和弦和旋律明确收束；
-- ScoreKit 会保留衰减尾音，适合 intro、transition、victory sting 等。
+- Set `loop: false`.
+- Allow the final harmony and melody to resolve clearly.
+- ScoreKit preserves a decay tail, which suits intros, transitions, and victory stings.
 
-## 一个从需求到字段的例子
+## Example: translating a brief into fields
 
-需求：“压抑的地下遗迹探索，偶尔有远处回声；进入战斗后节奏变紧，但主题不能变。”
+Brief: “Oppressive underground-ruin exploration with an occasional distant echo. Combat should tighten the rhythm without losing the theme.”
 
-| 需求片段 | 可执行选择 |
+| Brief element | Executable choice |
 | --- | --- |
-| 压抑 | 小调、中低速度、稀疏 motif、较多休止 |
-| 地下遗迹 | 低弦 sustain、稀疏音色、背景更高 reverb（需试听后端响应） |
-| 远处回声 | 第二条 melody 低 intensity、偏侧 pan、用休止形成问答 |
-| 探索 | section 静音鼓，整体 intensity 较低 |
-| 战斗 | section 解除鼓、提高 tempo/intensity，保留同一 motif |
-| 主题连续 | sections 共享 motifs 与 harmony，必要时让不同乐器接力同一动机 |
+| Oppressive | Minor key, low-to-medium tempo, sparse motif, and substantial rests |
+| Underground ruins | Sustained low strings, restrained color, and more background reverb after checking backend response |
+| Distant echo | A second low-intensity melody, offset pan, and rests that create call and response |
+| Exploration | A section with drums muted and lower overall intensity |
+| Combat | Restore drums, raise tempo and intensity, and retain the motif |
+| Continuous identity | Share motifs and harmony across sections and pass the same material between instruments |
 
-如果需求需要协议没有的能力——例如 section 独立和声、任意渐变自动化或逐音符奏法——应明确说明限制，而不是向 YAML 添加虚构字段。
+If a brief requires a capability the protocol does not have—such as independent harmony per section, arbitrary automation curves, or free per-note articulation—state the limitation instead of adding imaginary YAML fields.

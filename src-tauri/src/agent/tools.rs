@@ -278,23 +278,7 @@ fn write_scene(root: &Path, args: WriteArgs) -> Result<ToolResult, BenchError> {
     let mut warnings = Vec::new();
     let mut history_path = None;
     if let Some(previous) = &previous {
-        let safe_name = args
-            .path
-            .chars()
-            .map(|character| {
-                if character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_') {
-                    character
-                } else {
-                    '_'
-                }
-            })
-            .collect::<String>();
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let rel = format!(".scorebench/history/{stamp}-{safe_name}");
-        match project::write_text_atomic(root, &rel, previous) {
+        match project::snapshot_history(root, &args.path, previous) {
             Ok(path) => history_path = Some(path),
             Err(error) => warnings.push(format!("history snapshot failed: {error}")),
         }

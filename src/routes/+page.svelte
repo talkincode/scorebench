@@ -62,7 +62,8 @@
   });
 
   function sceneLabel(): string {
-    return bench.selectedScene?.split("/").at(-1) ?? t("tabs.source");
+    const name = bench.selectedScene?.split("/").at(-1);
+    return name ? name.replace(/\.ya?ml$/i, "") : t("tabs.source");
   }
 
   // Scene/preview tabs need a selected scene; fall back to the agent view.
@@ -110,13 +111,14 @@
               <i>⌁</i> {t("tabs.agent")} {#if bench.agentBusy}<b class="live">◆</b>{/if}
             </button>
             <button
-              class="tab"
+              class="tab scene-tab"
               class:active={bench.workspaceTab === "scene"}
               onclick={() => (bench.workspaceTab = "scene")}
               aria-pressed={bench.workspaceTab === "scene"}
               disabled={!bench.selectedScene}
+              title={bench.selectedScene ?? undefined}
             >
-              <i>◇</i> {sceneLabel()}
+              <i>◇</i> <span class="tab-label">{sceneLabel()}</span>
             </button>
             <button
               class="tab muted"
@@ -351,6 +353,8 @@
   .tab.active { position: relative; color: var(--accent); border-color: var(--accent-line-strong); background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 14%, var(--panel)), var(--panel)); box-shadow: 0 -6px 18px color-mix(in srgb, var(--accent) 8%, transparent); }
   .tab.active::after { content: ""; position: absolute; right: 0; bottom: -1px; left: 0; height: 1px; background: var(--panel-deep); }
   .tab.muted { min-width: 95px; }
+  .tab.scene-tab { flex-shrink: 1; max-width: 260px; }
+  .tab-label { overflow: hidden; min-width: 0; text-overflow: ellipsis; white-space: nowrap; }
   @keyframes blink { from { opacity: .35; } to { opacity: 1; } }
   .chat-frame { position: relative; flex: 1; min-height: 0; border: 1px solid var(--accent-line); border-radius: var(--radius-lg); background: var(--panel-glass); box-shadow: var(--panel-shadow), inset 0 1px 0 rgba(255,255,255,.025); overflow: hidden; }
   .workspace-pane { position: absolute; inset: 0; }
