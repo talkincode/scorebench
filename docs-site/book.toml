@@ -1,0 +1,15 @@
+[book]
+authors = ["scorebench contributors"]
+language = "zh-CN"
+src = "src"
+title = "scorebench 用户手册"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+default-theme = "navy"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/talkincode/scorebench"
+site-url = "/scorebench/"
