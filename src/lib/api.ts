@@ -143,7 +143,8 @@ export interface BuildParams {
 export function errorText(err: unknown): string {
   const e = err as BenchError;
   if (e && typeof e === "object" && "message" in e) {
-    return e.code ? `${e.code}: ${e.message}` : e.message;
+    const message = e.code ? `${e.code}: ${e.message}` : e.message;
+    return e.body_excerpt ? `${message}\n${e.body_excerpt}` : message;
   }
   return String(err);
 }

@@ -12,9 +12,9 @@ All commands ran from a clean dependency graph on the implementation branch:
 | --- | --- |
 | `cargo fmt --check` | pass |
 | `cargo clippy --all-targets --all-features -- -D warnings` | pass |
-| `cargo test --all-features` | 51 passed after the repeated-compaction test was added |
+| `cargo test --all-features` | 58 passed, including keychain write verification, Azure/OpenAI auth headers, and strict tool-schema coverage |
 | `npm run check` | 0 errors, 0 warnings |
-| `npm test` | 1 Vitest file passed |
+| `npm test` | 2 Vitest files passed |
 | `npm run build` | production static build passed |
 | `actionlint .github/workflows/*.yml` | pass |
 | `npm run tauri build -- --debug` | `.app` and `.dmg` produced |
@@ -34,6 +34,7 @@ The app was exercised as a bundled Tauri application, not as a static browser mo
 - Filesystem: a live tempo edit changed the inspector from 92 to 93 BPM and was reverted to 92, exercising watcher refresh.
 - Layout: the native window declares and enforces a 960×640 minimum; the final three-column dark-console design was visually inspected at 1280×800. At narrower widths it uses the compact grid breakpoint rather than introducing an editing surface.
 - Theme: the default 171° dark teal hue was inspected in the bundled app. Hue is a persisted setting and feeds the CSS token system plus every canvas spectrum style; backend validation rejects values outside 0–359.
+- Azure v1: the bundled app read the existing macOS Keychain entry, `Test connection` returned `connection ok`, and a full Agent request with all eight strict tools returned `OK`. The live model then accepted nullable optional build arguments and completed read/write/validate/build without an HTTP 400.
 
 The old M0 `/doctor` and `/build` stub commands no longer exist: M1 intentionally replaced them with the Responses-driven ReACT loop. Their scorekit tool-start/tool-result/error behaviors are covered by scripted loop tests and the real render smoke above.
 
@@ -41,6 +42,9 @@ The old M0 `/doctor` and `/build` stub commands no longer exist: M1 intentionall
 
 - Settings and scene YAML use temp-file + fsync + rename; injected rename failures preserve the prior file.
 - API key tests use a fake secret and confirm the keychain path writes no project/app-config plaintext. The explicit insecure fallback is mode 0600 and is never enabled implicitly.
+- API key writes are read back before success is reported. A keychain false-positive fails closed, or uses the mode-0600 fallback only when the user explicitly opted in; a fallback write outranks a stale keychain value.
+- macOS Keychain access uses the system `security` client with secret input over stdin, so the key is absent from argv and logs. Azure OpenAI/Foundry v1 hosts use the documented `api-key` header; OpenAI hosts retain Bearer authentication.
+- Strict tool schemas list every property in `required`; logical optional parameters are nullable. HTTP error bodies are capped in Rust and surfaced by the frontend so invalid-request details are actionable.
 - Transcript loading skips corrupt lines with a warning.
 - Compaction has four injected kill points; every point restores the previous readable generation.
 - Three consecutive compaction cycles preserve the rolling memory and the four most recent input items while archiving every folded item.
