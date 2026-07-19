@@ -3,6 +3,7 @@
   import { api, errorText, type AgentEvent } from "../api";
   import { t } from "../i18n.svelte";
   import { bench } from "../state.svelte";
+  import BrandMark from "./BrandMark.svelte";
 
   let input = $state("");
   let scroller: HTMLDivElement | undefined = $state();
@@ -12,6 +13,7 @@
   let newLinkScene = $state(true);
   let transcriptLoading = $state(false);
   let ready = $derived(Boolean(bench.project && bench.settings && bench.apiKeySet));
+  let sessionScene = $derived(bench.sessions.find((session) => session.id === bench.activeSession)?.scene ?? null);
   const prompts = [
     ["✦", "Nostalgic piano", "in G major, 3/4, 8 bars"],
     ["▮▮▮", "Cinematic strings", "with a slow build, 4/4"],
@@ -214,20 +216,22 @@
       <div class="empty-state">
         <div class="signal-orbit" aria-hidden="true">
           <span></span><span></span><span></span><span></span>
-          <i>▮ ▮▮ ▮</i>
+          <i><BrandMark size={40} ring={false} /></i>
         </div>
         <div class="empty-copy">
           <h1>{t("chat.emptyTitle")}</h1>
           <p>{bench.apiKeySet ? t("chat.emptyReady") : t("chat.emptyNoKey")}</p>
           <small>{t("chat.emptyHint")}</small>
         </div>
-        <div class="prompt-grid">
-          {#each prompts as prompt}
-            <button onclick={() => (input = `${prompt[1]} ${prompt[2]}`)} disabled={!ready}>
-              <i>{prompt[0]}</i><span><strong>{prompt[1]}</strong><small>{prompt[2]}</small></span>
-            </button>
-          {/each}
-        </div>
+        {#if !sessionScene}
+          <div class="prompt-grid">
+            {#each prompts as prompt}
+              <button onclick={() => (input = `${prompt[1]} ${prompt[2]}`)} disabled={!ready}>
+                <i>{prompt[0]}</i><span><strong>{prompt[1]}</strong><small>{prompt[2]}</small></span>
+              </button>
+            {/each}
+          </div>
+        {/if}
       </div>
     {:else}
       <div class="message-stream">
@@ -320,7 +324,7 @@
   .signal-orbit span:nth-child(4) { width: 1px; height: 118px; border: 0; border-left: 1px solid var(--accent-line); border-radius: 0; box-shadow: 40px 0 0 hsl(var(--theme-hue) 70% 55% / .08), -40px 0 0 hsl(var(--theme-hue) 70% 55% / .08); }
   .signal-orbit::before, .signal-orbit::after { content: ""; position: absolute; width: 100%; height: 1px; background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: .35; }
   .signal-orbit::after { width: 134px; transform: rotate(90deg); opacity: .18; }
-  .signal-orbit i { z-index: 2; display: grid; place-items: center; width: 57px; height: 57px; color: var(--accent); border: 1px solid var(--accent); border-radius: 50%; background: radial-gradient(circle, var(--accent-soft), var(--panel-deep)); box-shadow: 0 0 28px var(--accent-glow), inset 0 0 18px var(--accent-soft); font: normal 11px var(--mono); letter-spacing: 2px; text-shadow: 0 0 10px var(--accent); }
+  .signal-orbit i { z-index: 2; display: grid; place-items: center; width: 57px; height: 57px; color: var(--accent); border: 1px solid var(--accent); border-radius: 50%; background: radial-gradient(circle, var(--accent-soft), var(--panel-deep)); box-shadow: 0 0 28px var(--accent-glow), inset 0 0 18px var(--accent-soft); }
   .empty-copy h1 { margin: 0 0 7px; color: var(--fg); font-size: clamp(22px, 2.5vw, 32px); font-weight: 430; letter-spacing: .04em; }
   .empty-copy p { margin: 0; color: var(--fg-dim); font-size: 12px; }
   .empty-copy small { display: block; margin-top: 5px; color: var(--fg-muted); font-size: 11px; }

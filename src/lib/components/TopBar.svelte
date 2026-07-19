@@ -4,6 +4,7 @@
   import { api, errorText } from "../api";
   import { t } from "../i18n.svelte";
   import { bench } from "../state.svelte";
+  import BrandMark from "./BrandMark.svelte";
 
   async function openProject() {
     const dir = await open({ directory: true, title: t("topbar.openProjectDialog") });
@@ -33,7 +34,7 @@
 
 <header class="topbar">
   <div class="brand">
-    <span class="brand-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+    <span class="brand-mark" aria-hidden="true"><BrandMark size={30} /></span>
     <span class="name">scorebench</span>
     {#if bench.project}<span class="project-name" title={bench.project.root}>/ {bench.project.name}</span>{/if}
   </div>
@@ -55,10 +56,7 @@
 <style>
   .topbar { display: flex; align-items: center; gap: 16px; height: 52px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--panel-deep) 92%, transparent); box-shadow: 0 8px 22px rgba(0,0,0,.16); }
   .brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
-  .brand-wave { display: flex; align-items: center; gap: 3px; height: 27px; padding: 0 5px; border-left: 1px solid var(--accent-line-strong); border-right: 1px solid var(--accent-line-strong); }
-  .brand-wave i { display: block; width: 2px; height: 8px; border-radius: 9px; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
-  .brand-wave i:nth-child(2), .brand-wave i:nth-child(4) { height: 17px; }
-  .brand-wave i:nth-child(3) { height: 25px; }
+  .brand-mark { display: grid; place-items: center; color: var(--accent); filter: drop-shadow(0 0 6px var(--accent-glow)); }
   .name { font-size: 16px; font-weight: 450; letter-spacing: .015em; }
   .project-name { max-width: 220px; overflow: hidden; color: var(--fg-muted); font: 11px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
   .actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
