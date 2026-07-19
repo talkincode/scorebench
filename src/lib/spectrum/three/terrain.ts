@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { bandLevels, createShell, energyLevel, glowTexture, hueColor } from "./common";
+import { AudioPulse } from "../dynamics";
+import { bandLevels, bassLevel, createShell, energyLevel, glowTexture, hueColor } from "./common";
 import type { ThreeFrame, ThreeInstance } from "./types";
 
 const COLS = 72;
@@ -58,6 +59,7 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
 
   let travel = 0;
   let lastHue = Number.NaN;
+  const pulse = new AudioPulse();
   return {
     render(frame: ThreeFrame) {
       const hue = frame.options.themeHue ?? 171;
@@ -66,9 +68,13 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
         wireMaterial.color = hueColor(hue, 0.82, 0.52);
         horizon.material.color = hueColor(hue + 14, 0.9, 0.55);
       }
-      const energy = energyLevel(frame.freq);
+      const { energy, impact } = pulse.update(
+        energyLevel(frame.freq),
+        bassLevel(frame.freq),
+        frame.dt,
+      );
       const motion = frame.prefersReducedMotion ? 0.18 : 1;
-      travel += frame.dt * ROW_DEPTH * (5 + energy * 16) * motion;
+      travel += frame.dt * ROW_DEPTH * (5 + energy * 16 + impact * 9) * motion;
       while (travel >= ROW_DEPTH) {
         travel -= ROW_DEPTH;
         pushRow(frame.freq);
@@ -77,8 +83,11 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       writeHeights();
       group.position.z = scroll * ROW_DEPTH;
 
-      horizon.material.opacity = 0.35 + energy * 0.45;
+      horizon.material.opacity = 0.32 + energy * 0.4 + impact * 0.28;
+      horizon.scale.set(90 + impact * 14, 26 + impact * 6, 1);
+      wireMaterial.opacity = 0.72 + impact * 0.28;
       shell.camera.position.x = Math.sin(frame.elapsed * 0.05 * motion) * 2.2;
+      shell.camera.position.y = 8.2 + impact * 0.7 * motion;
       shell.camera.lookAt(0, 3.2, -DEPTH / 2);
       shell.renderer.render(shell.scene, shell.camera);
     },

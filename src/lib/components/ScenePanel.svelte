@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { open } from "@tauri-apps/plugin-dialog";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import {
     api,
@@ -8,6 +9,7 @@
     type BuildParams,
     type SceneInspection,
   } from "../api";
+  import { t } from "../i18n.svelte";
   import { bench } from "../state.svelte";
 
   let tab = $state<"observe" | "render" | "outputs">("observe");
@@ -17,6 +19,7 @@
   let quality = $state(5);
   let stems = $state(false);
   let format = $state<"ogg" | "wav">("ogg");
+  let profilePath = $state<string | null>(null);
   let inspection = $state<SceneInspection | null>(null);
   let inspectionError = $state<string | null>(null);
   let inspectionSeq = 0;
@@ -25,11 +28,11 @@
   let metaError = $state<string | null>(null);
 
   const GAUGES = [
-    { label: "Density", words: ["Sparse", "Balanced", "Dense"] },
-    { label: "Dynamics", words: ["Flat", "Expressive", "Wild"] },
-    { label: "Complexity", words: ["Simple", "Layered", "Intricate"] },
-    { label: "Energy", words: ["Calm", "Driving", "Intense"] },
-  ];
+    { key: "gauge.density", words: ["Sparse", "Balanced", "Dense"] },
+    { key: "gauge.dynamics", words: ["Flat", "Expressive", "Wild"] },
+    { key: "gauge.complexity", words: ["Simple", "Layered", "Intricate"] },
+    { key: "gauge.energy", words: ["Calm", "Driving", "Intense"] },
+  ] as const;
 
   $effect(() => {
     const root = bench.project?.root;
@@ -112,12 +115,28 @@
     }
   }
 
+  const needsProfile = $derived(renderer === "sfizz" && !profilePath);
+
+  async function pickProfile() {
+    const picked = await open({
+      multiple: false,
+      directory: false,
+      defaultPath: bench.project?.root,
+      filters: [{ name: "Render profile", extensions: ["yaml", "yml"] }],
+    });
+    if (typeof picked === "string") profilePath = picked;
+  }
+
   async function render() {
-    if (!bench.project || !bench.selectedScene || bench.building) return;
+    if (!bench.project || !bench.selectedScene || bench.building || needsProfile) return;
     bench.building = true;
     bench.buildFailed = false;
     bench.buildStatus = "starting…";
     const params: BuildParams = { renderer, sample_rate: sampleRate, gain, quality, stems };
+    if (renderer === "sfizz" && profilePath) {
+      const root = bench.project.root;
+      params.profile = profilePath.startsWith(root + "/") ? profilePath.slice(root.length + 1) : profilePath;
+    }
     try {
       await api.runBuild(bench.project.root, bench.selectedScene, params, format, onBuildEvent);
     } catch (error) {
@@ -174,29 +193,29 @@
 <div class="panel">
   <nav class="tabs">
     <button class:active={tab === "observe"} onclick={() => (tab = "observe")} aria-pressed={tab === "observe"}>
-      Observe
+      {t("panel.observe")}
       {#if inspection}<i class="dot {inspection.validation.status}" aria-hidden="true"></i>{/if}
     </button>
     <button class:active={tab === "render"} onclick={() => (tab = "render")} aria-pressed={tab === "render"}>
-      Render
+      {t("panel.render")}
       {#if bench.building}<i class="dot busy" aria-hidden="true"></i>{:else if bench.buildFailed}<i class="dot invalid" aria-hidden="true"></i>{/if}
     </button>
     <button class:active={tab === "outputs"} onclick={() => (tab = "outputs")} aria-pressed={tab === "outputs"}>
-      Outputs
+      {t("panel.outputs")}
       {#if audioAssets.length}<em>{audioAssets.length}</em>{/if}
     </button>
   </nav>
 
   {#if tab === "observe"}
     <section class="module gauges-module">
-      <header class="module-head"><h2>Musical profile</h2></header>
+      <header class="module-head"><h2>{t("panel.profileTitle")}</h2></header>
       <div class="gauge-grid">
         {#each GAUGES as gauge, index}
           <div class="gauge">
             <span class="dial" style={`--value: ${profile[index]}; --gauge-shift: ${index * 38}`}>
               <strong>{profile[index]}<small>%</small></strong>
             </span>
-            <b>{gauge.label}</b>
+            <b>{t(gauge.key)}</b>
             <em>{inspection?.scene ? gaugeWord(index) : "—"}</em>
           </div>
         {/each}
@@ -205,33 +224,33 @@
 
     <section class="module overview">
       <header class="module-head">
-        <h2>Scene signal</h2>
+        <h2>{t("panel.sceneSignal")}</h2>
         {#if inspection}
           <span class="badge {inspection.validation.status}">{inspection.validation.status}</span>
         {/if}
-        <button class="mini" onclick={refreshProject}>Refresh</button>
+        <button class="mini" onclick={refreshProject}>{t("panel.refresh")}</button>
       </header>
       {#if inspectionError}
         <p class="status failed">{inspectionError}</p>
       {:else if !bench.selectedScene}
-        <p class="empty">Select a scene.</p>
+        <p class="empty">{t("panel.selectScene")}</p>
       {:else if !inspection}
-        <p class="empty scanning">Reading scene signal…</p>
+        <p class="empty scanning">{t("panel.reading")}</p>
       {:else if inspection.parse_error}
-        <p class="status failed">Unparseable YAML · {inspection.parse_error}</p>
+        <p class="status failed">{t("panel.unparseable")} · {inspection.parse_error}</p>
       {:else if inspection.scene}
         <div class="facts">
-          <span class="wide"><b>Title</b>{inspection.scene.title ?? "Untitled scene"}</span>
-          <span><b>Tempo</b>{inspection.scene.tempo ?? "—"} BPM</span>
-          <span><b>Key</b>{inspection.scene.key ?? "—"}</span>
-          <span><b>Meter</b>{inspection.scene.time_signature ?? "—"}</span>
-          <span><b>Bars</b>{inspection.scene.bars ?? "—"}</span>
-          <span><b>Loop</b>{inspection.scene.loop_enabled == null ? "—" : inspection.scene.loop_enabled ? "Yes" : "No"}</span>
-          <span><b>Performance</b>{inspection.scene.has_performance ? "Present" : "Default"}</span>
+          <span class="wide"><b>{t("panel.title")}</b>{inspection.scene.title ?? t("panel.untitled")}</span>
+          <span><b>{t("panel.tempo")}</b>{inspection.scene.tempo ?? "—"} BPM</span>
+          <span><b>{t("panel.key")}</b>{inspection.scene.key ?? "—"}</span>
+          <span><b>{t("panel.meter")}</b>{inspection.scene.time_signature ?? "—"}</span>
+          <span><b>{t("panel.bars")}</b>{inspection.scene.bars ?? "—"}</span>
+          <span><b>{t("panel.loop")}</b>{inspection.scene.loop_enabled == null ? "—" : inspection.scene.loop_enabled ? t("panel.yes") : t("panel.no")}</span>
+          <span><b>{t("panel.performance")}</b>{inspection.scene.has_performance ? t("panel.present") : t("panel.default")}</span>
         </div>
         {#if inspection.scene.tracks.length}
           <details class="scene-detail">
-            <summary>{inspection.scene.tracks.length} tracks · {inspection.scene.sections.length} sections</summary>
+            <summary>{t("panel.tracksSections", { tracks: inspection.scene.tracks.length, sections: inspection.scene.sections.length })}</summary>
             <ul>
               {#each inspection.scene.tracks as track, index}
                 <li><strong>{index + 1}. {track.instrument ?? "unknown"}</strong><span>{track.pattern ?? "—"}</span></li>
@@ -241,7 +260,7 @@
         {/if}
         {#if inspection.last_diff}
           <details class="scene-detail diff">
-            <summary>Last agent change</summary>
+            <summary>{t("panel.lastChange")}</summary>
             <pre>{JSON.stringify(inspection.last_diff, null, 2)}</pre>
           </details>
         {/if}
@@ -251,35 +270,52 @@
   {:else if tab === "render"}
     <section class="module render-module">
       <header class="module-head">
-        <h2>Render controls</h2>
+        <h2>{t("panel.renderControls")}</h2>
         {#if bench.selectedScene}
           <span class="scene-chip" title={bench.selectedScene}>{bench.selectedScene.split("/").at(-1)}</span>
         {/if}
       </header>
       <div class="params">
-        <label><span>Renderer</span><select bind:value={renderer} disabled={bench.building}><option value="fluidsynth">fluidsynth</option><option value="timidity">timidity</option><option value="sfizz">sfizz</option></select></label>
-        <label><span>Sample rate</span><select bind:value={sampleRate} disabled={bench.building}><option value={44100}>44100 Hz</option><option value={48000}>48000 Hz</option></select></label>
-        <label><span>Format</span><select bind:value={format} disabled={bench.building}><option value="ogg">OGG</option><option value="wav">WAV</option></select></label>
-        <label><span>Gain</span><input type="number" min="0" max="2" step="0.05" bind:value={gain} disabled={bench.building} /></label>
-        <label><span>Quality</span><input type="number" min="0" max="10" step="1" bind:value={quality} disabled={bench.building} /></label>
-        <label class="check"><input type="checkbox" bind:checked={stems} disabled={bench.building} /><span>Stems</span></label>
+        <label><span>{t("panel.renderer")}</span><select bind:value={renderer} disabled={bench.building}><option value="fluidsynth">fluidsynth</option><option value="timidity">timidity</option><option value="sfizz">sfizz</option></select></label>
+        <label><span>{t("panel.sampleRate")}</span><select bind:value={sampleRate} disabled={bench.building}><option value={44100}>44100 Hz</option><option value={48000}>48000 Hz</option></select></label>
+        <label><span>{t("panel.format")}</span><select bind:value={format} disabled={bench.building}><option value="ogg">OGG</option><option value="wav">WAV</option></select></label>
+        <label><span>{t("panel.gain")}</span><input type="number" min="0" max="2" step="0.05" bind:value={gain} disabled={bench.building} /></label>
+        <label><span>{t("panel.quality")}</span><input type="number" min="0" max="10" step="1" bind:value={quality} disabled={bench.building} /></label>
+        <label class="check"><input type="checkbox" bind:checked={stems} disabled={bench.building} /><span>{t("panel.stems")}</span></label>
       </div>
-      <button class="render-btn" onclick={render} disabled={!bench.project || !bench.selectedScene || bench.building}>
-        <span class="render-glyph">▮▮▮</span>{bench.building ? "Rendering…" : "Render"}
+      {#if renderer === "sfizz"}
+        <div class="profile-row">
+          <button class="profile-pick" onclick={pickProfile} disabled={bench.building}>
+            {#if profilePath}
+              <strong title={profilePath}>{profilePath.split("/").at(-1)}</strong>
+            {:else}
+              <span>{t("panel.chooseProfile")}</span>
+            {/if}
+          </button>
+          {#if profilePath}
+            <button class="profile-clear" onclick={() => (profilePath = null)} disabled={bench.building} aria-label="Clear profile">×</button>
+          {/if}
+        </div>
+        {#if needsProfile}
+          <p class="profile-hint">{t("panel.profileHint")}</p>
+        {/if}
+      {/if}
+      <button class="render-btn" onclick={render} disabled={!bench.project || !bench.selectedScene || bench.building || needsProfile}>
+        <span class="render-glyph">▮▮▮</span>{bench.building ? t("panel.rendering") : t("panel.renderBtn")}
       </button>
       {#if bench.building}<div class="progress" role="progressbar" aria-label="rendering"><div></div></div>{/if}
       {#if bench.buildStatus}<p class="status" class:failed={bench.buildFailed}>{bench.buildStatus}</p>{/if}
     </section>
   {:else}
     <section class="module assets-module">
-      <header class="module-head"><h2>Current outputs</h2><span class="count">{audioAssets.length}</span></header>
+      <header class="module-head"><h2>{t("panel.currentOutputs")}</h2><span class="count">{audioAssets.length}</span></header>
       {#if audioAssets.length === 0}
-        <p class="empty">Nothing rendered yet.</p>
+        <p class="empty">{t("panel.nothingRendered")}</p>
       {:else}
         <ul class="asset-list">
           {#each audioAssets as asset}
             <li class:selected={selectedAsset === asset.rel_path}>
-              <button class="asset-main" onclick={() => selectAsset(asset)} title="Load into player">
+              <button class="asset-main" onclick={() => selectAsset(asset)} title={t("panel.loadIntoPlayer")}>
                 <strong>{titleForAsset(asset.rel_path)}</strong><span>{fmtSize(asset.size_bytes)}</span><i>▶</i>
               </button>
             </li>
@@ -293,7 +329,7 @@
       {:else if metaError}
         <p class="status failed">{metaError}</p>
       {/if}
-      <button class="open-output" onclick={revealOut}><span>□</span> Open output folder</button>
+      <button class="open-output" onclick={revealOut}><span>□</span> {t("panel.openOutput")}</button>
     </section>
   {/if}
 </div>
@@ -426,6 +462,14 @@
   .params select:focus, .params input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
   .params .check { display: flex; align-items: center; gap: 5px; padding-top: 11px; }
   .params input[type="checkbox"] { accent-color: var(--accent); }
+  .profile-row { display: flex; gap: 6px; margin: -2px 10px 8px; }
+  .profile-pick { display: flex; flex: 1; align-items: center; min-width: 0; height: 28px; padding: 0 10px; color: var(--fg); background: var(--panel-glass); border: 1px solid var(--accent-line); border-radius: 6px; font: 11px var(--mono); cursor: pointer; transition: border-color .15s ease, background .15s ease; }
+  .profile-pick:hover:not(:disabled) { border-color: var(--accent-line-strong); background: var(--accent-soft); }
+  .profile-pick strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  .profile-pick span { color: var(--fg-muted); }
+  .profile-clear { width: 28px; height: 28px; color: var(--fg-muted); background: transparent; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; cursor: pointer; transition: color .15s ease, border-color .15s ease; }
+  .profile-clear:hover:not(:disabled) { color: var(--danger, #e5484d); border-color: color-mix(in srgb, var(--danger, #e5484d) 55%, transparent); }
+  .profile-hint { margin: -2px 10px 8px; color: var(--warning); font-size: 10px; line-height: 1.4; }
   .render-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: calc(100% - 20px); height: 32px; margin: 0 10px 10px; color: var(--warning); background: linear-gradient(110deg, color-mix(in srgb, var(--warning) 12%, transparent), transparent); border: 1px solid color-mix(in srgb, var(--warning) 65%, transparent); border-radius: 6px; box-shadow: inset 0 0 12px color-mix(in srgb, var(--warning) 7%, transparent), 0 0 10px color-mix(in srgb, var(--warning) 8%, transparent), inset 0 1px 0 rgba(255,255,255,.05); font-size: 11px; font-weight: 700; cursor: pointer; transition: background .15s ease, color .15s ease, box-shadow .15s ease; }
   .render-btn:hover:not(:disabled) { color: #171004; background: var(--warning); box-shadow: 0 0 16px color-mix(in srgb, var(--warning) 32%, transparent); }
   .render-btn:active:not(:disabled) { transform: translateY(1px); }

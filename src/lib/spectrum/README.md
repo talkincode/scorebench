@@ -23,7 +23,9 @@ A lazily-imported scene module under `three/` (the `three` package is only downl
 - disposes GPU resources (`geometry`, `material`, `renderer`, `WEBGL_lose_context`) in `dispose()`;
 - follows the theme hue from `ThreeFrame.hue` — no hard-coded palettes.
 
-Shared helpers (shell setup, glow sprites, band levels) live in `three/common.ts`.
+Shared helpers (shell setup, glow sprites, band levels) live in `three/common.ts`. Audio-reactive dynamics (attack/release envelopes, band smoothing, bass-impact detection, idle breathing) live in `dynamics.ts` — pure per-frame math, unit-tested without audio.
+
+`SpectrumView` remounts the `<canvas>` element whenever the style kind changes (2D ↔ three). A canvas that has ever produced a WebGL context cannot go back to `2d`, so each style family always receives a fresh element.
 
 ## Auto selection (`auto`)
 

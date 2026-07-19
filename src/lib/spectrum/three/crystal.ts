@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { AudioPulse, BandSmoother } from "../dynamics";
 import { bandLevels, bassLevel, createShell, energyLevel, glowTexture, hueColor } from "./common";
 import type { ThreeFrame, ThreeInstance } from "./types";
 
@@ -39,6 +40,8 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
   shell.scene.add(aura);
 
   let lastHue = Number.NaN;
+  const pulse = new AudioPulse();
+  const smoother = new BandSmoother(BANDS);
   return {
     render(frame: ThreeFrame) {
       const hue = frame.options.themeHue ?? 171;
@@ -48,23 +51,28 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
         wireMaterial.color = hueColor(hue, 0.85, 0.58);
         aura.material.color = hueColor(hue + 18, 0.9, 0.5);
       }
-      const bands = bandLevels(frame.freq, BANDS);
-      const bass = bassLevel(frame.freq);
-      const energy = energyLevel(frame.freq);
+      const bands = smoother.step(bandLevels(frame.freq, BANDS), frame.dt);
+      const { energy, bass, impact } = pulse.update(
+        energyLevel(frame.freq),
+        bassLevel(frame.freq),
+        frame.dt,
+      );
       const motion = frame.prefersReducedMotion ? 0.15 : 1;
 
-      const amp = 0.34 + bass * 0.16;
+      const amp = 0.3 + bass * 0.14 + impact * 0.22;
       for (let i = 0; i < position.count; i++) {
         const swell = 1 + bands[bandIndex[i]] * amp;
         position.setXYZ(i, base[i * 3] * swell, base[i * 3 + 1] * swell, base[i * 3 + 2] * swell);
       }
       position.needsUpdate = true;
 
-      crystal.rotation.y += frame.dt * (0.18 + energy * 0.85) * motion;
+      crystal.rotation.y += frame.dt * (0.18 + energy * 0.7 + impact * 0.9) * motion;
       crystal.rotation.x += frame.dt * 0.07 * motion;
-      wireMaterial.opacity = 0.55 + energy * 0.45;
-      aura.scale.setScalar(6 + bass * 4.5);
-      aura.material.opacity = 0.16 + bass * 0.4;
+      const punch = 1 + impact * 0.06;
+      crystal.scale.setScalar(punch);
+      wireMaterial.opacity = 0.5 + energy * 0.38 + impact * 0.24;
+      aura.scale.setScalar(6 + bass * 3.6 + impact * 3);
+      aura.material.opacity = 0.14 + bass * 0.34 + impact * 0.28;
       shell.renderer.render(shell.scene, shell.camera);
     },
     resize: shell.resize,

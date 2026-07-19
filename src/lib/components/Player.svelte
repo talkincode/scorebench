@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api, errorText } from "../api";
+  import { t } from "../i18n.svelte";
   import { bench } from "../state.svelte";
   import {
     AUTO_STYLE_ID,
@@ -309,7 +310,7 @@
         class:on={looping}
         onclick={() => setLoop(!looping)}
         aria-pressed={looping}
-        title="Loop playback"
+        title={t("player.loop")}
       >⟳ loop</button>
       <span class="time"><b>{fmtTime(position)}</b><i>/</i>{fmtTime(duration)}</span>
     </div>
@@ -338,7 +339,7 @@
         getPosition={() => (duration > 0 ? currentPos() / duration : 0)}
         active={!overlayOpen}
       />
-      <button class="expand" onclick={() => (overlayOpen = true)} title="Expand visualizer" aria-label="Expand visualizer">⛶</button>
+      <button class="expand" onclick={() => (overlayOpen = true)} title={t("player.expand")} aria-label={t("player.expand")}>⛶</button>
     </div>
   </div>
 
@@ -354,9 +355,9 @@
       {/if}
     </div>
     <label class="style-row">
-      <span class="style-label">Visual</span>
-      <select value={styleId} onchange={(event) => chooseStyle(event.currentTarget.value)} aria-label="Spectrum style">
-        <option value={AUTO_STYLE_ID}>Auto{autoLabel && styleId === AUTO_STYLE_ID ? ` · ${autoLabel}` : ""}</option>
+      <span class="style-label">{t("player.visual")}</span>
+      <select value={styleId} onchange={(event) => chooseStyle(event.currentTarget.value)} aria-label={t("player.spectrumStyle")}>
+        <option value={AUTO_STYLE_ID}>{t("player.auto")}{autoLabel && styleId === AUTO_STYLE_ID ? ` · ${autoLabel}` : ""}</option>
         {#each visualStyles as entry}
           <option value={entry.id}>{entry.label}</option>
         {/each}

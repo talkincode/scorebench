@@ -80,5 +80,11 @@ Rules (MUST):
 | scorekit startup handshake | 1 | doctor/version fixture and local GUI startup | missing/unversioned binary yields guidance or warning without blocking the app |
 | Release packaging | 1 | local macOS app + DMG build; four-target workflow validated by actionlint | absent Apple secrets leave unsigned/non-mac builds available; tag/version mismatch fails early |
 | Dark hue-variable interface | 2 | native-app visual smoke at default hue; settings round trip | hue outside 0–359 rejected before settings write |
+| Chat sessions (per-session memory) | 1 | session create/list/select round trip; legacy single-session state migrates to `sessions/main/` | invalid session ids rejected; corrupt index rebuilt from directory scan (`sessions.rs`) |
+| Message attachments (image/pdf/text) | 1 | paths become typed `ContentPart`s with data URLs (`attachments.rs`) | oversize and unsupported files yield typed errors, no partial sends |
+| Scene deletion (GUI-confirmed) | 1 | `delete_scene` removes scene inside root | non-scene paths and traversal rejected by `resolve_inside` |
+| Scene source read (workspace tabs) | 1 | `read_scene_source` returns raw YAML for source/preview tabs | out-of-root and non-YAML paths rejected |
+| Persona + locale settings | 2 | persist/load round trip incl. `personal_instructions`, `locale`; persona injected into system prompt | unknown locale falls back to `en` before write |
+| Spectrum dynamics helpers | 2 | envelope/smoother/impact unit tests (`dynamics.test.ts`) | idle spectrum stays below quiet ceiling; impact decays without audio |
 
 The dated command log and manual GUI evidence live in [verification.md](verification.md).

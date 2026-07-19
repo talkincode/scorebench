@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#07211c"/>
+      <stop offset="0.55" stop-color="#031210"/>
+      <stop offset="1" stop-color="#020908"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.30" r="0.75">
+      <stop offset="0" stop-color="#3fe6c8" stop-opacity="0.34"/>
+      <stop offset="0.45" stop-color="#3fe6c8" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#3fe6c8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="bar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8ffff0"/>
+      <stop offset="0.35" stop-color="#3fe6c8"/>
+      <stop offset="1" stop-color="#12a58b"/>
+    </linearGradient>
+    <linearGradient id="bench" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#c98f2e"/>
+      <stop offset="0.5" stop-color="#f2b946"/>
+      <stop offset="1" stop-color="#c98f2e"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="26"/>
+    </filter>
+    <filter id="glowSoft" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="14"/>
+    </filter>
+  </defs>
+
+  <!-- Tile -->
+  <rect x="64" y="64" width="896" height="896" rx="212" fill="url(#tile)"/>
+  <rect x="64" y="64" width="896" height="896" rx="212" fill="url(#halo)"/>
+  <rect x="70" y="70" width="884" height="884" rx="206" fill="none" stroke="#3fe6c8" stroke-opacity="0.22" stroke-width="6"/>
+
+  <!-- Faint measurement grid -->
+  <g stroke="#3fe6c8" stroke-opacity="0.055" stroke-width="4">
+    <line x1="160" y1="342" x2="864" y2="342"/>
+    <line x1="160" y1="470" x2="864" y2="470"/>
+    <line x1="160" y1="598" x2="864" y2="598"/>
+  </g>
+
+  <!-- Spectrum bars: glow pass -->
+  <g filter="url(#glow)" opacity="0.75">
+    <rect x="330" y="430" width="98" height="266" rx="49" fill="#3fe6c8"/>
+    <rect x="463" y="272" width="98" height="424" rx="49" fill="#3fe6c8"/>
+    <rect x="596" y="356" width="98" height="340" rx="49" fill="#3fe6c8"/>
+  </g>
+
+  <!-- Spectrum bars -->
+  <g>
+    <rect x="330" y="430" width="98" height="266" rx="49" fill="url(#bar)"/>
+    <rect x="463" y="272" width="98" height="424" rx="49" fill="url(#bar)"/>
+    <rect x="596" y="356" width="98" height="340" rx="49" fill="url(#bar)"/>
+  </g>
+
+  <!-- Bar highlights -->
+  <g fill="#eafffb" opacity="0.85">
+    <circle cx="379" cy="479" r="22"/>
+    <circle cx="512" cy="321" r="22"/>
+    <circle cx="645" cy="405" r="22"/>
+  </g>
+
+  <!-- Bench line: amber, the workbench -->
+  <rect x="286" y="742" width="452" height="40" rx="20" fill="#f2b946" filter="url(#glowSoft)" opacity="0.55"/>
+  <rect x="286" y="742" width="452" height="40" rx="20" fill="url(#bench)"/>
+  <rect x="286" y="742" width="452" height="18" rx="9" fill="#ffe2a0" opacity="0.5"/>
+</svg>

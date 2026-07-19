@@ -2,10 +2,11 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { api, errorText } from "../api";
+  import { t } from "../i18n.svelte";
   import { bench } from "../state.svelte";
 
   async function openProject() {
-    const dir = await open({ directory: true, title: "Open project directory" });
+    const dir = await open({ directory: true, title: t("topbar.openProjectDialog") });
     if (typeof dir !== "string") return;
     try {
       bench.project = await api.openProject(dir);
@@ -45,9 +46,9 @@
     {:else if bench.scorekitError}
       <span class="scorekit missing" title={bench.scorekitError}>scorekit <i></i></span>
     {/if}
-    {#if bench.project}<button class="toolbar-btn" onclick={revealOut}><span>□</span> Open folder</button>{/if}
-    <button class="toolbar-btn" onclick={() => (bench.settingsOpen = true)}><span>⚙</span> Settings</button>
-    <button class="open-project" onclick={openProject}><span>□</span> Open project…</button>
+    {#if bench.project}<button class="toolbar-btn" onclick={revealOut}><span>□</span> {t("topbar.openFolder")}</button>{/if}
+    <button class="toolbar-btn" onclick={() => (bench.settingsOpen = true)}><span>⚙</span> {t("topbar.settings")}</button>
+    <button class="open-project" onclick={openProject}><span>□</span> {t("topbar.openProject")}</button>
   </div>
 </header>
 

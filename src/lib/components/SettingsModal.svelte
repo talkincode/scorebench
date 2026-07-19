@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { api, errorText, type Settings } from "../api";
+  import { setLocale, t } from "../i18n.svelte";
   import { bench } from "../state.svelte";
 
   let draft = $state<Settings>({
@@ -11,7 +12,10 @@
     spectrum_style: "bars",
     spectrum_bars: 64,
     theme_hue: 171,
+    personal_instructions: "",
+    locale: "en",
   });
+  let tab = $state<"connection" | "persona" | "interface">("connection");
   let apiKey = $state("");
   let allowInsecureStorage = $state(false);
   let busy = $state(false);
@@ -35,6 +39,7 @@
       allowInsecureStorage = false;
       result = warning;
       failed = Boolean(warning);
+      tab = "connection";
       queueMicrotask(() => closeButton?.focus());
     });
   });
@@ -56,8 +61,9 @@
       bench.settings = view.settings;
       bench.apiKeySet = view.api_key_set;
       bench.settingsWarning = view.warning ?? null;
+      setLocale(view.settings.locale);
       if (changingApiKey) apiKey = "";
-      result = "Settings saved.";
+      result = t("settings.saved");
       return true;
     } catch (err) {
       failed = true;
@@ -78,7 +84,7 @@
   async function testConnection() {
     if (!(await persist())) return;
     busy = true;
-    result = "Testing connection…";
+    result = t("settings.testing");
     failed = false;
     try {
       result = await api.testConnection();
@@ -119,85 +125,111 @@
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <header class="modal-head">
         <div>
-          <h2 id="settings-title">Agent settings</h2>
-          <p>Stored outside project directories. The API key is write-only.</p>
+          <h2 id="settings-title">{t("settings.title")}</h2>
+          <p>{t("settings.subtitle")}</p>
         </div>
-        <button class="close" aria-label="Close settings" onclick={close} bind:this={closeButton}>×</button>
+        <button class="close" aria-label={t("settings.close")} onclick={close} bind:this={closeButton}>×</button>
       </header>
 
+      <nav class="tab-nav" aria-label="Settings sections">
+        <button class:active={tab === "connection"} onclick={() => (tab = "connection")} aria-pressed={tab === "connection"}>{t("settings.tab.connection")}</button>
+        <button class:active={tab === "persona"} onclick={() => (tab = "persona")} aria-pressed={tab === "persona"}>{t("settings.tab.persona")}</button>
+        <button class:active={tab === "interface"} onclick={() => (tab = "interface")} aria-pressed={tab === "interface"}>{t("settings.tab.interface")}</button>
+      </nav>
+
       <div class="modal-body">
-        <section class="theme-editor" aria-labelledby="theme-title">
-          <div class="theme-copy">
-            <strong id="theme-title">Interface tone</strong>
-            <span>Live preview · {draft.theme_hue}°</span>
+        {#if tab === "connection"}
+          <label>
+            <span>{t("settings.baseUrl")}</span>
+            <input bind:value={draft.base_url} spellcheck="false" />
+          </label>
+          <label>
+            <span>{t("settings.model")}</span>
+            <input bind:value={draft.model} spellcheck="false" />
+          </label>
+          <div class="row">
+            <label>
+              <span>{t("settings.contextBudget")}</span>
+              <input type="number" min="1024" max="2000000" bind:value={draft.context_budget_tokens} />
+            </label>
+            <label>
+              <span>{t("settings.maxTurns")}</span>
+              <input type="number" min="1" max="128" bind:value={draft.max_turns} />
+            </label>
           </div>
-          <div class="hue-line">
-            <input
-              class="hue-range"
-              type="range"
-              min="0"
-              max="359"
-              value={draft.theme_hue}
-              aria-label="Interface hue"
-              oninput={(event) => previewHue(Number(event.currentTarget.value))}
-            />
-            <div class="swatches" aria-label="Tone presets">
-              {#each [171, 198, 264, 326, 36] as hue}
-                <button
-                  type="button"
-                  class:active={draft.theme_hue === hue}
-                  style={`--swatch-hue: ${hue}`}
-                  aria-label={`Use ${hue} degree hue`}
-                  title={`${hue}°`}
-                  onclick={() => previewHue(hue)}
-                ></button>
-              {/each}
+          <label>
+            <span>{t("settings.apiKey")} · {bench.apiKeySet ? t("settings.keySet") : t("settings.keyNotSet")}</span>
+            <input type="password" autocomplete="off" bind:value={apiKey} placeholder={bench.apiKeySet ? t("settings.keyKeep") : t("settings.keyEnter")} />
+          </label>
+          <label class="check">
+            <input type="checkbox" bind:checked={allowInsecureStorage} />
+            <span>{t("settings.insecure")}</span>
+          </label>
+
+          {#if bench.versionInfo}
+            <div class="versions">
+              <h3>{t("settings.versions")}</h3>
+              <dl>
+                <dt>scorebench</dt><dd>{bench.versionInfo.scorebench_version}</dd>
+                <dt>scorekit</dt><dd>{bench.versionInfo.scorekit.version ?? "not reported"}</dd>
+                <dt>tested range</dt><dd>{bench.versionInfo.scorekit.tested_range}</dd>
+                <dt>path</dt><dd>{bench.versionInfo.scorekit.path ?? "not found"}</dd>
+                <dt>doctor</dt><dd>{bench.versionInfo.scorekit.ready ? "ready" : "unhealthy"}</dd>
+              </dl>
+              {#if bench.versionInfo.scorekit.warning}<p>{bench.versionInfo.scorekit.warning}</p>{/if}
+              {#if bench.versionInfo.scorekit.hints.length}
+                <ul>{#each bench.versionInfo.scorekit.hints as hint}<li>{hint}</li>{/each}</ul>
+              {/if}
             </div>
-          </div>
-        </section>
-
-        <label>
-          <span>Responses API base URL</span>
-          <input bind:value={draft.base_url} spellcheck="false" />
-        </label>
-        <label>
-          <span>Model</span>
-          <input bind:value={draft.model} spellcheck="false" />
-        </label>
-        <div class="row">
-          <label>
-            <span>Context budget</span>
-            <input type="number" min="1024" max="2000000" bind:value={draft.context_budget_tokens} />
+          {/if}
+        {:else if tab === "persona"}
+          <label class="persona-label">
+            <span>{t("settings.personaLabel")}</span>
+            <textarea
+              rows="12"
+              bind:value={draft.personal_instructions}
+              placeholder={t("settings.personaPlaceholder")}
+              spellcheck="false"
+            ></textarea>
           </label>
+          <p class="persona-hint">{t("settings.personaHint")}</p>
+        {:else}
+          <section class="theme-editor" aria-labelledby="theme-title">
+            <div class="theme-copy">
+              <strong id="theme-title">{t("settings.tone")}</strong>
+              <span>{t("settings.livePreview")} · {draft.theme_hue}°</span>
+            </div>
+            <div class="hue-line">
+              <input
+                class="hue-range"
+                type="range"
+                min="0"
+                max="359"
+                value={draft.theme_hue}
+                aria-label={t("settings.hue")}
+                oninput={(event) => previewHue(Number(event.currentTarget.value))}
+              />
+              <div class="swatches" aria-label={t("settings.tonePresets")}>
+                {#each [171, 198, 264, 326, 36] as hue}
+                  <button
+                    type="button"
+                    class:active={draft.theme_hue === hue}
+                    style={`--swatch-hue: ${hue}`}
+                    aria-label={`Use ${hue} degree hue`}
+                    title={`${hue}°`}
+                    onclick={() => previewHue(hue)}
+                  ></button>
+                {/each}
+              </div>
+            </div>
+          </section>
           <label>
-            <span>Maximum turns</span>
-            <input type="number" min="1" max="128" bind:value={draft.max_turns} />
+            <span>{t("settings.language")}</span>
+            <select bind:value={draft.locale}>
+              <option value="en">English</option>
+              <option value="zh">中文</option>
+            </select>
           </label>
-        </div>
-        <label>
-          <span>API key · {bench.apiKeySet ? "set" : "not set"}</span>
-          <input type="password" autocomplete="off" bind:value={apiKey} placeholder={bench.apiKeySet ? "Leave blank to keep the stored key" : "Enter API key"} />
-        </label>
-        <label class="check">
-          <input type="checkbox" bind:checked={allowInsecureStorage} />
-          <span>If the OS keychain is unavailable, store the key insecurely in app config with mode 0600.</span>
-        </label>
-
-        {#if bench.versionInfo}
-          <div class="versions">
-            <h3>Version information</h3>
-            <dl>
-              <dt>scorebench</dt><dd>{bench.versionInfo.scorebench_version}</dd>
-              <dt>scorekit</dt><dd>{bench.versionInfo.scorekit.version ?? "not reported"}</dd>
-              <dt>tested range</dt><dd>{bench.versionInfo.scorekit.tested_range}</dd>
-              <dt>path</dt><dd>{bench.versionInfo.scorekit.path ?? "not found"}</dd>
-              <dt>doctor</dt><dd>{bench.versionInfo.scorekit.ready ? "ready" : "unhealthy"}</dd>
-            </dl>
-            {#if bench.versionInfo.scorekit.warning}<p>{bench.versionInfo.scorekit.warning}</p>{/if}
-            {#if bench.versionInfo.scorekit.hints.length}
-              <ul>{#each bench.versionInfo.scorekit.hints as hint}<li>{hint}</li>{/each}</ul>
-            {/if}
-          </div>
         {/if}
 
         {#if result}
@@ -206,10 +238,10 @@
       </div>
 
       <footer class="modal-actions">
-        <button class="ghost" onclick={testConnection} disabled={busy}>Test connection</button>
+        <button class="ghost" onclick={testConnection} disabled={busy}>{t("settings.testConnection")}</button>
         <span class="spacer"></span>
-        <button class="ghost" onclick={close}>Cancel</button>
-        <button class="primary" onclick={saveAndClose} disabled={busy}>{busy ? "Saving…" : "Save"}</button>
+        <button class="ghost" onclick={close}>{t("settings.cancel")}</button>
+        <button class="primary" onclick={saveAndClose} disabled={busy}>{busy ? t("settings.saving") : t("settings.save")}</button>
       </footer>
     </div>
   </div>
@@ -267,6 +299,16 @@
   }
   h2 { margin: 0; font-size: 19px; }
   .modal-head p { margin: 5px 0 0; color: var(--fg-dim); font-size: 12px; }
+  .tab-nav { display: flex; flex-shrink: 0; gap: 2px; padding: 0 20px; border-bottom: 1px solid var(--line); }
+  .tab-nav button { position: relative; padding: 10px 14px; color: var(--fg-dim); border: 0; background: transparent; font-size: 11.5px; font-weight: 600; letter-spacing: .05em; cursor: pointer; transition: color .15s ease; }
+  .tab-nav button:hover { color: var(--fg); }
+  .tab-nav button.active { color: var(--accent); }
+  .tab-nav button.active::after { content: ""; position: absolute; right: 10px; bottom: -1px; left: 10px; height: 2px; border-radius: 2px; background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); }
+  .persona-label textarea { box-sizing: border-box; width: 100%; min-height: 220px; padding: 11px 12px; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); font: 12px/1.6 var(--mono); resize: vertical; }
+  .persona-label textarea:focus { outline: none; border-color: var(--accent); }
+  .persona-hint { margin: 2px 0 0; color: var(--fg-muted); font-size: 11px; line-height: 1.55; }
+  select { box-sizing: border-box; width: 100%; padding: 9px 10px; color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; font: 13px var(--mono); }
+  select:focus { outline: none; border-color: var(--accent); }
   .theme-editor {
     display: grid;
     gap: 10px;
