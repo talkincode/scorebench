@@ -1,6 +1,7 @@
 # scorebench
 
 [![CI](https://github.com/talkincode/scorebench/actions/workflows/ci.yml/badge.svg)](https://github.com/talkincode/scorebench/actions/workflows/ci.yml)
+[![Documentation](https://github.com/talkincode/scorebench/actions/workflows/pages.yml/badge.svg)](https://github.com/talkincode/scorebench/actions/workflows/pages.yml)
 
 > **Agent-native workbench for [scorekit](https://github.com/talkincode/scorekit).**
 > You talk to the agent; the agent writes the scene DSL and drives scorekit. The GUI observes — it does not edit.
@@ -43,6 +44,21 @@ Core milestones M0–M5 complete (walking skeleton → agent core → observatio
 ```bash
 npm install
 npm run tauri dev    # requires Rust toolchain + scorekit on PATH
+```
+
+## Documentation
+
+The Chinese user manual covers the ScoreKit scene protocol, practical
+arrangement concepts, render backends, sound-source provenance, licensing,
+and troubleshooting. Read it on
+[GitHub Pages](https://talkincode.github.io/scorebench/) or from
+[`docs-site/src`](docs-site/src/).
+
+Build the site locally with mdBook 0.5.3 or newer:
+
+```bash
+mdbook build docs-site
+mdbook serve docs-site --open
 ```
 
 The API endpoint, model, context budget, and API key are configured from the in-app **Settings** panel. Keys use the OS keychain; the explicit insecure fallback is stored only in the Tauri app-config directory with mode `0600`.
