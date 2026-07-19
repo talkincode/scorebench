@@ -284,10 +284,10 @@
     overflow: auto;
     overscroll-behavior: contain;
   }
-  h2 { margin: 0; font-size: 19px; }
-  .modal-head p { margin: 5px 0 0; color: var(--fg-dim); font-size: 12px; }
+  h2 { margin: 0; font-size: 20px; }
+  .modal-head p { margin: 5px 0 0; color: var(--fg-dim); font-size: 13px; }
   .tab-nav { display: flex; flex-shrink: 0; gap: 2px; padding: 0 20px; border-bottom: 1px solid var(--line); }
-  .tab-nav button { position: relative; padding: 10px 14px; color: var(--fg-label); border: 0; background: transparent; font-size: 11.5px; font-weight: 600; letter-spacing: .05em; cursor: pointer; transition: color .15s ease; }
+  .tab-nav button { position: relative; padding: 10px 14px; color: var(--fg-label); border: 0; background: transparent; font-size: 12.5px; font-weight: 600; letter-spacing: .05em; cursor: pointer; transition: color .15s ease; }
   .tab-nav button:hover { color: var(--fg); }
   .tab-nav button.active { color: var(--accent); }
   .tab-nav button.active::after { content: ""; position: absolute; right: 10px; bottom: -1px; left: 10px; height: 2px; border-radius: 2px; background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); }
@@ -303,7 +303,7 @@
     background: linear-gradient(135deg, var(--accent-soft), transparent 70%);
   }
   .theme-copy { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-  .theme-copy strong { color: var(--fg); font-size: 12px; letter-spacing: .04em; }
+  .theme-copy strong { color: var(--fg); font-size: 13px; letter-spacing: .04em; }
   .theme-copy span { color: var(--accent); font: 11px var(--mono); }
   .hue-line { display: flex; align-items: center; gap: 14px; }
   .hue-range {
@@ -335,7 +335,7 @@
     border-radius: 6px;
     background: transparent;
     color: var(--fg-dim);
-    font-size: 22px;
+    font-size: 23px;
     line-height: 1;
     cursor: pointer;
   }
@@ -345,7 +345,7 @@
     background: var(--accent-soft);
   }
   label { display: grid; gap: 6px; margin-bottom: 14px; flex: 1; }
-  label > span { color: var(--fg-label); font-size: 12px; font-weight: var(--ui-label-weight); }
+  label > span { color: var(--fg-label); font-size: 13px; font-weight: var(--ui-label-weight); }
   input {
     box-sizing: border-box;
     width: 100%;
@@ -365,15 +365,15 @@
     color: var(--good);
     border: 1px solid color-mix(in srgb, var(--good) 35%, transparent);
     border-radius: 8px;
-    font-size: 12px;
+    font-size: 13px;
   }
   .result.failed { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
   .versions { margin-top: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
-  .versions h3 { margin: 0 0 8px; color: var(--fg-label); font-size: 11px; font-weight: var(--ui-label-weight); text-transform: uppercase; }
+  .versions h3 { margin: 0 0 8px; color: var(--fg-label); font-size: 12px; font-weight: var(--ui-label-weight); text-transform: uppercase; }
   .versions dl { display: grid; grid-template-columns: 95px 1fr; gap: 5px 8px; margin: 0; font: 11px var(--mono); }
   .versions dt { color: var(--fg-label); font-weight: var(--ui-label-weight); }
   .versions dd { margin: 0; overflow-wrap: anywhere; }
-  .versions p, .versions ul { color: var(--bad); font-size: 11px; line-height: 1.45; }
+  .versions p, .versions ul { color: var(--bad); font-size: 12px; line-height: 1.45; }
   .versions ul { color: var(--fg-dim); padding-left: 18px; }
   .modal-actions {
     flex: 0 0 auto;

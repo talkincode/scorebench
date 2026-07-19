@@ -179,7 +179,7 @@
   header div { display: flex; align-items: center; gap: 8px; }
   header span:first-child {
     color: var(--fg);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
     letter-spacing: .13em;
     text-transform: uppercase;
@@ -202,7 +202,7 @@
     overflow-y: auto;
     padding: 8px;
   }
-  .empty { margin: 14px 8px; color: var(--fg-dim); font-size: 11px; }
+  .empty { margin: 14px 8px; color: var(--fg-dim); font-size: 12px; }
   .scene-card {
     position: relative;
     display: grid;
@@ -262,7 +262,7 @@
   .art-5 { --art-shift: 285; }
   .art-6 { --art-shift: 330; }
   .scene-copy { min-width: 0; display: grid; gap: 3px; }
-  .scene-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 650; }
+  .scene-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
   .scene-copy small { overflow: hidden; color: var(--fg-dim); font: 10px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
   .scene-tags { display: flex; gap: 4px; }
   .scene-tags i { padding: 1px 4px; color: var(--fg-dim); background: var(--panel-raised); border-radius: 2px; font: normal 9px var(--mono); }
@@ -274,7 +274,7 @@
     color: var(--fg-muted);
     border: 1px solid var(--line-strong);
     border-radius: 50%;
-    font-size: 10px;
+    font-size: 11px;
   }
   .scene-play.available { color: var(--accent); border-color: var(--accent-line-strong); }
   .scene-play.available:hover { color: var(--bg); background: var(--accent); box-shadow: 0 0 13px var(--accent-glow); }
@@ -310,7 +310,7 @@
     border: 0;
     border-radius: 5px;
     background: transparent;
-    font-size: 11.5px;
+    font-size: 12.5px;
     text-align: left;
     cursor: pointer;
   }
@@ -334,12 +334,12 @@
     background: var(--panel-deep);
     box-shadow: 0 24px 70px rgba(0,0,0,.6);
   }
-  .confirm h3 { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
-  .confirm p { margin: 0 0 6px; color: var(--fg-dim); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+  .confirm h3 { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
+  .confirm p { margin: 0 0 6px; color: var(--fg-dim); font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
   .confirm-error { color: var(--bad); font: 11px var(--mono); }
   .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
-  .confirm-actions .ghost { padding: 7px 12px; color: var(--fg-dim); border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; font-size: 11px; cursor: pointer; }
+  .confirm-actions .ghost { padding: 7px 12px; color: var(--fg-dim); border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; font-size: 12px; cursor: pointer; }
   .confirm-actions .ghost:hover { color: var(--fg); border-color: var(--accent-line-strong); }
-  .confirm-actions .delete { padding: 7px 14px; color: #fff; border: 1px solid color-mix(in srgb, var(--bad) 80%, white); border-radius: 6px; background: color-mix(in srgb, var(--bad) 82%, black); box-shadow: 0 0 14px color-mix(in srgb, var(--bad) 26%, transparent); font-size: 11px; font-weight: 700; cursor: pointer; }
+  .confirm-actions .delete { padding: 7px 14px; color: #fff; border: 1px solid color-mix(in srgb, var(--bad) 80%, white); border-radius: 6px; background: color-mix(in srgb, var(--bad) 82%, black); box-shadow: 0 0 14px color-mix(in srgb, var(--bad) 26%, transparent); font-size: 12px; font-weight: 700; cursor: pointer; }
   .confirm-actions .delete:hover { filter: brightness(1.12); }
 </style>

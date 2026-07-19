@@ -473,7 +473,7 @@
     border-radius: 50%;
   }
   .play-glyph {
-    font-size: 15px;
+    font-size: 16px;
     text-shadow: 0 0 9px var(--accent);
   }
   .play:hover:not(:disabled) {
@@ -499,7 +499,7 @@
     border: 1px solid var(--line-strong);
     border-radius: 20px;
     background: rgba(0, 0, 0, 0.22);
-    font-size: 10px;
+    font-size: 11px;
     letter-spacing: 0.05em;
     cursor: pointer;
     transition: color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
@@ -565,7 +565,7 @@
     border: 1px solid var(--line-strong);
     border-radius: 5px;
     background: rgba(0, 0, 0, 0.45);
-    font-size: 11px;
+    font-size: 12px;
     cursor: pointer;
     opacity: 0.55;
     transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
@@ -616,12 +616,12 @@
   }
   .idle {
     color: var(--fg-dim);
-    font-size: 10px;
+    font-size: 11px;
   }
   .err {
     overflow: hidden;
     color: var(--bad);
-    font-size: 10px;
+    font-size: 11px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
