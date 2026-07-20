@@ -21,9 +21,22 @@ A lazily-imported scene module under `three/` (the `three` package is only downl
 - must be deterministic per frame — all motion derives from elapsed time and analyser data;
 - honors `prefersReducedMotion` via the frame flag;
 - disposes GPU resources (`geometry`, `material`, `renderer`, `WEBGL_lose_context`) in `dispose()`;
-- follows the theme hue from `ThreeFrame.hue` — no hard-coded palettes.
+- follows the theme hue from `ThreeFrame.hue` — no hard-coded palettes (the mood style may temperature-shift around it, see below).
 
 Shared helpers (shell setup, glow sprites, band levels) live in `three/common.ts`. Audio-reactive dynamics (attack/release envelopes, band smoothing, bass-impact detection, idle breathing) live in `dynamics.ts` — pure per-frame math, unit-tested without audio.
+
+### 情绪 · Mood (`mood`)
+
+An abstract "random digital world" that morphs between five archetypes — 宇宙 cosmos, 星空 starlight, 大海 ocean, 草原 meadow, 城市 city — instead of drawing bins directly. It doubles as the visual acceptance surface for scorekit's "mood compiler": what the agent *intended* and what the renderer *hears* meet on screen.
+
+The mapping is pure and unit-tested, split in two layers:
+
+- **`features.ts` — perceptual features.** Folds FFT bins into a 12-class chroma (≥400 Hz, with an 80–400 Hz bass band for root evidence), then derives `modeMajor` (major-vs-minor third evidence, root-weighted), `dissonance` (semitone/whole-tone adjacency roughness), `tonalness`, log-Hz `centroid` (brightness), and spectral `flux`. Synthetic chord fixtures (major/minor/cluster/fifths) must stay distinguishable in tests. `modeFromKey` parses scene key strings ("D minor", "Am", …) into an intent prior.
+- **`mood.ts` — V-A-T emotion space.** Features integrate into four axes — valence (mode + consonance + brightness), arousal (energy + flux), tension (dissonance × tonalness + build-up), pulse — across three time scales (texture ~0.1 s, phrase ~2 s, form ~20 s). A build-up detector tracks the slope of the slow energy envelope; `swell` exposes the phrase envelope. Each world holds a signature in V-A-T-P space and receives a Gaussian affinity weight; the dominant world only flips after a challenger stays ahead for a dwell period. An optional intent prior (`intentMode` from the scene's key) nudges valence and is reported back as `MoodState.intent` so intended vs. heard mood can be compared.
+
+The scene in `three/mood.ts` cross-fades every element along those weights (nebulae, star twinkle, a sea↔grass wave field, an equalizer skyline, fireflies/spray motes, impact meteors, a drifting first-person camera). On top of the archetype weights it renders the mood axes directly: valence shifts the palette temperature around the theme hue (warm ↔ cold, the one sanctioned deviation from `ThreeFrame.hue`), tension sharpens ground chop and adds incommensurate camera jitter, build-up charges ripple/horizon energy and releases as an FOV kick, swell breathes the camera. A read-only ortho HUD overlay (toggle via the `moodHud` option) plots V/A/T bars, the build-up line, the dominant world, and an ◆ intent marker on the valence track — the acceptance view. World layout randomness is seeded (`seededRandom`) — random-looking, deterministic per instance.
+
+The player injects `sampleRate` (for correct bin→Hz mapping) and `intentMode` (from the current scene's `key`) through the shared style-options record; both are optional and the style degrades gracefully without them.
 
 `SpectrumView` remounts the `<canvas>` element whenever the style kind changes (2D ↔ three). A canvas that has ever produced a WebGL context cannot go back to `2d`, so each style family always receives a fresh element.
 

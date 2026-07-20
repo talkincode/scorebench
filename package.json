@@ -10,6 +10,7 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "test": "vitest run",
+    "demo:mood": "esbuild examples/mood-demo/main.ts --bundle --format=esm --outfile=examples/mood-demo/main.js --servedir=examples/mood-demo --serve=127.0.0.1:5175",
     "version:set": "node scripts/set-version.mjs",
     "tauri": "tauri"
   },

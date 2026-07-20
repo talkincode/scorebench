@@ -607,6 +607,73 @@ async fn read_asset(root: PathBuf, rel_path: String) -> Result<Response, BenchEr
     .map_err(BenchError::io)?
 }
 
+/// One-shot handoff of the user-approved export destination between
+/// `choose_recording_path` and `save_recording`: the raw-body IPC used for
+/// the video bytes carries no JSON args, and keeping the path Rust-side means
+/// the webview never names a write target.
+#[derive(Default)]
+struct RecordingSink(std::sync::Mutex<Option<PathBuf>>);
+
+/// Save-dialog filter derived from the suggested file name's extension.
+fn recording_filter(suggested_name: &str) -> (&'static str, &'static [&'static str]) {
+    if suggested_name.ends_with(".webm") {
+        ("WebM video", &["webm"])
+    } else {
+        ("MP4 video", &["mp4"])
+    }
+}
+
+/// Native save dialog for an exported visualizer video. The chosen path is
+/// held in [`RecordingSink`] for the follow-up `save_recording` call; only a
+/// display string goes back to the webview.
+#[tauri::command]
+async fn choose_recording_path(
+    app: AppHandle,
+    sink: State<'_, RecordingSink>,
+    suggested_name: String,
+) -> Result<Option<String>, BenchError> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        let (label, extensions) = recording_filter(&suggested_name);
+        app.dialog()
+            .file()
+            .add_filter(label, extensions)
+            .set_file_name(&suggested_name)
+            .blocking_save_file()
+    })
+    .await
+    .map_err(BenchError::io)?;
+    let Some(path) = picked else {
+        *sink.0.lock().expect("recording sink lock") = None;
+        return Ok(None);
+    };
+    let path = path.into_path().map_err(BenchError::io)?;
+    *sink.0.lock().expect("recording sink lock") = Some(path.clone());
+    Ok(Some(path.display().to_string()))
+}
+
+/// Write recorded video bytes (raw IPC body — encoded entirely by the
+/// webview's MediaRecorder, the core never touches media samples) to the path
+/// approved by the preceding `choose_recording_path` call. `async` keeps the
+/// blocking write off the main thread.
+#[tauri::command(async)]
+fn save_recording(
+    sink: State<'_, RecordingSink>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<String, BenchError> {
+    let path = sink
+        .0
+        .lock()
+        .expect("recording sink lock")
+        .take()
+        .ok_or_else(|| BenchError::io("no export destination chosen"))?;
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(BenchError::io("expected raw video bytes in request body"));
+    };
+    std::fs::write(&path, bytes).map_err(BenchError::io)?;
+    Ok(path.display().to_string())
+}
+
 #[tauri::command]
 async fn get_settings(app: AppHandle) -> Result<settings::SettingsView, BenchError> {
     let config_dir = app.path().app_config_dir().map_err(BenchError::io)?;
@@ -654,6 +721,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(agent::AgentState::default())
         .manage(watcher::ProjectWatcher::default())
+        .manage(RecordingSink::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -687,6 +755,8 @@ pub fn run() {
             load_style_config,
             save_style_config,
             read_asset,
+            choose_recording_path,
+            save_recording,
             get_settings,
             save_settings,
             set_api_key,
@@ -694,4 +764,34 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recording_filter_follows_suggested_extension() {
+        assert_eq!(
+            recording_filter("a-visualizer.mp4"),
+            ("MP4 video", &["mp4"][..])
+        );
+        assert_eq!(
+            recording_filter("a-visualizer.webm"),
+            ("WebM video", &["webm"][..])
+        );
+        // Unknown extensions fall back to the mp4 filter rather than failing.
+        assert_eq!(recording_filter("clip.mov").0, "MP4 video");
+    }
+
+    #[test]
+    fn recording_sink_hands_over_exactly_once() {
+        let sink = RecordingSink::default();
+        *sink.0.lock().unwrap() = Some(PathBuf::from("/tmp/out.mp4"));
+        assert_eq!(
+            sink.0.lock().unwrap().take(),
+            Some(PathBuf::from("/tmp/out.mp4"))
+        );
+        assert_eq!(sink.0.lock().unwrap().take(), None);
+    }
 }

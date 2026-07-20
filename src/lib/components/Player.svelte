@@ -1,7 +1,15 @@
 <script lang="ts">
-  import { api, errorText } from "../api";
+  import { api, errorText, type SceneDisplay } from "../api";
   import { t } from "../i18n.svelte";
+  import {
+    CanvasRecorder,
+    pickRecordingMime,
+    recordingFileName,
+    type RecordingMime,
+  } from "../recording";
   import { bench } from "../state.svelte";
+  import { REPO_WATERMARK, WATERMARK_ALPHA, drawTitleCard, sceneSignature } from "../titleCard";
+  import appIconUrl from "../../../src-tauri/icons/app-icon.svg";
   import {
     AUTO_STYLE_ID,
     analyzeTraits,
@@ -9,6 +17,7 @@
     visualStyleById,
     visualStyles,
   } from "../spectrum";
+  import { modeFromKey } from "../spectrum/features";
   import SeekBar from "./SeekBar.svelte";
   import SpectrumView from "./SpectrumView.svelte";
   import VisualizerOverlay from "./VisualizerOverlay.svelte";
@@ -31,6 +40,52 @@
   let styleOptions = $state<Record<string, number>>({ bars: 64, themeHue: 171 });
   let seeking = $state(false);
   let overlayOpen = $state(false);
+  let sceneMeta = $state<SceneDisplay | null>(null);
+  let sceneMetaSeq = 0;
+
+  /** Scene whose stem prefixes the loaded asset's file name (mirrors SceneRail). */
+  function sceneForAsset(assetRel: string): string | null {
+    const file = assetRel.split("/").at(-1)!;
+    return (
+      bench.project?.scenes.find((scene) => {
+        const stem = scene.rel_path.split("/").at(-1)!.replace(/\.ya?ml$/i, "");
+        return file.startsWith(`${stem}.`);
+      })?.rel_path ?? null
+    );
+  }
+
+  // Scene metadata rides along with the loaded asset: the overlay shows the
+  // title card and the mood spectrum reads the declared key as its intent
+  // prior, so it is fetched whenever the asset (or the scene file) changes.
+  $effect(() => {
+    const current = ++sceneMetaSeq;
+    void bench.projectRevision;
+    const root = bench.project?.root;
+    const asset = bench.loadedAsset;
+    if (!root || !asset) {
+      sceneMeta = null;
+      return;
+    }
+    const scenePath = sceneForAsset(asset);
+    if (!scenePath) {
+      sceneMeta = null;
+      return;
+    }
+    void api.inspectScene(root, scenePath).then(
+      (inspection) => {
+        if (current === sceneMetaSeq) sceneMeta = inspection.scene ?? null;
+      },
+      () => {
+        if (current === sceneMetaSeq) sceneMeta = null;
+      },
+    );
+  });
+
+  let recorder: CanvasRecorder | null = null;
+  let recordingState = $state<"idle" | "starting" | "recording" | "saving">("idle");
+  let recordingElapsed = $state(0);
+  let recordError = $state<string | null>(null);
+  let recordingStartedAt = 0;
 
   let meterCanvas: HTMLCanvasElement | undefined = $state();
   let startCtxTime = 0;
@@ -47,6 +102,9 @@
   function ensureGraph() {
     if (audioCtx) return;
     audioCtx = new AudioContext();
+    // Analyser bin width depends on the device sample rate; the mood engine
+    // needs it to map bins onto pitch classes.
+    styleOptions.sampleRate = audioCtx.sampleRate;
     const mainAnalyser = audioCtx.createAnalyser();
     mainAnalyser.fftSize = 2048;
     mainAnalyser.smoothingTimeConstant = 0.82;
@@ -101,6 +159,8 @@
       if (!looping) {
         playing = false;
         position = 0;
+        // A non-looping piece ending is the natural end of a video take.
+        if (recordingState === "recording") void stopRecording();
       }
     };
     source.start(0, Math.max(0, offset));
@@ -138,6 +198,113 @@
   function setLoop(value: boolean) {
     looping = value;
     if (source) source.loop = value;
+  }
+
+  function recordingMime(): RecordingMime | null {
+    if (typeof MediaRecorder === "undefined") return null;
+    if (typeof HTMLCanvasElement.prototype.captureStream !== "function") return null;
+    return pickRecordingMime((mime) => MediaRecorder.isTypeSupported(mime));
+  }
+
+  /**
+   * Persistent watermark for recorded takes: the piece's title card
+   * top-left, the app logo and repo line bottom-right. Theme fonts/colors
+   * come from the CSS custom properties so the video matches the app's
+   * look; metadata is read live so a slow scene inspection still lands.
+   */
+  function makeTitleCardDraw(canvas: HTMLCanvasElement) {
+    const vars = getComputedStyle(canvas);
+    const token = (name: string, fallback: string) =>
+      vars.getPropertyValue(name).trim() || fallback;
+    const theme = {
+      mono: token("--mono", "monospace"),
+      sans: token("--sans", "sans-serif"),
+      fg: token("--fg", "#e6f1ec"),
+      dim: token("--fg-dim", "rgba(190, 210, 205, 0.75)"),
+      accent: token("--accent", "#3ad6b5"),
+    };
+    const logo = new Image();
+    logo.src = appIconUrl;
+    return (ctx: CanvasRenderingContext2D, width: number, height: number, dpr: number) => {
+      drawTitleCard(ctx, {
+        width,
+        height,
+        dpr,
+        alpha: WATERMARK_ALPHA,
+        eyebrow: bench.loadedAsset,
+        title: sceneMeta?.title ?? null,
+        signature: sceneSignature(sceneMeta) || null,
+        story: sceneMeta?.story ?? null,
+        badgeText: REPO_WATERMARK,
+        logo: logo.complete && logo.naturalWidth > 0 ? logo : null,
+        ...theme,
+      });
+    };
+  }
+
+  /** Record the overlay's canvas plus playback audio, restarting from the top. */
+  async function startRecording(canvas: HTMLCanvasElement | null) {
+    if (recordingState !== "idle") return;
+    if (!canvas || !buffer || !audioCtx || !gainNode) return;
+    recordError = null;
+    const mime = recordingMime();
+    if (!mime) {
+      recordError = t("overlay.recordUnsupported");
+      return;
+    }
+    recordingState = "starting";
+    // Keep the take's head clean: silence playback while the encoder warms up
+    // (WebKit's first run otherwise swallows roughly the first second).
+    teardownSource();
+    playing = false;
+    position = 0;
+    try {
+      // A suspended context stalls the captured audio track and with it the
+      // muxer, so the graph must be running before the recorder starts.
+      await audioCtx.resume();
+      recorder = new CanvasRecorder({
+        canvas,
+        audioContext: audioCtx,
+        tap: gainNode,
+        mime,
+        overlayDraw: makeTitleCardDraw(canvas),
+      });
+      await recorder.start();
+      play();
+      recordingStartedAt = performance.now();
+      recordingElapsed = 0;
+      recordingState = "recording";
+    } catch (error) {
+      recordError = errorText(error);
+      recorder?.dispose();
+      recorder = null;
+      recordingState = "idle";
+    }
+  }
+
+  /** Finalize the take and offer a native save dialog (cancel = discard). */
+  async function stopRecording() {
+    if (!recorder || recordingState !== "recording") return;
+    recordingState = "saving";
+    try {
+      const blob = await recorder.stop();
+      const name = recordingFileName(bench.loadedAsset, recorder.extension, new Date());
+      const target = await api.chooseRecordingPath(name);
+      if (target) {
+        await api.saveRecording(new Uint8Array(await blob.arrayBuffer()));
+      }
+    } catch (error) {
+      recordError = errorText(error);
+    } finally {
+      recorder?.dispose();
+      recorder = null;
+      recordingState = "idle";
+    }
+  }
+
+  function closeOverlay() {
+    if (recordingState === "recording") void stopRecording();
+    overlayOpen = false;
   }
 
   async function load(relPath: string) {
@@ -181,6 +348,17 @@
 
   $effect(() => {
     styleOptions.themeHue = bench.themeHuePreview ?? bench.settings?.theme_hue ?? 171;
+  });
+
+  // Declared intent for the mood spectrum: the scene's key names a mode the
+  // visuals can be checked against. Absent or ambiguous keys carry no prior.
+  $effect(() => {
+    const intent = modeFromKey(sceneMeta?.key);
+    if (intent === undefined) {
+      if ("intentMode" in styleOptions) delete styleOptions.intentMode;
+    } else {
+      styleOptions.intentMode = intent;
+    }
   });
 
   async function persistSpectrum() {
@@ -286,6 +464,8 @@
     const tick = () => {
       raf = requestAnimationFrame(tick);
       if (!seeking) position = currentPos();
+      if (recordingState === "recording")
+        recordingElapsed = (performance.now() - recordingStartedAt) / 1000;
       drawMeters();
     };
     raf = requestAnimationFrame(tick);
@@ -406,9 +586,15 @@
     canPlay={Boolean(buffer)}
     timeText={`${fmtTime(position)} / ${fmtTime(duration)}`}
     assetName={bench.loadedAsset}
+    meta={sceneMeta}
+    {recordingState}
+    recordingTime={fmtTime(recordingElapsed)}
+    {recordError}
+    onrecord={(canvas) => void startRecording(canvas)}
+    onrecordstop={() => void stopRecording()}
     ontoggle={toggle}
     onstyle={chooseStyle}
-    onclose={() => (overlayOpen = false)}
+    onclose={closeOverlay}
   />
 {/if}
 

@@ -229,6 +229,12 @@ const en = {
   // Visualizer overlay
   "overlay.close": "Close visualizer",
   "overlay.hint": "Esc to close",
+  "overlay.record": "Record video",
+  "overlay.recordStop": "Stop & save",
+  "overlay.recordStarting": "Starting…",
+  "overlay.recordSaving": "Saving…",
+  "overlay.recordHint": "Restarts the piece and captures this view with audio",
+  "overlay.recordUnsupported": "Video recording is not supported by this webview",
 };
 
 export type MessageKey = keyof typeof en;
@@ -442,6 +448,12 @@ const zh: Record<MessageKey, string> = {
 
   "overlay.close": "关闭视觉",
   "overlay.hint": "按 Esc 关闭",
+  "overlay.record": "录制视频",
+  "overlay.recordStop": "停止并保存",
+  "overlay.recordStarting": "启动中…",
+  "overlay.recordSaving": "保存中…",
+  "overlay.recordHint": "从头播放乐曲并录制当前画面与声音",
+  "overlay.recordUnsupported": "当前 webview 不支持视频录制",
 };
 
 const dictionaries: Record<"en" | "zh", Record<MessageKey, string>> = { en, zh };

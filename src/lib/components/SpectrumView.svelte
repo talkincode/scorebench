@@ -164,6 +164,11 @@
   // Each three style renders into its own canvas element: dispose() releases
   // the old WebGL context via loseContext, so a canvas can never be reused.
   let glKey = $derived(entry.kind === "three" && active ? entry.id : "gl-off");
+
+  /** Canvas currently on screen — the element video export captures. */
+  export function getActiveCanvas(): HTMLCanvasElement | null {
+    return (showGl ? canvasGl : canvas2d) ?? null;
+  }
 </script>
 
 <div class="spectrum-view">

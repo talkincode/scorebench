@@ -48,6 +48,13 @@ export const visualStyles: VisualStyleEntry[] = [
   { kind: "three", id: "terrain", label: "Terrain", load: () => import("./three/terrain") },
   { kind: "three", id: "rings", label: "Ring tunnel", load: () => import("./three/rings") },
   { kind: "three", id: "crystal", label: "Crystal", load: () => import("./three/crystal") },
+  {
+    kind: "three",
+    id: "mood",
+    label: "情绪 · Mood",
+    options: [{ key: "moodHud", label: "HUD", min: 0, max: 1, step: 1, defaultValue: 1 }],
+    load: () => import("./three/mood"),
+  },
 ];
 
 export function visualStyleById(id: string): VisualStyleEntry | undefined {
