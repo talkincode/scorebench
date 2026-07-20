@@ -1,19 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
     <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#1d1608"/>
-      <stop offset="0.55" stop-color="#100b04"/>
-      <stop offset="1" stop-color="#080502"/>
+      <stop offset="0" stop-color="#081a1c"/>
+      <stop offset="0.55" stop-color="#04100f"/>
+      <stop offset="1" stop-color="#020808"/>
     </linearGradient>
     <radialGradient id="halo" cx="0.5" cy="0.34" r="0.72">
-      <stop offset="0" stop-color="#f2b946" stop-opacity="0.30"/>
-      <stop offset="0.5" stop-color="#f2b946" stop-opacity="0.08"/>
-      <stop offset="1" stop-color="#f2b946" stop-opacity="0"/>
+      <stop offset="0" stop-color="#39e6cf" stop-opacity="0.30"/>
+      <stop offset="0.5" stop-color="#39e6cf" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#39e6cf" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="ink" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffd97a"/>
-      <stop offset="0.5" stop-color="#f2b946"/>
-      <stop offset="1" stop-color="#cf922c"/>
+      <stop offset="0" stop-color="#8cf7e6"/>
+      <stop offset="0.5" stop-color="#39e6cf"/>
+      <stop offset="1" stop-color="#17a394"/>
     </linearGradient>
     <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
       <feGaussianBlur in="SourceGraphic" stdDeviation="22"/>
@@ -23,10 +23,10 @@
   <!-- Tile -->
   <rect x="64" y="64" width="896" height="896" rx="212" fill="url(#tile)"/>
   <rect x="64" y="64" width="896" height="896" rx="212" fill="url(#halo)"/>
-  <rect x="70" y="70" width="884" height="884" rx="206" fill="none" stroke="#f2b946" stroke-opacity="0.20" stroke-width="6"/>
+  <rect x="70" y="70" width="884" height="884" rx="206" fill="none" stroke="#39e6cf" stroke-opacity="0.20" stroke-width="6"/>
 
   <!-- Cat mark: glow pass -->
-  <g filter="url(#glow)" opacity="0.65" fill="none" stroke="#f2b946" stroke-linecap="round" stroke-linejoin="round" transform="translate(512 522) scale(6.6) translate(-60 -60)">
+  <g filter="url(#glow)" opacity="0.65" fill="none" stroke="#39e6cf" stroke-linecap="round" stroke-linejoin="round" transform="translate(512 522) scale(6.6) translate(-60 -60)">
     <circle cx="60" cy="60" r="55" stroke-width="4.5"/>
     <circle cx="60" cy="65" r="33" stroke-width="4.5"/>
   </g>
@@ -43,8 +43,8 @@
     <path d="M63 48 L54.5 59 L59.5 59 L56.5 68.5 L65.5 57 L60.5 57 Z" fill="url(#ink)" stroke-width="1.5"/>
     <circle cx="45" cy="64" r="6.5" fill="url(#ink)" stroke="none"/>
     <circle cx="75" cy="64" r="6.5" fill="url(#ink)" stroke="none"/>
-    <circle cx="47.3" cy="61.7" r="2" fill="#100b04" stroke="none"/>
-    <circle cx="77.3" cy="61.7" r="2" fill="#100b04" stroke="none"/>
+    <circle cx="47.3" cy="61.7" r="2" fill="#04100f" stroke="none"/>
+    <circle cx="77.3" cy="61.7" r="2" fill="#04100f" stroke="none"/>
     <path d="M54 76 L66 76 L60 83.5 Z" fill="url(#ink)" stroke-width="2"/>
     <path d="M49.5 87 Q54.5 93 60 87.5 Q65.5 93 70.5 87" stroke-width="3.5"/>
     <path d="M20 69.5 L35 71" stroke-width="3.2"/>

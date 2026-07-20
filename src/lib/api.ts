@@ -339,6 +339,11 @@ export const api = {
   readAsset: (root: string, relPath: string) =>
     invoke<ArrayBuffer>("read_asset", { root, relPath }),
 
+  chooseRecordingPath: (suggestedName: string) =>
+    invoke<string | null>("choose_recording_path", { suggestedName }),
+
+  saveRecording: (bytes: Uint8Array) => invoke<string>("save_recording", bytes),
+
   loadRenderConfig: (root: string) =>
     invoke<[RenderConfig | null, string | null]>("load_render_config", { root }),
 
