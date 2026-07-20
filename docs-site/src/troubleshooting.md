@@ -14,6 +14,22 @@ scorekit doctor
 
 If the CLI works in a terminal but not in the desktop application, set `SCOREBENCH_SCOREKIT` to the executable's absolute path and restart scorebench. Confirm that the current user can execute the file.
 
+## Homebrew says `untrusted tap`
+
+If install fails with:
+
+`Refusing to load formula talkincode/tap/scorekit from untrusted tap talkincode/tap`
+
+trust the tap explicitly, then retry:
+
+```bash
+brew tap talkincode/tap
+brew trust --tap talkincode/tap
+brew install --cask talkincode/tap/scorebench
+```
+
+This happens when the cask is trusted but the tap's formulae are not yet trusted.
+
 ## `doctor` says the environment is not ready
 
 A complete ScoreKit audio build needs FFmpeg and at least one renderer:

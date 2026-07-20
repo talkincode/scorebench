@@ -41,7 +41,37 @@ you ──chat──► agent core (Rust, OpenAI Responses API only)
 
 Core milestones M0–M5 complete (walking skeleton → agent core → observation surfaces → project memory → spectrum modules → release engineering). See [docs/roadmap.md](docs/roadmap.md).
 
-## Development
+## Install (Users)
+
+### macOS (Homebrew, recommended)
+
+```bash
+brew tap talkincode/tap
+brew trust --tap talkincode/tap
+brew install --cask talkincode/tap/scorebench
+scorekit doctor
+```
+
+`talkincode/tap/scorebench` declares `talkincode/tap/scorekit` as a dependency, so Homebrew installs ScoreKit for you.
+
+### Linux and Windows
+
+Install scorebench from [Releases](https://github.com/talkincode/scorebench/releases):
+
+- Linux: use the `.deb` or `.AppImage` artifact.
+- Windows: use the `.msi` or `-setup.exe` artifact.
+
+Install ScoreKit separately (for example with Homebrew `brew install talkincode/tap/scorekit`, or from [ScoreKit Releases](https://github.com/talkincode/scorekit/releases)), then confirm:
+
+```bash
+brew trust --tap talkincode/tap   # when installing ScoreKit via Homebrew tap
+scorekit --version
+scorekit doctor
+```
+
+If scorebench starts but cannot find ScoreKit, set `SCOREBENCH_SCOREKIT` to the absolute path of the ScoreKit executable and restart the app.
+
+## Development (Contributors)
 
 ```bash
 npm install

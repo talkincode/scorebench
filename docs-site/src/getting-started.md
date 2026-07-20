@@ -4,16 +4,43 @@ This chapter takes the shortest path through the complete loop: install the depe
 
 ## 1. Install scorebench and ScoreKit
 
-Download the installer for your system from [scorebench Releases](https://github.com/talkincode/scorebench/releases). scorebench also needs a separate ScoreKit installation; the CLI is not bundled with the desktop application.
+scorebench needs the ScoreKit CLI at runtime. The desktop app does not bundle the CLI.
 
-On macOS with Homebrew:
+### macOS (Homebrew, recommended)
 
 ```bash
+brew tap talkincode/tap
+brew trust --tap talkincode/tap
 brew install --cask talkincode/tap/scorebench
 scorekit doctor
 ```
 
-The cask installs the `talkincode/tap/scorekit` formula as a dependency. Linux users can install scorebench from the release artifacts and ScoreKit with `brew install talkincode/tap/scorekit` or from [ScoreKit Releases](https://github.com/talkincode/scorekit/releases). `scorekit doctor` should confirm that FFmpeg and at least one renderer are available and report the state of the default SoundFont.
+The cask depends on `talkincode/tap/scorekit`, so Homebrew installs ScoreKit automatically.
+
+### Linux
+
+1. Download `scorebench_*.deb` (Debian/Ubuntu) or `scorebench_*.AppImage` from [scorebench Releases](https://github.com/talkincode/scorebench/releases).
+2. Install ScoreKit (`brew install talkincode/tap/scorekit`) or install it from [ScoreKit Releases](https://github.com/talkincode/scorekit/releases).
+3. Run:
+
+```bash
+brew trust --tap talkincode/tap   # when installing ScoreKit via Homebrew tap
+scorekit --version
+scorekit doctor
+```
+
+### Windows
+
+1. Download `scorebench_*_x64_en-US.msi` or `scorebench_*_x64-setup.exe` from [scorebench Releases](https://github.com/talkincode/scorebench/releases).
+2. Install ScoreKit from [ScoreKit Releases](https://github.com/talkincode/scorekit/releases), and make sure `scorekit.exe` is on `PATH`.
+3. In PowerShell, run:
+
+```powershell
+scorekit --version
+scorekit doctor
+```
+
+`scorekit doctor` should confirm FFmpeg, at least one renderer, and the default sound source status.
 
 > If scorebench cannot locate the command, set `SCOREBENCH_SCOREKIT` to the absolute path of the ScoreKit executable. GUI applications on macOS often receive a shorter `PATH` than terminal shells, so a command can work in Terminal and still be invisible to the app.
 
