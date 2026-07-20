@@ -54,6 +54,14 @@ scorekit doctor
 
 `talkincode/tap/scorebench` declares `talkincode/tap/scorekit` as a dependency, so Homebrew installs ScoreKit for you.
 
+If Homebrew says Xcode is too old even though a newer Xcode or Xcode beta is already installed, point `xcode-select` at the active developer directory before retrying:
+
+```bash
+sudo xcode-select -s /Applications/Xcode-beta.app/Contents/Developer
+xcodebuild -version
+brew install --cask talkincode/tap/scorebench
+```
+
 ### Linux and Windows
 
 Install scorebench from [Releases](https://github.com/talkincode/scorebench/releases):
