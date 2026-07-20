@@ -17,6 +17,14 @@ scorekit doctor
 
 The cask depends on `talkincode/tap/scorekit`, so Homebrew installs ScoreKit automatically.
 
+If Homebrew still reports an outdated Xcode while a newer Xcode or Xcode beta is already installed, switch the active developer directory first:
+
+```bash
+sudo xcode-select -s /Applications/Xcode-beta.app/Contents/Developer
+xcodebuild -version
+brew install --cask talkincode/tap/scorebench
+```
+
 ### Linux
 
 1. Download `scorebench_*.deb` (Debian/Ubuntu) or `scorebench_*.AppImage` from [scorebench Releases](https://github.com/talkincode/scorebench/releases).

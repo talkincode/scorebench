@@ -30,6 +30,33 @@ brew install --cask talkincode/tap/scorebench
 
 This happens when the cask is trusted but the tap's formulae are not yet trusted.
 
+## Homebrew says Xcode is too old
+
+If Homebrew errors with a message like:
+
+`Your Xcode (...) is too outdated. Please update to Xcode 27.0`
+
+check which developer directory is active:
+
+```bash
+xcode-select -p
+xcodebuild -version
+```
+
+When a newer Xcode or Xcode beta is installed but Homebrew is still using an older `/Applications/Xcode.app`, switch it explicitly and retry:
+
+```bash
+sudo xcode-select -s /Applications/Xcode-beta.app/Contents/Developer
+xcodebuild -version
+brew install talkincode/tap/scorekit
+```
+
+If command-line tools still prompt after switching, accept the license once:
+
+```bash
+sudo xcodebuild -license accept
+```
+
 ## `doctor` says the environment is not ready
 
 A complete ScoreKit audio build needs FFmpeg and at least one renderer:
