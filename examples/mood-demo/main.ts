@@ -10,7 +10,7 @@
  * rendered music. No audio files and no permissions.
  *
  * Run: `npm run demo:mood`, then open http://127.0.0.1:5175/
- * Keys: 1-6 jump to a scene · Space pause · T cycle theme hue ·
+ * Keys: 1-7 jump to a scene · Space pause · T cycle theme hue ·
  *       I cycle declared intent (none/major/minor) · R restart.
  */
 import { MOOD_WORLDS, MoodEngine } from "../../src/lib/spectrum/mood";
@@ -54,6 +54,8 @@ function chordInto(f: Float32Array, fundamentals: number[], level: number, harmo
 const C_MAJOR = [130.81, 164.81, 196.0, 261.63, 329.63, 392.0];
 const A_MINOR = [220, 261.63, 329.63, 440];
 const A_MAJOR_HIGH = [440, 554.37, 659.25];
+/** Semitone-cluster voicing — the storm act's dark strain. */
+const A_CLUSTER = [220, 233.08, 246.94, 466.16, 493.88];
 
 interface Act {
   name: string;
@@ -140,8 +142,24 @@ const acts: Act[] = [
     },
   },
   {
+    name: "风暴 · Storm",
+    note: "半音簇之墙 — 阴云蔽月，雨幕横斜，雷光应和重击",
+    dur: 18,
+    fill(f, at) {
+      const kick = beat(at, 0.55, 0.09);
+      const surge = 0.8 + 0.2 * Math.sin(at * 0.8);
+      for (let i = 0; i < N; i++) {
+        const t = i / N;
+        let v = 0.22 * Math.exp(-t * 2.2) * surge;
+        v += kick * 0.5 * Math.exp(-t * 8);
+        f[i] = v;
+      }
+      chordInto(f, A_CLUSTER, 0.75 * surge, 10);
+    },
+  },
+  {
     name: "归返 · Outro",
-    note: "能量退潮 — 小调余韵溶解，回到深空",
+    note: "能量退潮 — 小调余韵化雪，回到深空",
     dur: 13,
     fill(f, at) {
       const decay = Math.max(0, 1 - at / 9);
@@ -238,7 +256,7 @@ window.addEventListener("keydown", (event) => {
   }
 });
 
-// Deep link: ?scene=1..6 starts the journey at that act.
+// Deep link: ?scene=1..7 starts the journey at that act.
 const sceneParam = Number(new URLSearchParams(location.search).get("scene"));
 if (sceneParam >= 1 && sceneParam <= acts.length) jumpTo(sceneParam - 1);
 
