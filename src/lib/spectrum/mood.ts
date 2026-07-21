@@ -18,6 +18,10 @@
  * An optional *intent* prior (the scene's declared key mode) can bias
  * valence when the audio evidence is ambiguous; the acceptance idea is that
  * the rendered mood should agree with what the score *claims* to express.
+ *
+ * On top of the world weights, a *weather* layer reads the same axes as
+ * atmosphere — 晴 clear, 雾 mist, 雨 rain, 雪 snow, 雷 storm — plus a
+ * continuous wind strength. Weather crossfades independently of worlds.
  */
 
 import { Envelope } from "./dynamics";
@@ -40,6 +44,37 @@ const TWO_SIGMA_SQ = 2 * 0.32 * 0.32;
 const SWITCH_MARGIN = 0.04;
 /** …continuously for this many seconds before the dominant world flips. */
 const SWITCH_DWELL = 2.2;
+
+/**
+ * Weather: the atmospheric reading of the same emotion space. Worlds say
+ * *where* the music stands; weather says what the air is doing there —
+ * 晴 clear, 雾 mist, 雨 rain, 雪 snow, 雷 storm. Orthogonal to worlds, so a
+ * dark pulsing ocean can rain while a bright ocean glitters under clear sky.
+ */
+export const WEATHER_MODES = ["clear", "mist", "rain", "snow", "storm"] as const;
+export type WeatherMode = (typeof WEATHER_MODES)[number];
+
+/**
+ * Weather signatures in [arousal, valence, tension, pulse] with per-axis
+ * weights: weather is defined more by valence/tension (rain is *dark* motion,
+ * storm is *dark strain*) than by loudness alone, so those axes count double —
+ * an energetic but neutral groove stays clear instead of reading as a storm.
+ */
+const WEATHER_SIGNATURES: Record<
+  WeatherMode,
+  { sig: readonly [number, number, number, number]; axis: readonly [number, number, number, number] }
+> = {
+  clear: { sig: [0.4, 0.78, 0.1, 0.35], axis: [0.5, 2, 1, 0.3] },
+  mist: { sig: [0.05, 0.48, 0.1, 0.04], axis: [1.6, 1.2, 1, 0.8] },
+  rain: { sig: [0.3, 0.2, 0.3, 0.4], axis: [1, 2, 1, 1] },
+  snow: { sig: [0.1, 0.32, 0.08, 0.06], axis: [1.4, 1.6, 1.4, 1] },
+  storm: { sig: [0.55, 0.25, 0.75, 0.55], axis: [1, 2.2, 2.2, 0.6] },
+};
+
+const WEATHER_TWO_SIGMA_SQ = 2 * 0.3 * 0.3;
+/** Weather flips faster than worlds — squalls are allowed — but never per-beat. */
+const WEATHER_MARGIN = 0.05;
+const WEATHER_DWELL = 1.6;
 
 /** Observed intent — declared score facts the mood should agree with. */
 export interface MoodIntent {
@@ -64,6 +99,12 @@ export interface MoodState {
   weights: Record<MoodWorld, number>;
   /** Stable dominant world (hysteresis + dwell). */
   dominant: MoodWorld;
+  /** Normalized weather weights (sum ≈ 1). Mutated in place across updates. */
+  weather: Record<WeatherMode, number>;
+  /** Stable dominant weather (hysteresis + shorter dwell than worlds). */
+  weatherMode: WeatherMode;
+  /** Air movement 0..1 — spectral restlessness, drives drift/shear/sway. */
+  wind: number;
 }
 
 export interface MoodUpdateOptions {
@@ -82,6 +123,8 @@ export class MoodEngine {
     new Envelope(0.9, 0.9), // pulse
   ];
   private weightEnv = MOOD_WORLDS.map(() => new Envelope(0.75, 0.75));
+  private weatherWeightEnv = WEATHER_MODES.map(() => new Envelope(0.6, 0.6));
+  private windEnv = new Envelope(0.5, 0.35);
   private baseline = new Envelope(2.5, 2.5);
   /** Three time scales of loudness: texture, phrase, form. */
   private fastEnergy = new Envelope(1.4, 1.4); // ~0.7s
@@ -96,6 +139,9 @@ export class MoodEngine {
   private dominantIndex = 0;
   private challengerIndex = -1;
   private challengeTime = 0;
+  private weatherIndex = 0;
+  private weatherChallengerIndex = -1;
+  private weatherChallengeTime = 0;
 
   private readonly state: MoodState = {
     arousal: 0,
@@ -106,6 +152,9 @@ export class MoodEngine {
     swell: 0,
     weights: { cosmos: 1, starlight: 0, ocean: 0, meadow: 0, city: 0 },
     dominant: "cosmos",
+    weather: { clear: 1, mist: 0, rain: 0, snow: 0, storm: 0 },
+    weatherMode: "clear",
+    wind: 0,
   };
 
   /** Feed one analyser frame (byte spectrum 0..255); returns the mood state. */
@@ -241,6 +290,54 @@ export class MoodEngine {
       this.challengeTime = 0;
     }
 
+    // Weather: axis-weighted Gaussian affinity over the same four axes.
+    let weatherTotal = 0;
+    for (let m = 0; m < WEATHER_MODES.length; m++) {
+      const { sig, axis } = WEATHER_SIGNATURES[WEATHER_MODES[m]];
+      const d2 =
+        axis[0] * (arousal - sig[0]) ** 2 +
+        axis[1] * (valence - sig[1]) ** 2 +
+        axis[2] * (tension - sig[2]) ** 2 +
+        axis[3] * (pulse - sig[3]) ** 2;
+      weatherTotal += this.weatherWeightEnv[m].step(Math.exp(-d2 / WEATHER_TWO_SIGMA_SQ), step);
+    }
+    const weather = this.state.weather;
+    let weatherTop = 0;
+    for (let m = 0; m < WEATHER_MODES.length; m++) {
+      const value =
+        weatherTotal > 1e-9 ? this.weatherWeightEnv[m].value / weatherTotal : m === 0 ? 1 : 0;
+      weather[WEATHER_MODES[m]] = value;
+      if (value > weather[WEATHER_MODES[weatherTop]] || m === 0) weatherTop = m;
+    }
+    if (weatherTop === this.weatherIndex) {
+      this.weatherChallengerIndex = -1;
+      this.weatherChallengeTime = 0;
+    } else if (
+      weather[WEATHER_MODES[weatherTop]] >
+      weather[WEATHER_MODES[this.weatherIndex]] + WEATHER_MARGIN
+    ) {
+      if (this.weatherChallengerIndex === weatherTop) {
+        this.weatherChallengeTime += step;
+        if (this.weatherChallengeTime >= WEATHER_DWELL) {
+          this.weatherIndex = weatherTop;
+          this.weatherChallengerIndex = -1;
+          this.weatherChallengeTime = 0;
+        }
+      } else {
+        this.weatherChallengerIndex = weatherTop;
+        this.weatherChallengeTime = 0;
+      }
+    } else {
+      this.weatherChallengerIndex = -1;
+      this.weatherChallengeTime = 0;
+    }
+
+    // Wind: spectral restlessness — flux, density and beat drive the air.
+    const wind = this.windEnv.step(
+      clamp01(flux * 0.9 + density * 0.5 + this.pulseValue * 0.3 + energy * 0.25),
+      step,
+    );
+
     this.state.arousal = arousal;
     this.state.valence = valence;
     this.state.tension = tension;
@@ -248,6 +345,8 @@ export class MoodEngine {
     this.state.buildUp = buildUp;
     this.state.swell = swell;
     this.state.dominant = MOOD_WORLDS[this.dominantIndex];
+    this.state.weatherMode = WEATHER_MODES[this.weatherIndex];
+    this.state.wind = wind;
     return this.state;
   }
 }

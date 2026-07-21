@@ -1,6 +1,13 @@
 import * as THREE from "three";
 import { AudioPulse, BandSmoother } from "../dynamics";
-import { MOOD_WORLDS, MoodEngine, seededRandom, type MoodState, type MoodWorld } from "../mood";
+import {
+  MOOD_WORLDS,
+  MoodEngine,
+  seededRandom,
+  type MoodState,
+  type MoodWorld,
+  type WeatherMode,
+} from "../mood";
 import { bandLevels, bassLevel, createShell, energyLevel, glowTexture } from "./common";
 import type { ThreeFrame, ThreeInstance } from "./types";
 
@@ -11,7 +18,10 @@ import type { ThreeFrame, ThreeInstance } from "./types";
  * element cross-fades along those weights: nebulae and meteors own the void,
  * a wire ground rolls as sea or breathes as grassland, an instanced skyline
  * pulses like an equalizer, and the camera drifts between first-person
- * anchors so each world is *felt* rather than depicted.
+ * anchors so each world is *felt* rather than depicted. A weather layer
+ * (晴/雾/雨/雪/雷) reads the same emotion axes as atmosphere: rain streaks and
+ * snow drift through the air, mist draws the fog wall in, storms strike
+ * lightning, and overcast dims the whole sky — wind shears everything.
  */
 
 const SEED = 0x20260720;
@@ -25,6 +35,8 @@ const METEORS = 5;
 const BANDS = 16;
 const RIPPLES = 4;
 const RIPPLE_LIFE = 2.2;
+const RAIN_DROPS = 480;
+const SNOW_FLAKES = 320;
 
 /** Per-world palette as offsets from the theme hue: [hueShift, sat, light]. */
 const PALETTE: Record<MoodWorld, readonly [number, number, number]> = {
@@ -42,6 +54,15 @@ const CAMERA: Record<MoodWorld, { pos: readonly [number, number, number]; look: 
   ocean: { pos: [0, 6.5, 21], look: [0, 4, -90] },
   meadow: { pos: [0, 4.5, 19], look: [0, 5.5, -90] },
   city: { pos: [0, 7.5, 27], look: [0, 10, -75] },
+};
+
+/** HUD glyph per weather mode — the atmosphere the engine is hearing. */
+const WEATHER_GLYPH: Record<WeatherMode, string> = {
+  clear: "晴",
+  mist: "雾",
+  rain: "雨",
+  snow: "雪",
+  storm: "雷",
 };
 
 function setWorldColors(colors: Record<MoodWorld, THREE.Color>, hue: number, lightBoost = 0) {
@@ -343,6 +364,27 @@ function makeStars(rng: () => number, count: number, size: number, texture: THRE
   return { points: new THREE.Points(geometry, material), material, phase, speed, baseSize: size };
 }
 
+/**
+ * Thin vertical streak for rain drops: a bright core line fading at both
+ * ends, so attenuated points read as falling strokes rather than dots.
+ */
+function rainTexture(width = 16, height = 64): THREE.Texture {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d")!;
+  const gradient = ctx.createLinearGradient(0, 0, 0, height);
+  gradient.addColorStop(0, "rgba(255,255,255,0)");
+  gradient.addColorStop(0.25, "rgba(255,255,255,.55)");
+  gradient.addColorStop(0.75, "rgba(255,255,255,.9)");
+  gradient.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(width / 2 - 1.5, 0, 3, height);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
+
 interface Meteor {
   sprite: THREE.Sprite;
   material: THREE.SpriteMaterial;
@@ -595,12 +637,17 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
     g.fillRect(HUD_TRACK_X, buildY - 2, HUD_TRACK_W, 4);
     g.fillStyle = `rgba(255, 214, 130, ${(0.45 + mood.buildUp * 0.55).toFixed(3)})`;
     g.fillRect(HUD_TRACK_X, buildY - 2, HUD_TRACK_W * mood.buildUp, 4);
-    // Dominant world and its weight.
+    // Dominant world, weather glyph, and the dominant weight.
     g.font = "13px ui-monospace, SFMono-Regular, Menlo, monospace";
     g.fillStyle = "rgba(235, 240, 250, 0.92)";
     const pct = Math.round(mood.weights[mood.dominant] * 100);
     const intentTag = intentMode !== undefined ? "  ◆ intent" : "";
-    g.fillText(`${mood.dominant} ${pct}%${intentTag}`, 11, 114);
+    const wxPct = Math.round(mood.weather[mood.weatherMode] * 100);
+    g.fillText(
+      `${mood.dominant} ${pct}% · ${WEATHER_GLYPH[mood.weatherMode]} ${wxPct}%${intentTag}`,
+      11,
+      114,
+    );
     hudTexture.needsUpdate = true;
   };
 
@@ -718,6 +765,78 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
   horizon.scale.set(180, 34, 1);
   shell.scene.add(horizon);
 
+  // --- Weather: rain streaks, snow flakes, lightning flash ------------------
+  // One particle box ahead of the camera per precipitation kind; drops wrap
+  // vertically and re-scatter, so the pools are allocated once and reused.
+  const rainPositions = new Float32Array(RAIN_DROPS * 3);
+  const rainSeed = new Float32Array(RAIN_DROPS * 2); // fall-speed jitter, x-drift phase
+  for (let i = 0; i < RAIN_DROPS; i++) {
+    rainPositions[i * 3] = (rng() - 0.5) * 150;
+    rainPositions[i * 3 + 1] = rng() * 46;
+    rainPositions[i * 3 + 2] = -10 - rng() * 80;
+    rainSeed[i * 2] = 0.75 + rng() * 0.5;
+    rainSeed[i * 2 + 1] = rng() * Math.PI * 2;
+  }
+  const rainGeometry = new THREE.BufferGeometry();
+  rainGeometry.setAttribute("position", new THREE.BufferAttribute(rainPositions, 3));
+  const rainMap = rainTexture();
+  const rainMaterial = new THREE.PointsMaterial({
+    size: 3.1,
+    map: rainMap,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    sizeAttenuation: true,
+  });
+  const rain = new THREE.Points(rainGeometry, rainMaterial);
+  rain.visible = false;
+  shell.scene.add(rain);
+  const rainAttr = rainGeometry.getAttribute("position") as THREE.BufferAttribute;
+
+  const snowPositions = new Float32Array(SNOW_FLAKES * 3);
+  const snowSeed = new Float32Array(SNOW_FLAKES * 2); // sway phase, fall-speed jitter
+  for (let i = 0; i < SNOW_FLAKES; i++) {
+    snowPositions[i * 3] = (rng() - 0.5) * 150;
+    snowPositions[i * 3 + 1] = rng() * 42;
+    snowPositions[i * 3 + 2] = -10 - rng() * 80;
+    snowSeed[i * 2] = rng() * Math.PI * 2;
+    snowSeed[i * 2 + 1] = 0.7 + rng() * 0.6;
+  }
+  const snowGeometry = new THREE.BufferGeometry();
+  snowGeometry.setAttribute("position", new THREE.BufferAttribute(snowPositions, 3));
+  const snowMaterial = new THREE.PointsMaterial({
+    size: 0.85,
+    map: pointTexture,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    sizeAttenuation: true,
+  });
+  const snow = new THREE.Points(snowGeometry, snowMaterial);
+  snow.visible = false;
+  shell.scene.add(snow);
+  const snowAttr = snowGeometry.getAttribute("position") as THREE.BufferAttribute;
+
+  // Lightning: a sky-wide flash sprite plus scene-level boosts, double-strike
+  // flicker shaped in the render loop. Never triggered under reduced motion.
+  const flashMaterial = new THREE.SpriteMaterial({
+    map: texture,
+    fog: false,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const flash = new THREE.Sprite(flashMaterial);
+  flash.position.set(0, 60, -125);
+  flash.scale.set(340, 150, 1);
+  flash.visible = false;
+  celestial.add(flash);
+  let lightning = 0;
+  let strikeCooldown = 0;
+
   // --- Shared per-frame state ----------------------------------------------
   const engine = new MoodEngine();
   const pulse = new AudioPulse();
@@ -740,6 +859,9 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
   const scale = new THREE.Vector3();
   const translate = new THREE.Vector3();
   let waveTime = 0;
+  let wispTime = 0;
+  let snowTime = 0;
+  let moteTime = 0;
   let lastHue = Number.NaN;
   let cityVisible = true;
   // Valence tempers the palette: warm amber when bright, cold blue when dark.
@@ -808,6 +930,89 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       // visibly harder than an ordinary beat.
       const releaseKick = punch * buildUp;
 
+      // --- Weather state ----------------------------------------------------
+      // Storm implies rain; mist and snow both thicken the air. Overcast is
+      // how much cloud stands between the camera and the sky — it dims every
+      // celestial element so precipitation always falls from a closed sky.
+      const wx = mood.weather;
+      const wind = mood.wind;
+      const rainW = Math.min(1, wx.rain + wx.storm * 0.85);
+      const snowW = wx.snow;
+      const stormW = wx.storm;
+      const mistW = wx.mist;
+      const overcast = Math.min(1, rainW * 0.9 + snowW * 0.55 + mistW * 0.75 + stormW * 0.4);
+      const skyClarity = 1 - overcast * 0.82;
+
+      // Lightning: storm-gated strikes on bass impacts or a seeded poisson
+      // trickle; a fast-decay envelope with an incommensurate flicker gives
+      // the double-strike feel. Disabled entirely under reduced motion.
+      strikeCooldown = Math.max(0, strikeCooldown - frame.dt);
+      if (
+        !frame.prefersReducedMotion &&
+        stormW > 0.32 &&
+        strikeCooldown <= 0 &&
+        (impact > 0.45 || rng() < frame.dt * stormW * 0.45)
+      ) {
+        lightning = 0.7 + rng() * 0.3;
+        strikeCooldown = 1.1 + rng() * 2.6;
+      }
+      lightning *= Math.exp(-frame.dt * 7);
+      const flashLevel =
+        lightning > 0.02 ? lightning * (0.72 + 0.28 * Math.sin(frame.elapsed * 43)) : 0;
+      flash.visible = flashLevel > 0.02;
+      if (flash.visible) {
+        flashMaterial.opacity = Math.min(0.85, flashLevel * (0.5 + stormW * 0.5));
+        flashMaterial.color.copy(worldGlow.starlight).lerp(moonTint, 0.6);
+      }
+
+      // Rain: fast fall, wind shears the streaks sideways; storm drives both
+      // the density and the pace. Points wrap inside the box ahead of camera.
+      const rainVis = rainW * (0.35 + mood.arousal * 0.5 + stormW * 0.3);
+      rainMaterial.opacity = Math.min(0.7, rainVis);
+      rain.visible = rainVis > 0.02;
+      if (rain.visible) {
+        const fall = (24 + mood.arousal * 16 + stormW * 14) * motion;
+        const shear = wind * (7 + stormW * 8) * motion;
+        for (let i = 0; i < RAIN_DROPS; i++) {
+          let y = rainAttr.getY(i) - fall * rainSeed[i * 2] * frame.dt;
+          let x = rainAttr.getX(i) + shear * frame.dt;
+          if (y < 0) {
+            y += 46;
+            x = (rng() - 0.5) * 150;
+          }
+          if (x > 78) x -= 156;
+          rainAttr.setXYZ(i, x, y, rainAttr.getZ(i));
+        }
+        rainAttr.needsUpdate = true;
+        rainMaterial.size = 2.6 + stormW * 1.2 + mood.arousal * 0.7;
+        rainMaterial.color.copy(worldGlow.ocean).lerp(moonTint, 0.45);
+      }
+
+      // Snow: slow fall with a per-flake sinusoidal sway that widens with wind.
+      const snowVis = snowW * (0.5 + treble * 0.4);
+      snowMaterial.opacity = Math.min(0.85, snowVis);
+      snow.visible = snowVis > 0.02;
+      snowTime += frame.dt * (0.5 + wind);
+      if (snow.visible) {
+        const drift = (2 + wind * 2.6) * motion;
+        for (let i = 0; i < SNOW_FLAKES; i++) {
+          const sway = snowSeed[i * 2];
+          let y = snowAttr.getY(i) - drift * snowSeed[i * 2 + 1] * frame.dt;
+          let x =
+            snowAttr.getX(i) +
+            (Math.sin(snowTime + sway) * (0.55 + wind * 1.3) + wind * 1.6) * frame.dt;
+          if (y < 0) {
+            y += 42;
+            x = (rng() - 0.5) * 150;
+          }
+          if (x > 78) x -= 156;
+          snowAttr.setXYZ(i, x, y, snowAttr.getZ(i));
+        }
+        snowAttr.needsUpdate = true;
+        snowMaterial.size = 0.7 + wind * 0.25 + impact * 0.15;
+        snowMaterial.color.copy(moonTint);
+      }
+
       // Bass impacts kick an expanding ground ripple from just ahead of camera.
       if (punch > 0.4) {
         const slot = ripples[rippleCursor];
@@ -822,24 +1027,30 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       for (const ripple of ripples) ripple.age += frame.dt;
 
       // Sky: stars flare with treble; nebula haze bands breathe on the bass.
+      // Overcast slides a cloud deck over everything celestial.
       for (let i = 0; i < starLayers.length; i++) {
         const layer = starLayers[i];
         const twinkle = Math.sin(frame.elapsed * layer.speed * motion + layer.phase);
         layer.material.opacity = Math.min(
           1,
-          Math.max(0, (0.3 + skyW * 0.7) * (0.55 + 0.3 * twinkle) + treble * 0.9 + punch * 0.35),
+          Math.max(0, (0.3 + skyW * 0.7) * (0.55 + 0.3 * twinkle) + treble * 0.9 + punch * 0.35) *
+            skyClarity +
+            flashLevel * 0.3,
         );
         layer.material.size = layer.baseSize * (1 + treble * 0.35 + punch * 0.2);
       }
       for (let i = 0; i < nebulae.length; i++) {
         const sprite = nebulae[i];
         const material = sprite.material;
-        material.opacity = w.cosmos * (0.26 + bass * 0.5 + impact * 0.15) + w.starlight * 0.1;
+        material.opacity =
+          (w.cosmos * (0.26 + bass * 0.5 + impact * 0.15) + w.starlight * 0.1) *
+          (1 - overcast * 0.6);
         // Bounded horizontal sway instead of rotation keeps the haze cloud-like.
         sprite.position.x =
           (sprite.userData.baseX as number) +
           Math.sin(frame.elapsed * (0.05 + Math.abs(nebulaSpin[i])) * motion + i * 2.1) *
-            (10 + bass * 14);
+            (10 + bass * 14) *
+            (1 + wind * 0.5);
         sprite.scale.set(
           (sprite.userData.baseW as number) * (1 + bass * 0.18),
           (sprite.userData.baseH as number) * (1 + bass * 0.3 + impact * 0.12),
@@ -850,17 +1061,25 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       // Moon: a distant presence, not a poster. It hangs half-veiled — the
       // disc fades toward translucence in silence, haze thickens over it,
       // and cloud wisps drift across the face so it is glimpsed, not shown.
-      const moonLum = Math.min(1, 0.34 + energy * 0.6 + impact * 0.22 + skyW * 0.08);
-      moonMaterial.color.copy(moonTint).multiplyScalar(moonLum);
-      moonMaterial.opacity = Math.min(0.82, 0.42 + energy * 0.34 + impact * 0.12);
+      const moonLum =
+        Math.min(1, 0.34 + energy * 0.6 + impact * 0.22 + skyW * 0.08) *
+        (1 - overcast * 0.45) +
+        flashLevel * 0.25;
+      moonMaterial.color.copy(moonTint).multiplyScalar(Math.min(1, moonLum));
+      moonMaterial.opacity =
+        Math.min(0.82, 0.42 + energy * 0.34 + impact * 0.12) * (1 - overcast * 0.55);
       moon.rotation.y += frame.dt * (0.05 + energy * 0.12) * motion;
       moon.rotation.x = Math.sin(frame.elapsed * 0.03 * motion) * 0.1;
-      moonGlowMaterial.opacity = Math.min(0.4, 0.04 + bass * 0.26 + impact * 0.14) * (1 - w.city * 0.4);
+      moonGlowMaterial.opacity =
+        Math.min(0.4, 0.04 + bass * 0.26 + impact * 0.14) * (1 - w.city * 0.4) * skyClarity;
       moonGlow.scale.setScalar(20 * (1 + bass * 0.25 + impact * 0.1));
       const quiet = 1 - Math.min(1, energy * 1.4);
-      moonHazeMaterial.opacity = 0.1 + quiet * 0.2;
+      moonHazeMaterial.opacity = 0.1 + quiet * 0.2 + mistW * 0.22 + overcast * 0.1;
+      // Wind advances wisp drift incrementally — never scale total elapsed by
+      // a time-varying factor, or positions jump when the wind shifts.
+      wispTime += frame.dt * (0.8 + wind * 0.9) * motion;
       for (const wisp of wisps) {
-        const t = frame.elapsed * wisp.speed * motion + wisp.phase * 20;
+        const t = wispTime * wisp.speed + wisp.phase * 20;
         // Steady right-to-left drift, wrapped inside a band around the disc.
         const span = wisp.range * 2;
         wisp.sprite.position.x = wisp.range - ((t * 1.6 + wisp.x + wisp.range) % span + span) % span;
@@ -873,8 +1092,8 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       // Ground morph: the spectrum is carved directly into the wave field.
       // Each column follows its own frequency band, so the terrain *is* the
       // signal; sea swell / grass ripple / starlight drift shape it per world.
-      // Tension roughens the field with short-wavelength chop.
-      waveTime += frame.dt * (0.5 + energy * 2.2 + w.ocean * 0.7 + tension * 0.8) * motion;
+      // Tension roughens the field with short-wavelength chop; wind hurries it.
+      waveTime += frame.dt * (0.5 + energy * 2.2 + w.ocean * 0.7 + tension * 0.8 + wind * 0.35) * motion;
       const oceanAmp = (1.2 + bass * 6.5 + impact * 2.4) * w.ocean;
       const meadowAmp = (0.45 + energy * 2.4 + impact * 0.8) * w.meadow;
       const starAmp = 0.25 * w.starlight;
@@ -926,7 +1145,7 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       blendByWeights(groundWireMaterial.color, worldGround, w);
       groundWireMaterial.opacity = Math.min(
         0.95,
-        0.3 + energy * 0.55 + impact * 0.35 - skyW * 0.14,
+        0.3 + energy * 0.55 + impact * 0.35 - skyW * 0.14 + flashLevel * 0.3,
       );
 
       // City skyline as a slow equalizer.
@@ -956,7 +1175,9 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       }
 
       // Motes: fireflies (meadow), spray (ocean), faint drift under starlight.
-      // Tension quickens their flicker; build-up gathers them upward.
+      // Tension and wind quicken their flicker; build-up gathers them upward.
+      // Flicker phase advances incrementally so the varying rate never jumps.
+      moteTime += frame.dt * (motion + energy * 1.6 + tension * 1.4 + wind * 0.8);
       const moteVis = Math.min(1, w.meadow + w.ocean * 0.8 + w.starlight * 0.3);
       moteMaterial.opacity = Math.min(1, moteVis * (0.3 + treble * 0.9 + impact * 0.45 + buildUp * 0.25));
       moteMaterial.size = 0.45 + w.meadow * 0.25 + treble * 0.3 + impact * 0.2;
@@ -969,16 +1190,22 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
           moteAttr.setY(
             i,
             baseY * (0.4 + w.meadow * 0.9 + w.starlight * 0.6 + buildUp * 0.5) +
-              Math.sin(frame.elapsed * speed * (motion + energy * 1.6 + tension * 1.4) + phase) *
+              Math.sin(moteTime * speed + phase) *
                 (0.5 + w.ocean * 0.9 + impact * 1.4),
           );
         }
         moteAttr.needsUpdate = true;
       }
 
-      // Meteors: under open skies, answering bass impacts.
+      // Meteors: under open, clear skies, answering bass impacts.
       meteorCooldown = Math.max(0, meteorCooldown - frame.dt);
-      if (!frame.prefersReducedMotion && impact > 0.42 && skyW > 0.3 && meteorCooldown <= 0) {
+      if (
+        !frame.prefersReducedMotion &&
+        impact > 0.42 &&
+        skyW > 0.3 &&
+        overcast < 0.45 &&
+        meteorCooldown <= 0
+      ) {
         const meteor = meteors.find((entry) => entry.life <= 0);
         if (meteor) {
           meteor.sprite.position.set((rng() - 0.5) * 170, 55 + rng() * 45, -95 - rng() * 45);
@@ -999,20 +1226,24 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       }
 
       // Horizon and fog follow the blended world, breathing with the energy.
-      // Build-up charges the horizon glow; the release flashes it wide.
+      // Build-up charges the horizon glow; the release and lightning flash it
+      // wide. Mist and rain draw the fog wall in; a flash momentarily pales it.
       blendByWeights(horizonMaterial.color, worldGlow, w);
       horizonMaterial.opacity = Math.min(
         0.9,
-        0.1 + energy * 0.6 + cityW * 0.28 + impact * 0.35 + buildUp * 0.3 + releaseKick * 0.4,
+        0.1 + energy * 0.6 + cityW * 0.28 + impact * 0.35 + buildUp * 0.3 + releaseKick * 0.4 +
+          flashLevel * 0.35,
       );
       horizon.scale.set(
         180 + energy * 40 + impact * 30 + buildUp * 26,
         34 + cityW * 14 + energy * 16 + impact * 12 + buildUp * 10 + releaseKick * 18,
         1,
       );
-      fog.near = 34 + skyW * 32 - cityW * 10;
-      fog.far = 130 + skyW * 80 - cityW * 26;
-      blendByWeights(fog.color, worldGround, w).multiplyScalar(0.07);
+      fog.near = 34 + skyW * 32 - cityW * 10 - mistW * 17 - rainW * 6;
+      fog.far = 130 + skyW * 80 - cityW * 26 - mistW * 64 - rainW * 20 - stormW * 12;
+      blendByWeights(fog.color, worldGround, w).multiplyScalar(
+        0.07 + mistW * 0.09 + snowW * 0.05 + flashLevel * 0.3,
+      );
 
       // 身临 camera: drift between world anchors, breathe with the music —
       // bass pushes the eye forward, impacts snap it, treble lifts the gaze.
@@ -1082,6 +1313,12 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       city.dispose();
       texture.dispose();
       pointTexture.dispose();
+      rainGeometry.dispose();
+      rainMap.dispose();
+      rainMaterial.dispose();
+      snowGeometry.dispose();
+      snowMaterial.dispose();
+      flashMaterial.dispose();
       moon.geometry.dispose();
       moonMaterial.dispose();
       moonGlowMaterial.dispose();

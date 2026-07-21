@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { MOOD_WORLDS, MoodEngine, seededRandom, type MoodWorld } from "./mood";
+import {
+  MOOD_WORLDS,
+  MoodEngine,
+  seededRandom,
+  WEATHER_MODES,
+  type MoodWorld,
+} from "./mood";
 
 const BINS = 256;
 const DT = 1 / 60;
@@ -58,6 +64,20 @@ function meadowFrame(time: number): Uint8Array {
   const thump = time % 0.6 < 0.08 ? 0.22 : 0;
   const base = chord([130.81, 164.81, 196.0, 261.63, 329.63, 392.0], 0.8, 12);
   for (let i = 0; i < 32; i++) base[i] = Math.min(255, base[i] + thump * 255);
+  return base;
+}
+/** A-minor triad driven by a steady bass thump — dark material in motion. */
+function rainFrame(time: number): Uint8Array {
+  const thump = time % 0.5 < 0.08 ? 0.3 : 0;
+  const base = chord([220, 261.63, 329.63], 0.6, 8, 0.05);
+  for (let i = 0; i < 32; i++) base[i] = Math.min(255, base[i] + thump * 255);
+  return base;
+}
+/** Loud semitone-cluster wall with a hard thump — dark strain at volume. */
+function stormFrame(time: number): Uint8Array {
+  const thump = time % 0.4 < 0.08 ? 0.35 : 0;
+  const base = chord([220, 233.08, 246.94, 466.16, 493.88], 0.85, 10, 0.18);
+  for (let i = 0; i < 40; i++) base[i] = Math.min(255, base[i] + thump * 255);
   return base;
 }
 
@@ -209,6 +229,73 @@ describe("MoodEngine", () => {
     expect(state.dominant).toBe("cosmos");
     const total = MOOD_WORLDS.reduce((sum, world) => sum + state.weights[world], 0);
     expect(total).toBeCloseTo(1, 3);
+  });
+});
+
+describe("MoodEngine weather", () => {
+  it("keeps weather weights normalized", () => {
+    const engine = new MoodEngine();
+    const state = run(engine, (t) => rainFrame(t), 4);
+    const total = WEATHER_MODES.reduce((sum, mode) => sum + state.weather[mode], 0);
+    expect(total).toBeCloseTo(1, 3);
+    for (const mode of WEATHER_MODES) {
+      expect(state.weather[mode]).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("reads near-silence as mist", () => {
+    const engine = new MoodEngine();
+    const state = run(engine, () => calm, 10);
+    expect(state.weatherMode).toBe("mist");
+    expect(state.wind).toBeLessThan(0.25);
+  });
+
+  it("reads a sustained quiet minor chord as snow", () => {
+    const engine = new MoodEngine();
+    const state = run(engine, () => sad, 10);
+    expect(state.weatherMode).toBe("snow");
+  });
+
+  it("reads dark material in motion as rain", () => {
+    const engine = new MoodEngine();
+    const state = run(engine, (t) => rainFrame(t), 12);
+    expect(state.weatherMode).toBe("rain");
+    expect(state.weather.rain).toBeGreaterThan(state.weather.clear);
+  });
+
+  it("reads a loud dissonant wall as storm", () => {
+    const engine = new MoodEngine();
+    const state = run(engine, (t) => stormFrame(t), 12);
+    expect(state.weatherMode).toBe("storm");
+  });
+
+  it("keeps bright major material clear", () => {
+    const engine = new MoodEngine();
+    const state = run(engine, () => happy, 10);
+    expect(state.weatherMode).toBe("clear");
+    expect(state.weather.rain + state.weather.storm).toBeLessThan(0.3);
+  });
+
+  it("keeps an energetic neutral groove clear of storms", () => {
+    const engine = new MoodEngine();
+    const state = run(engine, (t) => cityFrame(t), 12);
+    expect(state.weatherMode).not.toBe("storm");
+    expect(state.weather.storm).toBeLessThan(0.35);
+  });
+
+  it("does not flip weather on a brief burst", () => {
+    const engine = new MoodEngine();
+    run(engine, () => happy, 10);
+    const during = run(engine, (t) => stormFrame(t), 0.8);
+    expect(during.weatherMode).toBe("clear");
+  });
+
+  it("raises wind with busy, pulsing material", () => {
+    const calmEngine = new MoodEngine();
+    const busyEngine = new MoodEngine();
+    const still = run(calmEngine, () => sad, 8);
+    const busy = run(busyEngine, (t) => stormFrame(t), 8);
+    expect(busy.wind).toBeGreaterThan(still.wind + 0.15);
   });
 });
 
