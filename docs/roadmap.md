@@ -9,6 +9,18 @@ scorebench is a desktop app (Tauri 2 + Svelte 5) for chat-driven game-music prod
 
 Origin ruling (2026-07): a "simple render GUI inside scorekit" was audited and rejected — scorekit's *No GUI* iron rule stands. scorebench exists as an independent repository precisely so that scorekit stays a pure compiler. A second audit rejected building on agent frameworks/SDKs: the owner has built agents before, needs exactly one provider spec, and third-party frameworks add more uncertainty than they remove.
 
+## Core positioning: compiler below, emotion above
+
+Arranging expertise is a **system property, not a user requirement**. scorebench has two faces:
+
+- **Tool face — a music compiler.** The deterministic lower half: scene YAML → scorekit → audio, with a schema, exit codes, and machine-readable JSON. Correctness here is binary and testable.
+- **Human face — an emotion expresser.** The probabilistic upper half: emotional intent → agent → scene YAML. The user's vocabulary is emotional and imagistic; the system's vocabulary is technical (tempo, mode, voicing, instrumentation); the agent is the translator between the two ontologies. (Game music also carries functional intent — "a 30s menu loop" — emotion is the sharpest subset of intent, not the whole of it.)
+
+Technique is *relocated*, not eliminated: the user is freed from craft, but the system must master it, because emotion is carried by craft. The doctrine is already encoded in shipped decisions — no structured editing UI (the user never has to speak the technical vocabulary), the agent as primary scene writer (the translator holds the pen), StylePacks (arranging knowledge packaged as data, M7), the review panel (the system auditing its own craft, M6), and the mood spectrum (acceptance measured in emotion coordinates, not music-theory correctness, M4/M6). Two consequences follow:
+
+1. The fidelity of emotional translation is bounded by scorekit's expressive primitives — the M6 schema finding is the standing proof: suggestions the DSL cannot express are noise.
+2. Features are judged by whether they shorten the distance between stated emotion and heard result, not by how much musical technique they expose.
+
 ## Non-goals (iron rules)
 
 - **No agent frameworks, no LLM SDKs.** The ReACT loop is hand-rolled against the OpenAI Responses API spec (configurable base URL/key/model — works with any compatible endpoint). No multi-provider abstraction until a second provider spec is a proven need.

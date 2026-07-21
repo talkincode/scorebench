@@ -23,6 +23,17 @@ you ──chat──► agent core (Rust, OpenAI Responses API only)
               WebAudio playback + spectrum (AnalyserNode, zero in-house DSP)
 ```
 
+## Positioning
+
+Arranging expertise is a **system property, not a user requirement**. scorebench has two faces:
+
+- **Tool face — a music compiler.** The deterministic lower half: scene YAML in, audio out, with a schema, exit codes, and machine-readable JSON. That half is scorekit.
+- **Human face — an emotion expresser.** The probabilistic upper half: the user speaks an emotional, imagistic vocabulary ("lonelier", "like dusk"); the agent translates it into the technical vocabulary of tempo, mode, voicing, and instrumentation.
+
+Technique is *relocated*, not eliminated. Emotion is carried by craft — a "sad" piece with broken voicing doesn't sound sad, it sounds wrong — so the craft moves from the user into the system: style packs carry arranging knowledge as data, the review panel audits the system's own craft, and the fidelity of emotional translation is bounded by what scorekit's primitives can express.
+
+In one line: **the user speaks the vocabulary of emotion, the system works in the vocabulary of technique, and the agent is the translator between the two.**
+
 ## Product shape
 
 - **One project per window.** Opening scorebench means opening one project directory (scene YAML + rendered assets + agent memory). No multi-project tabs.
