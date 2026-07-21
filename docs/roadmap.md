@@ -98,6 +98,21 @@ The rework separates three layers on top of the M4 chassis (registry, lazy loadi
 
 `auto` upgrades from coarse buffer traits to emotion affinity: intent (scene key, active style pack) or measured V-A-T selects the imagery whose signature matches, connecting StylePacks to the visual layer. The observation-only iron rule is untouched — styles render analyser data and never control playback or project state. Acceptance stays subjective by design: this milestone ships no numeric verdicts; it hands the eye and ear a calibrated instrument.
 
+### M10 — MCP client (status: planned)
+
+User-configured extensibility arrives as a hand-rolled **MCP client** — MCP is a tool-transport protocol, not an agent framework or LLM SDK, so the no-framework iron rule stands: the client subset (`initialize`, `tools/list`, `tools/call` over JSON-RPC/stdio) is implemented against the spec with the same discipline as the Responses SSE transport, and the subprocess model mirrors the scorekit precedent. The ruling in one line: **MCP extends what the agent can know and fetch; it never becomes a second way to make sound.**
+
+Boundaries:
+
+1. **Client only; tools only in v1.** Resources, prompts, and sampling wait for proven need — sampling in particular would tangle the "all LLM traffic through the Rust core, one provider spec" rule.
+2. **stdio transport first**, HTTP/SSE deferred. No SDK dependency.
+3. **Open on the input side, closed on the output side.** MCP brings in the upstream of intent — references, lyrics, game-level metadata, engine integration. Scene writes stay on the built-in `write_scene` path (validate → diff → history is not bypassable by routing), and the only sound outlet remains scorekit.
+4. **Trust model.** Servers are user-configured, user-trusted subprocesses (global or per-project config); secrets follow the keychain/untracked discipline; every tool call is visible and auditable in the chat.
+5. **Test rule unchanged.** No live MCP servers in tests; dispatch logic is tested against recorded fixtures, same as the LLM rule.
+6. **Context budget.** Discovered tool schemas count toward the budget and servers can be toggled; the "stable eight-tool schema" acceptance row evolves into "built-in tools + discovered tools".
+
+Positioning tie-in: this opens the *vocabulary upstream* of the emotion expresser to the user (game context and text material flow in to feed the translator) while the compiler downstream keeps its single outlet — the two-face structure is preserved.
+
 ## Interface direction
 
 scorebench uses a dark "sonic control room" visual system: dense three-column project/agent/observation layout, low-luminance panels, signal-grid texture, and one user-selectable global hue. The hue is stored in app settings and drives borders, status lights, focus states, scene art, player transport, and every spectrum style. Amber is reserved for render/open actions so the chosen hue remains an information channel rather than decoration. The observation surfaces stay read-only.
