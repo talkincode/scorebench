@@ -74,6 +74,18 @@ Preset styles are structured **StylePacks**, not prompt strings: YAML documents 
 
 The pack is injected into the system prompt with a mandatory conflict-detection protocol: the agent must check each request against the active style, surface conflicts and propose a reconciliation (or ask) instead of silently implementing, with explicit user instructions winning after the conflict is acknowledged. `review.criteria` feed the review panel's evidence pack so a pack also carries its own acceptance standards. This replaced the free-text "persona" setting, which conflicted with per-request intent; the legacy settings field still parses but is no longer injected.
 
+### M8 — Capability acceptance (status: planned)
+
+The agent's translation capability (intent → scene edits) is a black box that cannot be opened, but its boundary can be accepted. Two layers; only the second is new:
+
+**Loop contract (deterministic — largely shipped).** Every write passes `scorekit validate`; every edit yields a semantic diff; the mood spectrum maps rendered audio into V-A-T emotion coordinates. These prove the loop is intact — not that the translation is good.
+
+**Capability evals (statistical — the missing layer).** A fixed set of intent cases ("lonelier", "a calm 30s menu loop"), each carrying machine-checkable **directional assertions**: schema-level (tempo decreased, mode moved to minor, arrangement thinned — plain YAML checks) and signal-level (V-A-T coordinates move in the intended direction — the mood features are pure functions and run offline). Each model/prompt change runs the set N times and reports pass rates; the tracked quantity is *regression*, not perfection — pass rates below 100% are expected. The harness is a separate opt-in runner outside `cargo test`, preserving the no-live-LLM-in-tests rule. Directional assertions are the deliberate design choice: absolute musical-quality scoring is rejected — it would re-import the jury/consensus machinery already rejected in M6.
+
+**Intent contract (in-product counterpart).** Before acting, the agent declares falsifiable expectations ("tempo to 68, D minor, thinner pads"); after acting, the existing evidence surfaces (validate status, semantic diff, mood delta) confirm or refute the declaration, closing each loop iteration with user-visible acceptance. This turns black-box capability into a per-action falsifiable claim using surfaces that already exist — the cost is a prompt protocol plus aligning three panels to the declaration, not new infrastructure.
+
+This milestone is the second half of the project's name: scorebench as the *bench* on which the agent's capability is measured.
+
 ## Interface direction
 
 scorebench uses a dark "sonic control room" visual system: dense three-column project/agent/observation layout, low-luminance panels, signal-grid texture, and one user-selectable global hue. The hue is stored in app settings and drives borders, status lights, focus states, scene art, player transport, and every spectrum style. Amber is reserved for render/open actions so the chosen hue remains an information channel rather than decoration. The observation surfaces stay read-only.
