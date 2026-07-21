@@ -86,6 +86,18 @@ The agent's translation capability (intent → scene edits) is a black box that 
 
 This milestone is the second half of the project's name: scorebench as the *bench* on which the agent's capability is measured.
 
+### M9 — Atmosphere spectrum framework (status: planned)
+
+The spectrum is the software's visual embodiment and the human half of acceptance (M8 holds the machine half): each visual style is an **imagery** (意象) expressing a feelable atmosphere, and together with the ear it completes subjective acceptance. Plain bin-drawing is not enough. The mood pipeline proved the direction but sits in the wrong place — `features.ts` → `mood.ts` are pure and tested yet private to the single `mood` style, and `three/mood.ts` monopolizes four concerns in one ~1,300-line module (perception, imagery, weather, acceptance HUD) while every other style stays mood-blind.
+
+The rework separates three layers on top of the M4 chassis (registry, lazy loading, fallback-to-bars — unchanged):
+
+1. **Perception substrate (shared, pure).** `MoodState` (V-A-T-P, worlds, weather, wind, swell, intent) is hoisted out of the mood scene into the frame contract — `SpectrumFrame`/`ThreeFrame` gain an optional `mood`; the player computes it once per frame, and only while a mood-aware style or the HUD is active.
+2. **Imagery modules (pluggable).** A style declares imagery metadata plus a **mood signature** — the V-A-T region it expresses best. Mood-blind styles (bars, wave) stay valid by ignoring the field. The weather/atmosphere pass (rain, snow, mist, lightning, overcast, wind) moves from `three/mood.ts` into shared `three/` helpers so a new imagery gets atmosphere for free; the mood mega-scene remains the flagship composite (five worlds, auto-morphing), while new imageries can be single-world modules at flux/terrain scale that consume `MoodState`.
+3. **Acceptance overlay (shared HUD).** The V/A/T bars, build-up line, weather glyph, and ◆ intent marker leave the mood scene and become a framework-level overlay toggleable on any imagery — imagery is the experience, the HUD is the readout.
+
+`auto` upgrades from coarse buffer traits to emotion affinity: intent (scene key, active style pack) or measured V-A-T selects the imagery whose signature matches, connecting StylePacks to the visual layer. The observation-only iron rule is untouched — styles render analyser data and never control playback or project state. Acceptance stays subjective by design: this milestone ships no numeric verdicts; it hands the eye and ear a calibrated instrument.
+
 ## Interface direction
 
 scorebench uses a dark "sonic control room" visual system: dense three-column project/agent/observation layout, low-luminance panels, signal-grid texture, and one user-selectable global hue. The hue is stored in app settings and drives borders, status lights, focus states, scene art, player transport, and every spectrum style. Amber is reserved for render/open actions so the chosen hue remains an information channel rather than decoration. The observation surfaces stay read-only.
