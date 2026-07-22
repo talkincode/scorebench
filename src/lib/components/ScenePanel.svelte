@@ -55,12 +55,11 @@
     const root = bench.project?.root;
     const path = bench.selectedScene;
     const revision = bench.projectRevision;
-    void revision;
     const seq = ++inspectionSeq;
     inspection = null;
     inspectionError = null;
     if (!root || !path) return;
-    void api.inspectScene(root, path).then(
+    void api.inspectScene(root, path, revision).then(
       (value) => {
         if (seq === inspectionSeq) inspection = value;
       },

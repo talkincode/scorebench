@@ -1,16 +1,11 @@
 <script lang="ts">
   import { t } from "../i18n.svelte";
   import { sceneSignature } from "../titleCard";
-  import SpectrumView from "./SpectrumView.svelte";
   import { AUTO_STYLE_ID, visualStyles } from "../spectrum";
 
   let {
-    analyser = null,
     styleId,
-    effectiveStyleId,
     autoLabel = null,
-    options,
-    getPosition = () => 0,
     playing = false,
     canPlay = false,
     timeText = "",
@@ -23,6 +18,7 @@
     hudOn = true,
     hue = 171,
     hueLinked = true,
+    getCanvas = () => null,
     onhue,
     onhud,
     onrecord,
@@ -31,12 +27,8 @@
     onstyle,
     onclose,
   }: {
-    analyser?: AnalyserNode | null;
     styleId: string;
-    effectiveStyleId: string;
     autoLabel?: string | null;
-    options: Readonly<Record<string, number>>;
-    getPosition?: () => number;
     playing?: boolean;
     canPlay?: boolean;
     timeText?: string;
@@ -60,6 +52,8 @@
     hue?: number;
     /** True while the spectrum hue follows the UI theme (no override). */
     hueLinked?: boolean;
+    /** Resolve the shared player's currently visible canvas at record time. */
+    getCanvas?: () => HTMLCanvasElement | null;
     onhue?: (value: number | null) => void;
     onhud?: (value: boolean) => void;
     onrecord?: (canvas: HTMLCanvasElement | null) => void;
@@ -72,7 +66,6 @@
   /** `128 BPM · A minor · 4/4 · 16 bars` — only the facts the scene declares. */
   let signature = $derived(sceneSignature(meta));
 
-  let view: { getActiveCanvas: () => HTMLCanvasElement | null } | undefined = $state();
   let recordingActive = $derived(recordingState !== "idle");
 
   let idle = $state(false);
@@ -112,10 +105,6 @@
 <svelte:window onkeydown={onKeydown} onpointermove={wake} onpointerdown={wake} ondblclick={onDblclick} />
 
 <div class="visualizer" class:idle role="dialog" aria-label="Visualizer">
-  <div class="stage">
-    <SpectrumView bind:this={view} {analyser} styleId={effectiveStyleId} {options} {getPosition} active={true} />
-  </div>
-
   <header class="hud hud-top">
     <div class="meta">
       {#if assetName}<span class="asset">{assetName}</span>{/if}
@@ -142,7 +131,7 @@
     {:else}
       <button
         class="rec"
-        onclick={() => onrecord?.(view?.getActiveCanvas() ?? null)}
+        onclick={() => onrecord?.(getCanvas())}
         disabled={!canPlay}
         title={t("overlay.recordHint")}
         aria-label={t("overlay.record")}
@@ -202,18 +191,12 @@
 
 <style>
   .visualizer {
-    position: fixed;
+    position: absolute;
     inset: 0;
-    z-index: 90;
-    background: #010403;
-    animation: viz-in 0.25s ease;
+    z-index: 1;
   }
   .visualizer.idle {
     cursor: none;
-  }
-  .stage {
-    position: absolute;
-    inset: 0;
   }
   .hud {
     position: absolute;
@@ -499,18 +482,7 @@
       display: none;
     }
   }
-  @keyframes viz-in {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
-  }
   @media (prefers-reduced-motion: reduce) {
-    .visualizer {
-      animation: none;
-    }
     .rec.live .rec-dot {
       animation: none;
     }

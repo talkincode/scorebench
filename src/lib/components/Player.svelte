@@ -61,7 +61,7 @@
   // prior, so it is fetched whenever the asset (or the scene file) changes.
   $effect(() => {
     const current = ++sceneMetaSeq;
-    void bench.projectRevision;
+    const revision = bench.projectRevision;
     const root = bench.project?.root;
     const asset = bench.loadedAsset;
     if (!root || !asset) {
@@ -73,7 +73,7 @@
       sceneMeta = null;
       return;
     }
-    void api.inspectScene(root, scenePath).then(
+    void api.inspectScene(root, scenePath, revision).then(
       (inspection) => {
         if (current === sceneMetaSeq) sceneMeta = inspection.scene ?? null;
       },
@@ -89,6 +89,7 @@
   let recordError = $state<string | null>(null);
   let recordingStartedAt = 0;
 
+  let spectrumView: { getActiveCanvas: () => HTMLCanvasElement | null } | undefined = $state();
   let meterCanvas: HTMLCanvasElement | undefined = $state();
   let startCtxTime = 0;
   let startOffset = 0;
@@ -532,15 +533,43 @@
         seekTo(t);
       }}
     />
-    <div class="viz">
+    <div class="viz" class:fullscreen={overlayOpen}>
       <SpectrumView
+        bind:this={spectrumView}
         {analyser}
         styleId={effectiveStyleId}
         options={styleOptions}
         getPosition={() => (duration > 0 ? currentPos() / duration : 0)}
-        active={!overlayOpen}
+        active={true}
       />
-      <button class="expand" onclick={() => (overlayOpen = true)} title={t("player.expand")} aria-label={t("player.expand")}>⛶</button>
+      {#if overlayOpen}
+        <VisualizerOverlay
+          {styleId}
+          {autoLabel}
+          {playing}
+          canPlay={Boolean(buffer)}
+          timeText={`${fmtTime(position)} / ${fmtTime(duration)}`}
+          assetName={bench.loadedAsset}
+          meta={sceneMeta}
+          {recordingState}
+          recordingTime={fmtTime(recordingElapsed)}
+          {recordError}
+          {hasHud}
+          {hudOn}
+          hue={Math.round(styleOptions.themeHue ?? 171)}
+          hueLinked={spectrumHue === null}
+          getCanvas={() => spectrumView?.getActiveCanvas() ?? null}
+          onhue={setSpectrumHue}
+          onhud={(value) => (styleOptions.moodHud = value ? 1 : 0)}
+          onrecord={(canvas) => void startRecording(canvas)}
+          onrecordstop={() => void stopRecording()}
+          ontoggle={toggle}
+          onstyle={chooseStyle}
+          onclose={closeOverlay}
+        />
+      {:else}
+        <button class="expand" onclick={() => (overlayOpen = true)} title={t("player.expand")} aria-label={t("player.expand")}>⛶</button>
+      {/if}
     </div>
   </div>
 
@@ -609,36 +638,6 @@
     <div class="meter-labels"><span>L</span><span>R</span></div>
   </div>
 </footer>
-
-{#if overlayOpen}
-  <VisualizerOverlay
-    {analyser}
-    {styleId}
-    {effectiveStyleId}
-    {autoLabel}
-    options={styleOptions}
-    getPosition={() => (duration > 0 ? currentPos() / duration : 0)}
-    {playing}
-    canPlay={Boolean(buffer)}
-    timeText={`${fmtTime(position)} / ${fmtTime(duration)}`}
-    assetName={bench.loadedAsset}
-    meta={sceneMeta}
-    {recordingState}
-    recordingTime={fmtTime(recordingElapsed)}
-    {recordError}
-    {hasHud}
-    {hudOn}
-    hue={Math.round(styleOptions.themeHue ?? 171)}
-    hueLinked={spectrumHue === null}
-    onhue={setSpectrumHue}
-    onhud={(value) => (styleOptions.moodHud = value ? 1 : 0)}
-    onrecord={(canvas) => void startRecording(canvas)}
-    onrecordstop={() => void stopRecording()}
-    ontoggle={toggle}
-    onstyle={chooseStyle}
-    onclose={closeOverlay}
-  />
-{/if}
 
 <style>
   .player {
@@ -786,6 +785,18 @@
     box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.35);
     overflow: hidden;
   }
+  .viz.fullscreen {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    flex: none;
+    min-height: initial;
+    border: 0;
+    border-radius: 0;
+    background: #010403;
+    box-shadow: none;
+    animation: viz-in 0.25s ease;
+  }
   .expand {
     position: absolute;
     top: 5px;
@@ -811,6 +822,20 @@
     color: var(--accent);
     border-color: var(--accent-line-strong);
     box-shadow: 0 0 10px var(--accent-soft);
+  }
+
+  @keyframes viz-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .viz.fullscreen {
+      animation: none;
+    }
   }
 
   .side {

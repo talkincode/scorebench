@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { visualStyles } from "./index";
+import { nextThreeStyleToPreload, visualStyles } from "./index";
 
 describe("visualStyles", () => {
   it("uses concise English picker labels", () => {
@@ -19,5 +19,11 @@ describe("visualStyles", () => {
   it("enables Voyage line effects by default", () => {
     const voyage = visualStyles.find((entry) => entry.id === "voyage");
     expect(voyage?.options?.find((option) => option.key === "wireframe")?.defaultValue).toBe(1);
+  });
+
+  it("selects at most one not-yet-loaded Three style for idle preload", () => {
+    expect(nextThreeStyleToPreload(null)?.id).toBe("mood");
+    expect(nextThreeStyleToPreload("mood")?.id).toBe("voyage");
+    expect(nextThreeStyleToPreload("voyage", new Set(["mood"]))).toBeUndefined();
   });
 });

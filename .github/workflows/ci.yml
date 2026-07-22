@@ -76,3 +76,6 @@ jobs:
 
       - name: Build frontend
         run: npm run build
+
+      - name: Enforce client bundle budget
+        run: npm run check:bundle

@@ -255,6 +255,26 @@ export interface ReviewReport {
 
 export type ReviewEvent = { type: "delta"; text: string };
 
+const sceneInspectionsInFlight = new Map<string, Promise<SceneInspection>>();
+
+function inspectScene(root: string, relPath: string, revision: number): Promise<SceneInspection> {
+  // Coalesce only consumers observing the same project generation. A watcher
+  // revision arriving before the old request settles must start a fresh
+  // inspection rather than inherit stale scene data from the prior generation.
+  const key = JSON.stringify([root, relPath, revision]);
+  const inFlight = sceneInspectionsInFlight.get(key);
+  if (inFlight) return inFlight;
+
+  let request: Promise<SceneInspection>;
+  request = invoke<SceneInspection>("inspect_scene", { root, relPath }).finally(() => {
+    if (sceneInspectionsInFlight.get(key) === request) {
+      sceneInspectionsInFlight.delete(key);
+    }
+  });
+  sceneInspectionsInFlight.set(key, request);
+  return request;
+}
+
 export function errorText(err: unknown): string {
   const e = err as BenchError;
   if (e && typeof e === "object" && "message" in e) {
@@ -284,8 +304,7 @@ export const api = {
 
   refreshProject: (path: string) => invoke<ProjectInfo>("refresh_project", { path }),
 
-  inspectScene: (root: string, relPath: string) =>
-    invoke<SceneInspection>("inspect_scene", { root, relPath }),
+  inspectScene,
 
   readMeta: (root: string, relPath: string) =>
     invoke<Record<string, unknown>>("read_meta", { root, relPath }),

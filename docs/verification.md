@@ -1,6 +1,6 @@
 # Verification record
 
-Last updated: 2026-07-19 (Asia/Shanghai)
+Last updated: 2026-07-23 (Asia/Shanghai)
 
 This record is evidence for the M0–M5 issue set. It distinguishes automated proof, native-app smoke, and release operations that require external credentials.
 
@@ -62,3 +62,17 @@ Structured style packs replaced the free-text persona setting.
 - `agent.rs` proves the active pack's YAML plus the mandatory STYLE CONFLICT DETECTION protocol are injected into the system prompt; `review.rs` proves the pack and its `review.criteria` are embedded in review evidence.
 - `manifest.rs` proves the `style.id` reference round-trips through `bench.json` while preserving unknown fields; a dangling reference degrades to no style with a warning event instead of blocking chat or review.
 - Legacy `settings.json` files containing `personal_instructions` still parse (field retained for serde compatibility); the persona settings tab and prompt injection were removed.
+
+## Spectrum performance controls (2026-07-23)
+
+This pass adds bounded resource ownership and repeatable performance gates without moving rendering or audio work into the Rust core.
+
+- `npm run check` reported 0 errors and 0 warnings; `npm test` passed 11 Vitest files (134 tests); `npm run build` completed successfully.
+- `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `actionlint .github/workflows/*.yml` passed. `cargo test --all-features` completed 113 of 118 tests successfully; its five local HTTP-stream tests could not bind a loopback socket in the execution sandbox and all failed at setup with `PermissionDenied (Operation not permitted)`, so this run is not recorded as a full Rust-suite pass.
+- `npm run check:bundle` passed against the fresh production manifest: client JavaScript was 916.0 KiB raw / 267.5 KiB gzip; the largest chunk was 550.6 KiB raw / 138.6 KiB gzip; the Mood entry chunk was 17.2 KiB raw / 6.8 KiB gzip; the Voyage entry chunk was 76.2 KiB raw / 24.1 KiB gzip.
+- The production build still emits Vite's generic warning for a chunk above 500 kB. CI now enforces explicit raw and gzip budgets, so further growth fails instead of being hidden by that warning.
+- Unit tests cover the two-entry LRU lifecycle (reuse, pre-construction eviction, disposal, failure cleanup), deterministic 120-frame timing summaries, bounded next-style preload selection, and revision-scoped coalescing of identical in-flight scene inspections with retry after settlement.
+- Windowed and fullscreen presentation now share one `SpectrumView` and one active canvas. Recording resolves that same canvas instead of creating a second renderer/context.
+- Runtime instrumentation emits `scorebench:spectrum-performance` summaries with average, p95, p99, maximum, sample count, and an 8 ms CPU-side frame-work budget. This is diagnostic evidence, not a claim about GPU frame time.
+
+Native WebView GPU timing, forced WebGL context-loss recovery, repeated fullscreen recording, and long-session memory stability were not rerun in this pass. They remain manual acceptance work described in [performance.md](performance.md); the local browser smoke could not start because the execution sandbox denied binding the development server port.

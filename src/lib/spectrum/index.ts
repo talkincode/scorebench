@@ -4,7 +4,8 @@ import { bars } from "./bars";
 
 export type { SpectrumFrame, SpectrumOptionDefinition, SpectrumStyle } from "./types";
 export type { ThreeFrame, ThreeInstance, ThreeStyleModule } from "./three/types";
-export { drawWithFallback, ThreeInstanceCache } from "./runtime";
+export { drawWithFallback, FrameBudgetMeter, ThreeInstanceCache } from "./runtime";
+export type { FrameTimingSummary } from "./runtime";
 export { AUTO_STYLE_ID, analyzeTraits, pickStyle } from "./auto";
 export type { AudioTraits, BufferLike } from "./auto";
 export { MoodEngine, neutralMoodState } from "./mood";
@@ -67,4 +68,15 @@ export const visualStyles: VisualStyleEntry[] = [
 
 export function visualStyleById(id: string): VisualStyleEntry | undefined {
   return visualStyles.find((entry) => entry.id === id);
+}
+
+/** Pick one background import without defeating lazy loading as imagery grows. */
+export function nextThreeStyleToPreload(
+  currentId: string | null,
+  unavailable: ReadonlySet<string> = new Set(),
+): Extract<VisualStyleEntry, { kind: "three" }> | undefined {
+  return visualStyles.find(
+    (entry): entry is Extract<VisualStyleEntry, { kind: "three" }> =>
+      entry.kind === "three" && entry.id !== currentId && !unavailable.has(entry.id),
+  );
 }
