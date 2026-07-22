@@ -8,6 +8,7 @@ import {
   ENGINE_CORE_DIAMETER_RATIO,
   ENGINE_GLOW_WIDTH_RATIO,
   ENGINE_JET_LENGTH_DIAMETERS,
+  ENGINE_PARTICLE_OPACITY,
   SHIP_BOW_Z,
   SHIP_STERN_Z,
   attackRelease,
@@ -228,6 +229,7 @@ describe("engine optics", () => {
     expect(ENGINE_JET_LENGTH_DIAMETERS * 1.2).toBeLessThanOrEqual(4);
     expect(ENGINE_GLOW_WIDTH_RATIO).toBeGreaterThanOrEqual(1.5);
     expect(ENGINE_GLOW_WIDTH_RATIO).toBeLessThanOrEqual(2);
+    expect(ENGINE_PARTICLE_OPACITY).toBe(0.3);
   });
 
   it("maps bass to jet length only within ±20%", () => {

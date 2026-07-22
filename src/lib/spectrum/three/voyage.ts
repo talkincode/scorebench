@@ -30,6 +30,7 @@ import {
   ENGINE_CORE_DIAMETER_RATIO,
   ENGINE_GLOW_WIDTH_RATIO,
   ENGINE_JET_LENGTH_DIAMETERS,
+  ENGINE_PARTICLE_OPACITY,
   attackRelease,
   bezier3,
   compressLevel,
@@ -1489,7 +1490,13 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       // Layers 3–4: one fixed-radius beam and one 1.7× wider, dim blue envelope.
       const mainJetMat = engineBeamMaterial("#74e1ff", "#0869c6", 3.6, 0.76, 0);
       mainJetMat.uniforms.uRadius.value = d.r * 0.48;
-      const outerGlowMat = engineBeamMaterial("#0b519f", "#010a24", 2.4, 0.68, 0.42);
+      const outerGlowMat = engineBeamMaterial(
+        "#0b519f",
+        "#010a24",
+        2.4,
+        0.68,
+        ENGINE_PARTICLE_OPACITY,
+      );
       outerGlowMat.uniforms.uRadius.value =
         d.r * 0.48 * ENGINE_GLOW_WIDTH_RATIO;
       const beamGeometry = engineBeamGeometry();

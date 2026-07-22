@@ -22,6 +22,7 @@ export const CRUISE_MAX = 2.6;
 export const ENGINE_CORE_DIAMETER_RATIO = 0.31;
 export const ENGINE_JET_LENGTH_DIAMETERS = 3.15;
 export const ENGINE_GLOW_WIDTH_RATIO = 1.7;
+export const ENGINE_PARTICLE_OPACITY = 0.3;
 export const ENGINE_BEAT_ATTACK_SECONDS = 0.008;
 export const ENGINE_BEAT_RELEASE_SECONDS = 0.1;
 
