@@ -63,6 +63,11 @@ const en = {
   "rail.new": "New scene",
   "rail.newPlaceholder": "scene name (e.g. battle.yaml)",
   "rail.newCreate": "Create",
+  "rail.filter": "Filter scenes…",
+  "rail.sort": "Sort",
+  "rail.sortName": "Name",
+  "rail.sortTime": "Time",
+  "rail.noMatch": "No scene matches the filter.",
   "rail.play": "Play",
   "rail.playing": "Now playing",
   "rail.noAudio": "No rendered audio",
@@ -195,6 +200,8 @@ const en = {
   "player.expand": "Expand visualizer",
   "player.loop": "Loop playback",
   "player.spectrumStyle": "Spectrum style",
+  "player.spectrumHue": "Hue",
+  "player.hueFollow": "Follow the interface hue",
 
   // Settings modal
   "settings.title": "Agent settings",
@@ -235,6 +242,8 @@ const en = {
   "overlay.recordSaving": "Saving…",
   "overlay.recordHint": "Restarts the piece and captures this view with audio",
   "overlay.recordUnsupported": "Video recording is not supported by this webview",
+  "overlay.hudToggle": "HUD",
+  "overlay.hudToggleHint": "Show the on-canvas HUD (recordings capture what the canvas shows)",
 };
 
 export type MessageKey = keyof typeof en;
@@ -292,6 +301,11 @@ const zh: Record<MessageKey, string> = {
   "rail.new": "新建场景",
   "rail.newPlaceholder": "场景名（如 battle.yaml）",
   "rail.newCreate": "创建",
+  "rail.filter": "筛选场景…",
+  "rail.sort": "排序",
+  "rail.sortName": "名称",
+  "rail.sortTime": "时间",
+  "rail.noMatch": "没有匹配的场景。",
   "rail.play": "播放",
   "rail.playing": "正在播放",
   "rail.noAudio": "尚无渲染音频",
@@ -417,6 +431,8 @@ const zh: Record<MessageKey, string> = {
   "player.expand": "全屏视觉",
   "player.loop": "循环播放",
   "player.spectrumStyle": "频谱风格",
+  "player.spectrumHue": "色调",
+  "player.hueFollow": "跟随界面色调",
 
   "settings.title": "Agent 设置",
   "settings.subtitle": "存储在项目目录之外。API key 只写不读。",
@@ -454,6 +470,8 @@ const zh: Record<MessageKey, string> = {
   "overlay.recordSaving": "保存中…",
   "overlay.recordHint": "从头播放乐曲并录制当前画面与声音",
   "overlay.recordUnsupported": "当前 webview 不支持视频录制",
+  "overlay.hudToggle": "HUD",
+  "overlay.hudToggleHint": "显示画面内 HUD（录制内容与画面一致）",
 };
 
 const dictionaries: Record<"en" | "zh", Record<MessageKey, string>> = { en, zh };

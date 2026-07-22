@@ -58,23 +58,17 @@ describe("pickStyle", () => {
     expect(pickStyle(undefined)).toBe("bars");
   });
 
-  it("sends sparse or quiet material to the nebula", () => {
-    expect(pickStyle(analyzeTraits(bufferFrom(() => 0)))).toBe("flux");
-    expect(pickStyle({ energy: 0.2, dynamics: 0.2, brightness: 0.3, density: 0.2 })).toBe("flux");
+  it("keeps near-silence on the plain readout", () => {
+    expect(pickStyle(analyzeTraits(bufferFrom(() => 0)))).toBe("bars");
+    expect(pickStyle({ energy: 0.2, dynamics: 0.2, brightness: 0.3, density: 0.05 })).toBe("bars");
   });
 
-  it("sends punchy material to the crystal", () => {
+  it("sends musical material to the mood imagery", () => {
+    const sine = analyzeTraits(bufferFrom((i) => 0.3 * Math.sin((2 * Math.PI * 220 * i) / SAMPLE_RATE)));
+    expect(pickStyle(sine)).toBe("mood");
+    expect(pickStyle(analyzeTraits(bufferFrom((i) => 0.4 * noise(i))))).toBe("mood");
     const period = Math.floor(SAMPLE_RATE / 2);
     const gated = analyzeTraits(bufferFrom((i) => (i % period < period / 2 ? 0.5 * noise(i) : 0)));
-    expect(pickStyle(gated)).toBe("crystal");
-  });
-
-  it("sends bright driving mixes into the tunnel", () => {
-    expect(pickStyle(analyzeTraits(bufferFrom((i) => 0.4 * noise(i))))).toBe("rings");
-  });
-
-  it("sends steady tonal grooves over the terrain", () => {
-    const sine = analyzeTraits(bufferFrom((i) => 0.3 * Math.sin((2 * Math.PI * 220 * i) / SAMPLE_RATE)));
-    expect(pickStyle(sine)).toBe("terrain");
+    expect(pickStyle(gated)).toBe("mood");
   });
 });

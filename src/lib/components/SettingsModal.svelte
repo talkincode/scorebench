@@ -11,6 +11,7 @@
     max_turns: 16,
     spectrum_style: "bars",
     spectrum_bars: 64,
+    spectrum_hue: null,
     theme_hue: 171,
     locale: "en",
   });

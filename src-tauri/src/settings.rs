@@ -28,6 +28,8 @@ pub struct Settings {
     pub max_turns: u32,
     pub spectrum_style: String,
     pub spectrum_bars: u16,
+    /// Spectrum palette hue override in degrees; `None` follows `theme_hue`.
+    pub spectrum_hue: Option<u16>,
     pub theme_hue: u16,
     /// Legacy persona text. No longer injected or shown in the UI (style
     /// packs replaced it); kept so older `settings.json` files still parse
@@ -46,6 +48,7 @@ impl Default for Settings {
             max_turns: 16,
             spectrum_style: "bars".into(),
             spectrum_bars: 64,
+            spectrum_hue: None,
             theme_hue: 171,
             personal_instructions: String::new(),
             locale: "en".into(),
@@ -92,6 +95,12 @@ impl Settings {
             return Err(BenchError::settings(
                 "invalid_spectrum_bars",
                 "spectrum bars must be between 16 and 256",
+            ));
+        }
+        if matches!(self.spectrum_hue, Some(hue) if hue > 359) {
+            return Err(BenchError::settings(
+                "invalid_spectrum_hue",
+                "spectrum hue must be between 0 and 359 degrees",
             ));
         }
         if self.theme_hue > 359 {
@@ -591,14 +600,30 @@ mod tests {
             model: "local-model".into(),
             context_budget_tokens: 32_000,
             max_turns: 8,
-            spectrum_style: "wave".into(),
+            spectrum_style: "mood".into(),
             spectrum_bars: 96,
+            spectrum_hue: Some(318),
             theme_hue: 202,
             personal_instructions: "Prefer lush jazz voicings.".into(),
             locale: "zh".into(),
         };
         save(&dir, &value).unwrap();
         assert_eq!(load(&dir).unwrap(), (value, None));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn rejects_spectrum_hue_outside_css_hue_range() {
+        let dir = test_dir("settings-spectrum-hue");
+        let value = Settings {
+            spectrum_hue: Some(360),
+            ..Settings::default()
+        };
+        let error = save(&dir, &value).unwrap_err();
+        assert!(
+            matches!(error, BenchError::Settings { code, .. } if code == "invalid_spectrum_hue")
+        );
+        assert!(!dir.join(SETTINGS_FILE).exists());
         let _ = fs::remove_dir_all(dir);
     }
 

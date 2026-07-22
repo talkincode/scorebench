@@ -31,6 +31,7 @@ npm run demo:mood
 | `T`     | Cycle theme hue               |
 | `R`     | Restart the journey           |
 
-The HUD shows the live world weights from a parallel `MoodEngine` fed the
-same synthetic spectrum, plus the smoothed energy / bass / impact signals.
-`main.js` is an esbuild artifact served from memory — it is not committed.
+The HUD shows the live world weights from the same `MoodEngine` state the
+scene consumes through `frame.mood`, plus the smoothed energy / bass / impact
+signals. `main.js` is an esbuild artifact served from memory — it is not
+committed.

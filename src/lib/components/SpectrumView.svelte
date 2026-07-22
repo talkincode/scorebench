@@ -8,6 +8,7 @@
     type ThreeInstance,
   } from "../spectrum";
   import { idleSpectrum } from "../spectrum/dynamics";
+  import { MoodEngine, type MoodState } from "../spectrum/mood";
 
   let {
     analyser = null,
@@ -36,6 +37,8 @@
   let timeData: Uint8Array | null = null;
   const emptyFreq = new Uint8Array(1024);
   const emptyTime = new Uint8Array(2048).fill(128);
+  /** Perception substrate — one engine per view, run only for mood-aware styles. */
+  let moodEngine: MoodEngine | null = null;
 
   let entry = $derived.by(() => {
     const found = visualStyleById(styleId);
@@ -111,6 +114,20 @@
         time = timeData!;
       }
 
+      // Emotion coordinates enter the frame contract here: computed once per
+      // frame, only while the active style declares itself mood-aware.
+      let mood: MoodState | undefined;
+      if (entry.moodAware) {
+        moodEngine ??= new MoodEngine();
+        const intentMode = options.intentMode;
+        mood = moodEngine.update(freq, dt, {
+          binHz: (options.sampleRate ?? 48000) / Math.max(2, freq.length * 2),
+          intent: intentMode === undefined ? undefined : { modeMajor: intentMode },
+        });
+      } else {
+        moodEngine = null;
+      }
+
       const dpr = window.devicePixelRatio || 1;
       if (kind === "2d" || !instance || instanceStyle !== entry.id) {
         const w = el2d.clientWidth;
@@ -131,6 +148,7 @@
           positionFraction: getPosition(),
           prefersReducedMotion,
           options,
+          mood,
         };
         drawWithFallback(style, fallback2d, frame, failed2d, (error) =>
           console.error(`spectrum style ${style.id} failed`, error),
@@ -153,6 +171,7 @@
           elapsed: (now - startedAt) / 1000,
           prefersReducedMotion,
           options,
+          mood,
         });
       }
     };

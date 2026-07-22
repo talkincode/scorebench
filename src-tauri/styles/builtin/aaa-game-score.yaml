@@ -1,0 +1,53 @@
+id: aaa-game-score
+name: 3A游戏音乐
+name_en: AAA Game Score
+category: game
+
+defaults:
+  tempo_bpm: [90, 150]
+  meters: ["4/4", "6/8"]
+  density: high
+  dynamics: wide
+
+harmony:
+  language: tonal_modal_hybrid
+  colors:
+    - minor_add9
+    - quartal_stacks
+    - low_cluster_tension
+  modulation: cinematic
+  pedal_points: encouraged
+
+melody:
+  range: wide
+  character: heroic
+  motif_development: strong
+  hooks: essential
+
+arrangement:
+  preferred:
+    - full_orchestra
+    - hybrid_synth
+    - epic_percussion
+    - choir
+    - low_brass
+  avoid:
+    - lo_fi_textures
+    - rubato_phrasing
+  techniques:
+    - ostinato
+    - layer_build
+    - braaam_hits
+    - rhythmic_string_chugs
+
+form:
+  preferred:
+    - loop_with_intensity_layers
+    - build_release_arc
+
+review:
+  criteria:
+    - theme_memorability
+    - loop_seam_smoothness
+    - layer_separation
+    - epic_impact

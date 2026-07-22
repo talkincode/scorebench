@@ -10,3 +10,5 @@ node_modules
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 /examples/mood-demo/main.js
+/examples/armor-material-lab/main.js
+/examples/voyage-demo/main.js
