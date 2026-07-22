@@ -9,6 +9,7 @@
  * of travel, -Z), stern at `SHIP_STERN_Z`. The ship itself never moves — the
  * universe streams past it toward +Z, and `cruiseSpeed` scales that stream.
  */
+import type { MoodState } from "./mood";
 
 export const SHIP_BOW_Z = -34;
 export const SHIP_STERN_Z = 18;
@@ -23,8 +24,26 @@ export const ENGINE_CORE_DIAMETER_RATIO = 0.31;
 export const ENGINE_JET_LENGTH_DIAMETERS = 3.15;
 export const ENGINE_GLOW_WIDTH_RATIO = 1.7;
 export const ENGINE_PARTICLE_OPACITY = 0.3;
+/** Exhaust particles run ahead of wall-clock so the burn reads as propulsion. */
+export const ENGINE_PARTICLE_FLOW_SPEED = 5;
 export const ENGINE_BEAT_ATTACK_SECONDS = 0.008;
 export const ENGINE_BEAT_RELEASE_SECONDS = 0.1;
+/** Slow enough to read as a status breath instead of a warning flash. */
+export const LOGO_BREATH_PERIOD_SECONDS = 3.6;
+
+/**
+ * Relative world-stream rates for the Voyage depth planes. Values are world
+ * units per accumulated travel unit: distant light barely moves while nearby
+ * dust crosses the camera quickly. Keeping the ratios here makes the depth
+ * read consistently across the renderer and its deterministic demo.
+ */
+export const VOYAGE_PARALLAX_RATES = {
+  farStars: 0.009,
+  brightStars: 0.016,
+  deepGas: 0.022,
+  landmarks: 0.038,
+  nearDust: 1,
+} as const;
 
 function clamp01(value: number): number {
   return value < 0 ? 0 : value > 1 ? 1 : value;
@@ -33,6 +52,79 @@ function clamp01(value: number): number {
 function smooth(edge0: number, edge1: number, value: number): number {
   const t = clamp01((value - edge0) / (edge1 - edge0));
   return t * t * (3 - 2 * t);
+}
+
+export interface VoyageAtmosphere {
+  /** Weighted navigation-sector hue offset from the user theme, in degrees. */
+  hueShift: number;
+  /** Crisp remote light visibility after weather occlusion, 0..1. */
+  starClarity: number;
+  /** Luminous gas presence, 0..1. */
+  nebula: number;
+  /** Dark-lane and particulate density, 0..1. */
+  dust: number;
+  /** Fast micro-debris intensity, 0..1. */
+  debris: number;
+  /** Slow ice-crystal intensity, 0..1. */
+  ice: number;
+  /** Audio-reactive ion-storm charge, 0..1. */
+  ion: number;
+  /** Multiplier applied to the parallax travel model. */
+  travelScale: number;
+  /** Camera instability, 0..1. */
+  cameraTremor: number;
+  /** Multiplier applied to selective bloom. */
+  bloom: number;
+}
+
+/**
+ * Emotion space → vacuum atmosphere. The five Mood worlds become navigation
+ * sectors while weather is transliterated into occlusion, debris, ice, and
+ * ion activity. This stays pure so scene responsiveness is acceptance-tested.
+ */
+export function voyageAtmosphere(mood: MoodState): VoyageAtmosphere {
+  const w = mood.weights;
+  const weather = mood.weather;
+  const arousal = clamp01(mood.arousal);
+  const tension = clamp01(mood.tension);
+  const buildUp = clamp01(mood.buildUp);
+  const wind = clamp01(mood.wind);
+  const positiveSwell = Math.max(0, mood.swell);
+  const storm = clamp01(weather.storm);
+  const overcast = clamp01(
+    weather.mist * 0.86 + weather.rain * 0.52 + weather.snow * 0.38 + storm * 0.78,
+  );
+  const ion = clamp01(storm * (0.42 + tension * 0.58));
+
+  return {
+    hueShift:
+      w.cosmos * 70 +
+      w.ocean * -22 +
+      w.meadow * -72 +
+      w.city * 115 +
+      (clamp01(mood.valence) - 0.5) * 42,
+    starClarity: clamp01(
+      0.38 + w.starlight * 0.58 + w.cosmos * 0.16 + weather.clear * 0.18 - overcast * 0.52,
+    ),
+    nebula: clamp01(
+      0.2 +
+        w.cosmos * 0.42 +
+        w.ocean * 0.5 +
+        w.meadow * 0.12 +
+        weather.mist * 0.5 +
+        storm * 0.18 +
+        positiveSwell * 0.16,
+    ),
+    dust: clamp01(
+      0.14 + w.city * 0.34 + weather.mist * 0.42 + weather.rain * 0.36 + storm * 0.46 + tension * 0.14,
+    ),
+    debris: clamp01(weather.rain * 0.82 + storm * 0.66 + wind * 0.24),
+    ice: clamp01(weather.snow * 0.92 + w.starlight * 0.12),
+    ion,
+    travelScale: 0.82 + arousal * 0.72 + wind * 0.3 + positiveSwell * 0.18,
+    cameraTremor: clamp01(tension * tension * (0.22 + storm * 0.78) * (0.35 + arousal * 0.65)),
+    bloom: 0.72 + buildUp * 0.3 + ion * 0.38 + positiveSwell * 0.12,
+  };
 }
 
 /** Smoothed bass may change jet length only, within ±20% of its base. */
@@ -76,6 +168,50 @@ export function wrapCoord(value: number, min: number, max: number): number {
   let v = (value - min) % span;
   if (v < 0) v += span;
   return min + v;
+}
+
+/** Smooth 0..1 breathing envelope with zero velocity at its dim and bright extrema. */
+export function logoBreathLevel(elapsed: number, reducedMotion = false): number {
+  if (reducedMotion) return 0.5;
+  const phase = wrapCoord(elapsed, 0, LOGO_BREATH_PERIOD_SECONDS) / LOGO_BREATH_PERIOD_SECONDS;
+  return 0.5 - Math.cos(phase * Math.PI * 2) * 0.5;
+}
+
+/** Combines the always-on breath with a bounded musical accent. */
+export function logoGlowOpacity(breath: number, beat: number, alive: number): number {
+  const light = 0.12 + clamp01(breath) * 0.32 + clamp01(beat) * 0.48;
+  return clamp01(light * (0.72 + clamp01(alive) * 0.28));
+}
+
+/**
+ * Streams one world-space depth coordinate from the bow toward the camera,
+ * wrapping only after it crosses the near boundary. `farZ` must be lower than
+ * `nearZ`; invalid spans deliberately collapse to `farZ` via `wrapCoord`.
+ */
+export function parallaxDepth(
+  baseZ: number,
+  travel: number,
+  rate: number,
+  farZ: number,
+  nearZ: number,
+): number {
+  return wrapCoord(baseZ + Math.max(0, travel) * Math.max(0, rate), farZ, nearZ);
+}
+
+/** Softly hides a looping landmark at both depth boundaries so recycling is invisible. */
+export function parallaxEdgeFade(
+  z: number,
+  farZ: number,
+  nearZ: number,
+  feather: number,
+): number {
+  const width = Math.max(1e-6, Math.min(Math.max(0, feather), Math.max(0, (nearZ - farZ) * 0.5)));
+  return clamp01(Math.min((z - farZ) / width, (nearZ - z) / width));
+}
+
+/** Continuous normalized scan position: starts at the bow (1) and moves aft (0). */
+export function bowToSternFlowU(clock: number, rate: number, phase = 0): number {
+  return 1 - wrapCoord(clock * Math.max(0, rate) + phase, 0, 1);
 }
 
 /** Normalized hull coordinate: 0 at the stern plane, 1 at the bow tip. */
@@ -206,7 +342,7 @@ export function robotPose(t: number, p: RobotParams, out: RobotPose): RobotPose 
 
 // ---------------------------------------------------------------------------
 // The dagger hull — the cinematic rebuild. A much longer ship (the camera
-// sits at the stern; the bow vanishes into fog and perspective), with the
+// sits at the stern; the bow recedes through scale and perspective), with the
 // audio plumbing that turns raw FFT into disciplined motion: attack/release
 // envelopes, soft-knee compression, and the four-state scene weights.
 // ---------------------------------------------------------------------------

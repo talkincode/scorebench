@@ -57,6 +57,7 @@ export const visualStyles: VisualStyleEntry[] = [
     label: "Voyage",
     moodAware: true,
     options: [
+      { key: "moodHud", label: "HUD", min: 0, max: 1, step: 1, defaultValue: 1 },
       { key: "wireframe", label: "Line layers", min: 0, max: 1, step: 1, defaultValue: 1 },
       { key: "bloom", label: "Bloom", min: 0, max: 1, step: 1, defaultValue: 1 },
     ],

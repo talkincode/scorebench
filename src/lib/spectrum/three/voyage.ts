@@ -1,11 +1,12 @@
 /**
  * 航线 · Voyage — a capital ship held together by music.
  *
- * V7 keeps the established dreadnought topology and shot frozen while
- * rebuilding only the five engines: deep concentric metal nozzles, compact
- * cyan-white cores, analytic axial/radial jets and restrained blue envelopes.
- * Music lives as
- * *travelling* energy:
+ * V8 keeps the established dreadnought topology while opening the surrounding
+ * sector to the shared mood substrate: world weights steer the navigation
+ * palette, weather becomes fog/debris/ice/ion activity, and V/A/T/build-up
+ * shape travel, bloom, and camera breath. The five engines retain deep
+ * concentric metal nozzles, compact cyan-white cores, analytic axial/radial
+ * jets, and embedded particle spray. Music also lives as *travelling* energy:
  * beats launch packets at the stern that run the spine bow-ward, lighting
  * armor bays, spine nodes and portholes as they pass; climax links the
  * bays sequentially instead of brightening the whole ship.
@@ -23,6 +24,7 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { neutralMoodState, seededRandom } from "../mood";
 import type { ThreeFrame, ThreeInstance } from "./types";
 import { bandLevels, bassLevel, createShell, energyLevel, glowTexture } from "./common";
+import { createMoodHud } from "./moodHud";
 import { AudioPulse, BandSmoother } from "../dynamics";
 import {
   DAGGER_LENGTH,
@@ -30,27 +32,53 @@ import {
   ENGINE_CORE_DIAMETER_RATIO,
   ENGINE_GLOW_WIDTH_RATIO,
   ENGINE_JET_LENGTH_DIAMETERS,
+  ENGINE_PARTICLE_FLOW_SPEED,
   ENGINE_PARTICLE_OPACITY,
+  VOYAGE_PARALLAX_RATES,
   attackRelease,
   bezier3,
+  bowToSternFlowU,
   compressLevel,
   daggerProfile,
   engineBeatEnvelope,
   engineCoreBrightnessScale,
   engineJetLengthScale,
+  logoBreathLevel,
+  logoGlowOpacity,
+  parallaxDepth,
+  parallaxEdgeFade,
   stagePhase,
+  voyageAtmosphere,
   voyageStateWeights,
   type StagePhase,
 } from "../voyage";
 
 const SEED = 0x20260721;
 const BLOOM_LAYER = 1;
+const STAR_FAR_Z = -720;
+const STAR_NEAR_Z = 48;
+const GAS_FAR_Z = -700;
+const GAS_NEAR_Z = -250;
+const LANDMARK_FAR_Z = -560;
+const LANDMARK_NEAR_Z = -210;
+const PARTICLE_FAR_Z = -210;
+const PARTICLE_NEAR_Z = 210;
 
 // --- palette ---------------------------------------------------------------
-const BG = new THREE.Color("#020409");
-const ARMOR_BASE = new THREE.Color("#4b5153");
-const ARMOR_SHADOW = new THREE.Color("#252b2e");
-const ARMOR_REPAIR = new THREE.Color("#62676a");
+const BG = new THREE.Color("#010308");
+const STAR_NEUTRAL = new THREE.Color("#d3d9dc");
+const AMBIENT_NEUTRAL = new THREE.Color("#aeb7bb");
+const GROUND_NEUTRAL = new THREE.Color("#020307");
+const FILL_NEUTRAL = new THREE.Color("#879195");
+const RIM_NEUTRAL = new THREE.Color("#c7d0d3");
+const NEBULA_BLUE = new THREE.Color("#245f8e");
+const NEBULA_TEAL = new THREE.Color("#27777a");
+const NEBULA_PURPLE = new THREE.Color("#4b315d");
+const DUST_COLD = new THREE.Color("#010207");
+const DUST_WARM = new THREE.Color("#0b090a");
+const ARMOR_BASE = new THREE.Color("#60676a");
+const ARMOR_SHADOW = new THREE.Color("#32383b");
+const ARMOR_REPAIR = new THREE.Color("#777c7f");
 const ARMOR_RUST_DARK = new THREE.Color("#44261b");
 const ARMOR_RUST_RED = new THREE.Color("#7a3422");
 
@@ -402,7 +430,8 @@ const ENGINE_BEAM_FRAGMENT = /* glsl */ `
     float inlet = smoothstep(0.0, 0.035, axial);
     float outlet = 1.0 - smoothstep(uTailStart, 1.0, axial);
     float axialGradient = mix(1.0, 0.16, smoothstep(0.02, 0.96, axial));
-    vec2 particleGrid = vec2(axial * 42.0 - uParticleOffset * 1.6, vBeamUv.x * 7.0);
+    float plume = radialFalloff * inlet * outlet * axialGradient;
+    vec2 particleGrid = vec2(axial * 42.0 - uParticleOffset * 1.6, vBeamUv.x * 9.0);
     vec2 particleCell = floor(particleGrid);
     vec2 particleLocal = fract(particleGrid) - 0.5;
     vec2 particleJitter = vec2(
@@ -413,20 +442,20 @@ const ENGINE_BEAM_FRAGMENT = /* glsl */ `
     float particleShape =
       1.0 -
       smoothstep(
-        0.04,
-        0.14 + particleSeed * 0.14,
+        0.025,
+        0.085 + particleSeed * 0.055,
         length(particleLocal - particleJitter * 0.6)
       );
-    float particleEdge =
-      smoothstep(0.3, 0.55, radial) * (1.0 - smoothstep(0.97, 1.0, radial));
-    float particle =
-      particleShape * step(0.78, particleSeed) * particleEdge *
-      inlet * outlet * mix(1.0, axialGradient, 0.55) * uParticleAmount;
-    float alpha =
-      radialFalloff * inlet * outlet * axialGradient * uIntensity + particle;
+    float particleBand =
+      smoothstep(0.08, 0.22, radial) * (1.0 - smoothstep(0.48, 0.68, radial));
+    float particlePulse =
+      particleShape * step(0.68, particleSeed) * particleBand *
+      mix(1.0, axialGradient, 0.55) * uParticleAmount;
+    float particle = plume * particlePulse;
+    float alpha = plume * uIntensity + particle;
     if (alpha < 0.001) discard;
     vec3 color = mix(uEdgeColor, uAxisColor, centerline);
-    color = mix(color, vec3(0.5, 0.85, 1.0), clamp(particle * 3.2, 0.0, 0.85));
+    color = mix(color, vec3(0.5, 0.85, 1.0), clamp(particlePulse * 2.4, 0.0, 0.72));
     gl_FragColor = vec4(color, alpha);
   }
 `;
@@ -470,6 +499,125 @@ function engineBeamGeometry(): THREE.BufferGeometry {
   geometry.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 1, 1], 2));
   geometry.setIndex([0, 1, 2, 2, 1, 3]);
   return geometry;
+}
+
+function finishCanvasTexture(canvas: HTMLCanvasElement): THREE.CanvasTexture {
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function scorebenchCatHeadTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 160;
+  canvas.height = 160;
+  const ctx = canvas.getContext("2d")!;
+  const ink = "rgba(255, 255, 255, 0.92)";
+  ctx.strokeStyle = ink;
+  ctx.fillStyle = ink;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.translate(2, 0);
+
+  const cx = 78;
+  const cy = 80;
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 58, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx, cy + 4, 34, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(49, 71);
+  ctx.lineTo(50, 29);
+  ctx.lineTo(68, 49);
+  ctx.moveTo(107, 71);
+  ctx.lineTo(106, 29);
+  ctx.lineTo(88, 49);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(64, 83, 6.5, 0, Math.PI * 2);
+  ctx.arc(92, 83, 6.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(72, 96);
+  ctx.lineTo(84, 96);
+  ctx.lineTo(78, 104);
+  ctx.closePath();
+  ctx.fill();
+  ctx.lineWidth = 3.2;
+  ctx.beginPath();
+  ctx.moveTo(66, 110);
+  ctx.quadraticCurveTo(72, 118, 78, 111);
+  ctx.quadraticCurveTo(84, 118, 90, 110);
+  ctx.stroke();
+
+  ctx.lineWidth = 3;
+  for (const offset of [-9, 0, 9]) {
+    ctx.beginPath();
+    ctx.moveTo(33, 91 + offset * 0.55);
+    ctx.lineTo(51, 93 + offset * 0.35);
+    ctx.moveTo(123, 91 + offset * 0.55);
+    ctx.lineTo(105, 93 + offset * 0.35);
+    ctx.stroke();
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(81, 50);
+  ctx.lineTo(72, 68);
+  ctx.lineTo(80, 68);
+  ctx.lineTo(75, 82);
+  ctx.lineTo(90, 63);
+  ctx.lineTo(82, 63);
+  ctx.closePath();
+  ctx.fill();
+
+  return finishCanvasTexture(canvas);
+}
+
+function scorebenchHullIdTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 768;
+  canvas.height = 160;
+  const ctx = canvas.getContext("2d")!;
+  const ink = "rgba(255, 255, 255, 0.92)";
+  ctx.fillStyle = ink;
+  ctx.globalAlpha = 0.62;
+  ctx.fillRect(10, 27, 2, 106);
+  ctx.fillRect(28, 35, 712, 2);
+  ctx.fillRect(28, 123, 712, 2);
+  ctx.globalAlpha = 1;
+  ctx.font = "700 74px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.textBaseline = "middle";
+  ctx.fillText("1911-0102", 42, 82);
+  ctx.font = "16px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.globalAlpha = 0.65;
+  ctx.fillText("SCOREBENCH / VOYAGE", 490, 112);
+
+  return finishCanvasTexture(canvas);
+}
+
+function hullMarkPaint(texture: THREE.Texture): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
+    map: texture,
+    color: new THREE.Color("#68817e"),
+    transparent: true,
+    opacity: 0.3,
+    depthWrite: false,
+    roughness: 0.86,
+    metalness: 0.12,
+    emissive: new THREE.Color("#102827"),
+    emissiveIntensity: 0.08,
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -4,
+  });
 }
 
 function facetedAnnulus(
@@ -525,23 +673,45 @@ const NEBULA_FRAGMENT = /* glsl */ `
     return v;
   }
   void main() {
-    vec2 p = (vUv - 0.5) * vec2(2.0, 2.5);
-    float mask = smoothstep(1.0, 0.08, dot(p, p));
+    vec2 p = (vUv - 0.5) * vec2(2.1, 2.35);
     vec2 flow = vec2(uTime * 0.085, -uTime * 0.052);
+    float edgeField = fbm(p * 1.15 - flow * 0.12 + uSeed * 3.1);
+    float radial = dot(p, p);
+    float boundary = 1.0 - smoothstep(
+      0.48 + edgeField * 0.16,
+      0.88 + edgeField * 0.2,
+      radial
+    );
     float warpField = fbm(p * 0.82 - flow * 0.38 + uSeed * 1.4);
     vec2 warp = vec2(cos(warpField * 6.283), sin(warpField * 6.283)) * 0.16;
     float broad = fbm((p + warp) * 1.35 + flow + uSeed);
     float filament = fbm((p - warp * 0.62) * 3.8 - flow * 1.7 + uSeed * 2.3);
-    float cloud = broad * 0.72 + filament * 0.34;
-    float ridge = smoothstep(0.16, 0.48, abs(broad - filament * 0.72));
-    float density = smoothstep(0.39, 0.69, cloud) * mask;
-    density *= 0.62 + filament * 0.28 + ridge * 0.18;
+    float torn = fbm((p + warp * 0.45) * 2.6 + flow * 0.7 + uSeed * 4.7);
+    float cloud = broad * 0.7 + filament * 0.32;
+    float density = smoothstep(0.49, 0.72, cloud);
+    density *= boundary * mix(0.18, 1.0, smoothstep(0.34, 0.7, torn));
+    float cavity = smoothstep(
+      0.57,
+      0.77,
+      fbm(p * 2.35 - flow * 0.48 + uSeed * 6.2)
+    );
+    float darkLane = 1.0 - smoothstep(
+      0.08,
+      0.24,
+      abs(p.y + p.x * 0.28 + sin(p.x * 2.4 + uSeed) * 0.1)
+    );
+    density *= 1.0 - cavity * 0.8;
+    density *= 1.0 - darkLane * (0.24 + torn * 0.38);
+    vec2 corePoint = p - vec2(0.14, -0.08);
+    float core = exp(-dot(corePoint, corePoint) * 5.2) * smoothstep(0.5, 0.82, filament);
+    density = max(density, core * 0.68 * boundary);
     float localBreath = 0.5 + 0.5 * sin(uTime * 0.92 + broad * 4.4 + filament * 2.1 + uSeed);
-    density *= 0.76 + localBreath * 0.24 + uPulse * 0.18;
+    density *= 0.7 + localBreath * 0.18 + uPulse * 0.12;
     vec3 color = mix(uBlue, uTeal, smoothstep(0.44, 0.78, filament));
-    color = mix(color, uPurple, smoothstep(0.68, 0.92, broad) * 0.28);
-    color *= 0.82 + localBreath * 0.18 + uPulse * 0.14;
-    gl_FragColor = vec4(color, density * uOpacity);
+    color = mix(color, uTeal * 1.3, core * 0.52);
+    color = mix(color, uPurple, smoothstep(0.72, 0.94, broad) * 0.1);
+    color *= 0.95 + localBreath * 0.18 + uPulse * 0.12 + core * 0.25;
+    gl_FragColor = vec4(color, clamp(density * uOpacity, 0.0, 0.72));
   }
 `;
 
@@ -565,10 +735,15 @@ const DUST_FRAGMENT = /* glsl */ `
     return v;
   }
   void main() {
-    vec2 p = (vUv - 0.5) * vec2(2.15, 2.6);
-    float mask = 1.0 - smoothstep(0.18, 1.12, dot(p, p));
+    vec2 p = (vUv - 0.5) * vec2(2.2, 2.55);
     vec2 drift = vec2(uTime * 0.052, -uTime * 0.034);
     float curl = fbm(p * 0.76 + drift * 0.45 + uSeed * 1.8);
+    float edgeField = fbm(p * 1.22 - drift * 0.2 + uSeed * 3.6);
+    float boundary = 1.0 - smoothstep(
+      0.46 + edgeField * 0.14,
+      0.92 + edgeField * 0.18,
+      dot(p, p)
+    );
     vec2 warp = vec2(sin(curl * 6.283), cos(curl * 6.283)) * 0.12;
     float broad = fbm(vec2(p.x * 0.72 + p.y * 0.24, p.y * 1.45) + warp + drift + uSeed);
     float torn = fbm((p - warp * 0.7) * 2.8 - drift * 1.6 + uSeed * 2.7);
@@ -577,9 +752,11 @@ const DUST_FRAGMENT = /* glsl */ `
     float ribbon = 1.0 - smoothstep(0.12, 0.38, abs(bend));
     float branch = 1.0 - smoothstep(0.08, 0.25, abs(p.y + p.x * 0.34 - 0.3));
     float lane = max(cloudLane * 0.68, max(ribbon, branch * 0.62) * (0.55 + torn * 0.45));
+    float hole = smoothstep(0.58, 0.78, fbm(p * 2.5 + drift * 0.4 + uSeed * 5.2));
     float localBreath = 0.5 + 0.5 * sin(uTime * 0.74 + torn * 4.8 + uSeed);
     vec3 color = mix(uCold, uWarm, smoothstep(0.52, 0.82, torn) * 0.38);
-    gl_FragColor = vec4(color, lane * mask * uOpacity * (0.78 + localBreath * 0.12 + uPulse * 0.16));
+    float alpha = lane * boundary * (1.0 - hole * 0.58);
+    gl_FragColor = vec4(color, alpha * uOpacity * (0.78 + localBreath * 0.1 + uPulse * 0.12));
   }
 `;
 
@@ -668,13 +845,14 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
   camera.far = 1000;
   camera.updateProjectionMatrix();
   scene.background = BG;
-  scene.fog = new THREE.Fog(BG, 70, 340);
+  scene.fog = null;
+  const moodHud = createMoodHud();
 
   // Object-selective bloom. The bloom camera sees layer 1 only; the final pass
   // combines that target over the untouched layer-0 render. Luminance alone
   // never decides whether armor, seams or ordinary stars glow.
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.18;
+  renderer.toneMappingExposure = 1.04;
   const bloomComposer = new EffectComposer(renderer);
   bloomComposer.renderToScreen = false;
   bloomComposer.addPass(new RenderPass(scene, camera));
@@ -699,27 +877,32 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
 
   const rand = seededRandom(SEED);
   const glow = glowTexture();
+  const hullCatMark = scorebenchCatHeadTexture();
+  const hullIdMark = scorebenchHullIdTexture();
 
   const ship = new THREE.Group();
   scene.add(ship);
 
-  // Two restrained physical light sources model the large planes without
+  // Neutral physical lights model the large planes without lifting space or
   // letting the engine glow wash over the hull.
-  const ambientLight = new THREE.HemisphereLight(0x193f50, 0x010205, 0.82);
+  const ambientLight = new THREE.HemisphereLight(AMBIENT_NEUTRAL, GROUND_NEUTRAL, 0.72);
   scene.add(ambientLight);
-  const nebulaFill = new THREE.DirectionalLight(0x48a8b8, 1.18);
+  const nebulaFill = new THREE.DirectionalLight(FILL_NEUTRAL, 0.64);
   nebulaFill.position.set(-80, -30, -150);
   scene.add(nebulaFill);
-  const rimLight = new THREE.DirectionalLight(0x7ee8f1, 1.56);
+  const rimLight = new THREE.DirectionalLight(RIM_NEUTRAL, 1.12);
   rimLight.position.set(95, -12, 92);
   scene.add(rimLight);
-  // hull + superstructure share dimming in dormant state
+  // Hull and superstructure share a bounded music response.
   let hullMat: THREE.MeshStandardMaterial;
   let superMat: THREE.MeshStandardMaterial;
+  const hullMarkMaterials: THREE.MeshStandardMaterial[] = [];
+  let hullCatGlowMaterial: THREE.MeshBasicMaterial;
+  let hullCatGlowMesh: THREE.Mesh;
 
   // ==========================================================================
   // LAYER 1 — the opaque hull. Priority one: an unmistakable silhouette.
-  // A faceted near-black mass that occludes everything behind it.
+  // A faceted titanium mass that stays readable against true-black space.
   // ==========================================================================
   const HULL_STATIONS = 64;
   {
@@ -843,6 +1026,56 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
     superMat = armorMaterial(true);
     ship.add(new THREE.Mesh(geo, superMat));
 
+    // Split paint layers let the crest sit farther aft and pulse independently.
+    const catU = 0.014;
+    const catProfile = daggerProfile(catU);
+    const catGeometry = new THREE.PlaneGeometry(3.5, 3.5);
+    const catPaint = hullMarkPaint(hullCatMark);
+    hullMarkMaterials.push(catPaint);
+    const catMesh = new THREE.Mesh(catGeometry, catPaint);
+    catMesh.position.set(
+      catProfile.halfWidth + 0.18,
+      catProfile.mid - catProfile.halfHeight * 0.16,
+      uz(catU),
+    );
+    catMesh.rotation.y = Math.PI / 2;
+    catMesh.renderOrder = 3;
+    ship.add(catMesh);
+
+    hullCatGlowMaterial = new THREE.MeshBasicMaterial({
+      map: hullCatMark,
+      color: new THREE.Color("#8ffff1"),
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      toneMapped: false,
+      blending: THREE.AdditiveBlending,
+      polygonOffset: true,
+      polygonOffsetFactor: -6,
+      polygonOffsetUnits: -6,
+    });
+    hullCatGlowMesh = new THREE.Mesh(catGeometry, hullCatGlowMaterial);
+    hullCatGlowMesh.position.copy(catMesh.position);
+    hullCatGlowMesh.position.x += 0.012;
+    hullCatGlowMesh.rotation.copy(catMesh.rotation);
+    hullCatGlowMesh.renderOrder = 4;
+    ship.add(hullCatGlowMesh);
+    enableBloom(hullCatGlowMesh);
+
+    const idU = 0.057;
+    const idProfile = daggerProfile(idU);
+    const idPaint = hullMarkPaint(hullIdMark);
+    hullMarkMaterials.push(idPaint);
+    const idMesh = new THREE.Mesh(new THREE.PlaneGeometry(16.32, 3.4), idPaint);
+    idMesh.position.set(
+      idProfile.halfWidth + 0.18,
+      idProfile.mid - idProfile.halfHeight * 0.16,
+      uz(idU),
+    );
+    idMesh.rotation.y = Math.PI / 2;
+    idMesh.renderOrder = 3;
+    ship.add(idMesh);
+
     // bridge windows: sparse light points on the citadel faces
     const BWIN = 64;
     const wpos = new Float32Array(BWIN * 3);
@@ -926,6 +1159,7 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
 
   // --- bow sensor boom: spar + cross vanes + nav lamp ----------------------
   let bowLamp: THREE.Sprite;
+  let bowBoomMaterial: THREE.LineBasicMaterial;
   {
     const p = daggerProfile(BOW_CLIP);
     const bx = 0;
@@ -940,18 +1174,14 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
     ];
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-    ship.add(
-      new THREE.LineSegments(
-        geo,
-        new THREE.LineBasicMaterial({
-          color: new THREE.Color("#2a4f5e"),
-          transparent: true,
-          opacity: 0.78,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-        }),
-      ),
-    );
+    bowBoomMaterial = new THREE.LineBasicMaterial({
+      color: new THREE.Color("#2a4f5e"),
+      transparent: true,
+      opacity: 0.78,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    ship.add(new THREE.LineSegments(geo, bowBoomMaterial));
     bowLamp = new THREE.Sprite(
       new THREE.SpriteMaterial({
         map: glow,
@@ -979,9 +1209,11 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
   let silhouette: THREE.LineSegments;
   let silColors: Float32Array;
   let silBase: Float32Array; // per-vertex weight (bow fade, chine emphasis)
+  let silU: Float32Array;
   {
     const positions: number[] = [];
     const weights: number[] = [];
+    const stations: number[] = [];
     const v = new THREE.Vector3();
     for (let k = 0; k < CHINES; k++) {
       // top deck + keel + widest chines read strongest
@@ -993,12 +1225,14 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
         const w0 = emphasis * (1 - u0 * 0.55);
         const w1 = emphasis * (1 - u1 * 0.55);
         weights.push(w0, w1);
+        stations.push(u0, u1);
       }
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
     silColors = new Float32Array(positions.length);
     silBase = new Float32Array(weights);
+    silU = new Float32Array(stations);
     geo.setAttribute("color", new THREE.BufferAttribute(silColors, 3));
     silhouette = new THREE.LineSegments(geo, silhouetteMat);
     ship.add(silhouette);
@@ -1067,11 +1301,15 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
     ship.add(structure);
   }
 
-  // --- energy layer: one dorsal spine + two flank conduits, packets bow-ward
+  // --- energy layer: dorsal/flank conduits with continuous bow-to-stern flow
   const ENERGY_PTS = 160;
   interface Conduit {
     line: THREE.Line;
     colors: Float32Array;
+    markers: THREE.Points;
+    markerPositions: Float32Array;
+    k: number;
+    lift: number;
     head: number;
     rate: number;
     lag: number;
@@ -1108,7 +1346,39 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       );
       ship.add(line);
       enableBloom(line);
-      conduits.push({ line, colors, head: rand(), rate: d.rate, lag: d.lag });
+
+      const markerPositions = new Float32Array(6);
+      const markerGeometry = new THREE.BufferGeometry();
+      markerGeometry.setAttribute(
+        "position",
+        new THREE.BufferAttribute(markerPositions, 3).setUsage(THREE.DynamicDrawUsage),
+      );
+      const markers = new THREE.Points(
+        markerGeometry,
+        new THREE.PointsMaterial({
+          map: glow,
+          color: new THREE.Color("#b8edf2"),
+          size: 2.1,
+          transparent: true,
+          opacity: 0,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          sizeAttenuation: true,
+        }),
+      );
+      ship.add(markers);
+      enableBloom(markers);
+      conduits.push({
+        line,
+        colors,
+        markers,
+        markerPositions,
+        k: d.k,
+        lift: d.lift,
+        head: rand(),
+        rate: d.rate,
+        lag: d.lag,
+      });
     }
   }
 
@@ -1254,6 +1524,7 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
   }
 
   // --- comm towers: thin masts on the ridge + citadel antenna array --------
+  let mastMaterial: THREE.LineBasicMaterial;
   {
     const positions: number[] = [];
     const v = new THREE.Vector3();
@@ -1280,10 +1551,12 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-    const mast = new THREE.LineSegments(
-      geo,
-      new THREE.LineBasicMaterial({ color: new THREE.Color("#22434f"), transparent: true, opacity: 0.5 }),
-    );
+    mastMaterial = new THREE.LineBasicMaterial({
+      color: new THREE.Color("#22434f"),
+      transparent: true,
+      opacity: 0.5,
+    });
+    const mast = new THREE.LineSegments(geo, mastMaterial);
     ship.add(mast);
   }
 
@@ -1317,6 +1590,49 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       lamp.scale.setScalar(1.1);
       ship.add(lamp);
       padLamps.push(lamp);
+    }
+  }
+
+  // --- upper-deck light pools: sparse pools that reveal armor volume --------
+  interface DeckLight {
+    light: THREE.PointLight;
+    beacon: THREE.Sprite;
+    phase: number;
+  }
+  const deckLights: DeckLight[] = [];
+  {
+    for (const [index, def] of [
+      { u: 0.12, x: 0.62 },
+      { u: 0.24, x: 0.56 },
+      { u: 0.39, x: 0.6 },
+      { u: 0.57, x: 0.52 },
+    ].entries()) {
+      const p = daggerProfile(def.u);
+      const position = new THREE.Vector3(
+        p.halfWidth * def.x,
+        p.mid + p.halfHeight + 0.72,
+        uz(def.u),
+      );
+      const light = new THREE.PointLight(0x9fe8f2, 0, 48, 2);
+      light.position.copy(position);
+      ship.add(light);
+
+      const beacon = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: glow,
+          color: new THREE.Color("#b9f5ef"),
+          transparent: true,
+          opacity: 0,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+      );
+      beacon.position.copy(position);
+      beacon.scale.setScalar(1.15);
+      beacon.renderOrder = 4;
+      ship.add(beacon);
+      enableBloom(beacon);
+      deckLights.push({ light, beacon, phase: index * 1.83 + rand() * 0.4 });
     }
   }
 
@@ -1488,14 +1804,20 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       enableBloom(core);
 
       // Layers 3–4: one fixed-radius beam and one 1.7× wider, dim blue envelope.
-      const mainJetMat = engineBeamMaterial("#74e1ff", "#0869c6", 3.6, 0.76, 0);
+      const mainJetMat = engineBeamMaterial(
+        "#74e1ff",
+        "#0869c6",
+        3.6,
+        0.76,
+        ENGINE_PARTICLE_OPACITY,
+      );
       mainJetMat.uniforms.uRadius.value = d.r * 0.48;
       const outerGlowMat = engineBeamMaterial(
         "#0b519f",
         "#010a24",
         2.4,
         0.68,
-        ENGINE_PARTICLE_OPACITY,
+        0,
       );
       outerGlowMat.uniforms.uRadius.value =
         d.r * 0.48 * ENGINE_GLOW_WIDTH_RATIO;
@@ -1620,7 +1942,7 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
   }
 
   // ==========================================================================
-  // LAYER 5 — background: three parallax speeds, one travel vector (+Z drift
+  // LAYER 5 — background: five parallax speeds, one travel vector (+Z drift
   // relative to the ship; the world streams sternward past the camera).
   // ==========================================================================
 
@@ -1629,12 +1951,16 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
   interface StarLayer {
     points: THREE.Points;
     rate: number;
+    baseSize: number;
+    baseZ: Float32Array;
   }
   const starLayers: StarLayer[] = [];
   interface NebulaLayer {
     mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
     base: THREE.Vector3;
     rate: number;
+    depthRate: number;
+    baseOpacity: number;
   }
   const nebulaLayers: NebulaLayer[] = [];
   interface ClusterLayer {
@@ -1648,17 +1974,47 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
     mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
     base: THREE.Vector3;
     rate: number;
+    depthRate: number;
     tilt: number;
+    baseOpacity: number;
   }
   const dustLayers: DustLayer[] = [];
   {
     for (const def of [
-      { n: 980, rMin: 390, rMax: 690, size: 0.58, rate: 0.009, o: 0.3, light: 0.42, bloom: false },
-      { n: 180, rMin: 300, rMax: 520, size: 1.25, rate: 0.016, o: 0.5, light: 0.62, bloom: false },
-      { n: 14, rMin: 330, rMax: 560, size: 3.2, rate: 0.012, o: 0.82, light: 0.86, bloom: true },
+      {
+        n: 1200,
+        rMin: 390,
+        rMax: 690,
+        size: 0.78,
+        rate: VOYAGE_PARALLAX_RATES.farStars,
+        o: 0.38,
+        light: 0.5,
+        bloom: false,
+      },
+      {
+        n: 220,
+        rMin: 300,
+        rMax: 520,
+        size: 1.55,
+        rate: VOYAGE_PARALLAX_RATES.brightStars,
+        o: 0.62,
+        light: 0.7,
+        bloom: false,
+      },
+      {
+        n: 18,
+        rMin: 330,
+        rMax: 560,
+        size: 3.3,
+        rate: VOYAGE_PARALLAX_RATES.farStars * 1.3,
+        o: 0.9,
+        light: 0.9,
+        bloom: true,
+      },
     ]) {
       const positions = new Float32Array(def.n * 3);
       const colors = new Float32Array(def.n * 3);
+      const baseZ = new Float32Array(def.n);
       for (let i = 0; i < def.n; i++) {
         const r = def.rMin + rand() * (def.rMax - def.rMin);
         const th = rand() * Math.PI * 2;
@@ -1666,6 +2022,7 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
         positions[i * 3] = r * Math.sin(ph) * Math.cos(th);
         positions[i * 3 + 1] = def.bloom ? -82 + rand() * 102 : r * Math.cos(ph) * 0.6;
         positions[i * 3 + 2] = r * Math.sin(ph) * Math.sin(th);
+        baseZ[i] = positions[i * 3 + 2];
         const warm = rand() < 0.2;
         const color = new THREE.Color().setHSL(
           warm ? 0.095 + rand() * 0.035 : 0.52 + rand() * 0.08,
@@ -1696,14 +2053,17 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       pts.renderOrder = -3;
       scene.add(pts);
       if (def.bloom) enableBloom(pts);
-      starLayers.push({ points: pts, rate: def.rate });
+      starLayers.push({ points: pts, rate: def.rate, baseSize: def.size, baseZ });
     }
 
-    // Low-frequency procedural clouds sit right-rear and below the hull. Their
-    // shader flow is slow and energy-modulated; two depths provide parallax.
+    // Several bounded billboards form one local right-rear nebula volume.
+    // Their broken masks overlap at different depths without washing the frame.
     for (const d of [
-      { x: 15, y: 96, z: -315, w: 300, h: 155, o: 0.26, seed: 1.7, rate: 0.32 },
-      { x: -70, y: -72, z: -212, w: 250, h: 120, o: 0.2, seed: 8.3, rate: 0.55 },
+      { x: -82, y: 205, z: -520, w: 235, h: 145, o: 0.42, seed: 1.7, rate: 0.24, depthRate: 0.72 },
+      { x: -12, y: 135, z: -410, w: 175, h: 105, o: 0.34, seed: 8.3, rate: 0.34, depthRate: 0.9 },
+      { x: -145, y: 290, z: -620, w: 155, h: 105, o: 0.28, seed: 12.6, rate: 0.18, depthRate: 0.58 },
+      { x: 32, y: 65, z: -340, w: 140, h: 78, o: 0.24, seed: 17.4, rate: 0.42, depthRate: 1.12 },
+      { x: -178, y: 185, z: -550, w: 110, h: 68, o: 0.2, seed: 21.8, rate: 0.28, depthRate: 0.78 },
     ]) {
       const material = new THREE.ShaderMaterial({
         uniforms: {
@@ -1711,9 +2071,9 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
           uOpacity: { value: d.o },
           uPulse: { value: 0 },
           uSeed: { value: d.seed },
-          uBlue: { value: new THREE.Color("#123d7a") },
-          uTeal: { value: new THREE.Color("#0f7072") },
-          uPurple: { value: new THREE.Color("#563080") },
+          uBlue: { value: NEBULA_BLUE.clone() },
+          uTeal: { value: NEBULA_TEAL.clone() },
+          uPurple: { value: NEBULA_PURPLE.clone() },
         },
         vertexShader: NEBULA_VERTEX,
         fragmentShader: NEBULA_FRAGMENT,
@@ -1729,7 +2089,13 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       mesh.position.copy(base);
       mesh.renderOrder = -4;
       scene.add(mesh);
-      nebulaLayers.push({ mesh, base, rate: d.rate });
+      nebulaLayers.push({
+        mesh,
+        base,
+        rate: d.rate,
+        depthRate: VOYAGE_PARALLAX_RATES.deepGas * d.depthRate,
+        baseOpacity: d.o,
+      });
     }
 
     // Localized star clusters break the even procedural scatter. They stay
@@ -1781,11 +2147,12 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       clusterLayers.push({ points, base, rate: d.rate, phase: d.phase });
     }
 
-    // Dark molecular lanes are a separate normal-blended depth layer. Unlike
-    // the additive nebula they can actually occlude remote stars.
+    // Local molecular lanes sit just in front of the matching nebula regions.
     for (const d of [
-      { x: 44, y: 58, z: -268, w: 292, h: 142, o: 0.68, seed: 4.7, rate: 0.44, tilt: -0.16 },
-      { x: -118, y: -46, z: -372, w: 320, h: 168, o: 0.5, seed: 10.9, rate: 0.27, tilt: 0.11 },
+      { x: -65, y: 204, z: -485, w: 190, h: 80, o: 0.72, seed: 4.7, rate: 0.3, depthRate: 1.08, tilt: -0.16 },
+      { x: -20, y: 145, z: -404, w: 130, h: 55, o: 0.58, seed: 10.9, rate: 0.38, depthRate: 1.24, tilt: 0.11 },
+      { x: -122, y: 252, z: -565, w: 110, h: 60, o: 0.52, seed: 15.2, rate: 0.22, depthRate: 0.92, tilt: -0.08 },
+      { x: 28, y: 72, z: -326, w: 100, h: 42, o: 0.42, seed: 19.6, rate: 0.46, depthRate: 1.42, tilt: 0.14 },
     ]) {
       const material = new THREE.ShaderMaterial({
         uniforms: {
@@ -1793,8 +2160,8 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
           uOpacity: { value: d.o },
           uPulse: { value: 0 },
           uSeed: { value: d.seed },
-          uCold: { value: new THREE.Color("#010309") },
-          uWarm: { value: new THREE.Color("#160b0b") },
+          uCold: { value: DUST_COLD.clone() },
+          uWarm: { value: DUST_WARM.clone() },
         },
         vertexShader: NEBULA_VERTEX,
         fragmentShader: DUST_FRAGMENT,
@@ -1810,16 +2177,25 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       mesh.position.copy(base);
       mesh.renderOrder = -1;
       scene.add(mesh);
-      dustLayers.push({ mesh, base, rate: d.rate, tilt: d.tilt });
+      dustLayers.push({
+        mesh,
+        base,
+        rate: d.rate,
+        depthRate: VOYAGE_PARALLAX_RATES.deepGas * d.depthRate,
+        tilt: d.tilt,
+        baseOpacity: d.o,
+      });
     }
   }
 
   // mid: a distant dark planet + far convoy lights (scale events, not noise)
+  let planetGroup: THREE.Group;
   let planetGlow: THREE.Sprite;
+  const planetBase = new THREE.Vector3(-71, 245, -463);
   {
     // A dim physical sphere: the lit limb now belongs to the body instead of
     // surviving as a disconnected arc when the night side falls to black.
-    const planet = new THREE.Group();
+    planetGroup = new THREE.Group();
     const R = 65;
     const body = new THREE.Mesh(
       new THREE.SphereGeometry(R, 48, 32),
@@ -1832,7 +2208,7 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
         fog: false,
       }),
     );
-    planet.add(body);
+    planetGroup.add(body);
     planetGlow = new THREE.Sprite(
       new THREE.SpriteMaterial({
         map: glow,
@@ -1845,16 +2221,24 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       }),
     );
     planetGlow.scale.setScalar(R * 2.75);
-    planet.add(planetGlow);
-    planet.position.set(-71, 245, -463);
-    scene.add(planet);
+    planetGroup.add(planetGlow);
+    planetGroup.position.copy(planetBase);
+    scene.add(planetGroup);
   }
   // far traffic: two tiny convoy lights crawling across the deep field
-  const farShips: { sprite: THREE.Sprite; x: number; y: number; z: number; sp: number; ph: number }[] = [];
+  const farShips: {
+    sprite: THREE.Sprite;
+    x: number;
+    y: number;
+    z: number;
+    sp: number;
+    rate: number;
+    ph: number;
+  }[] = [];
   {
     for (const d of [
-      { x: 210, y: 40, z: -420, sp: 1.6, c: "#6fb6c9" },
-      { x: -260, y: -70, z: -380, sp: 1.1, c: "#c9a06f" },
+      { x: 210, y: 40, z: -420, sp: 1.6, rate: 1.12, c: "#6fb6c9" },
+      { x: -260, y: -70, z: -380, sp: 1.1, rate: 0.86, c: "#c9a06f" },
     ]) {
       const sp = new THREE.Sprite(
         new THREE.SpriteMaterial({
@@ -1870,12 +2254,20 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       sp.scale.setScalar(2.6);
       sp.position.set(d.x, d.y, d.z);
       scene.add(sp);
-      farShips.push({ sprite: sp, x: d.x, y: d.y, z: d.z, sp: d.sp, ph: rand() * Math.PI * 2 });
+      farShips.push({
+        sprite: sp,
+        x: d.x,
+        y: d.y,
+        z: d.z,
+        sp: d.sp,
+        rate: VOYAGE_PARALLAX_RATES.landmarks * d.rate,
+        ph: rand() * Math.PI * 2,
+      });
     }
   }
 
   // near: fast streaks + motes crossing the lens
-  const STREAKS = 18;
+  const STREAKS = 32;
   let streaks: THREE.LineSegments;
   let streakColors: Float32Array;
   const streakSeeds: { x: number; y: number; z: number; len: number; sp: number }[] = [];
@@ -1907,7 +2299,7 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
     scene.add(streaks);
   }
 
-  const MOTES = 34;
+  const MOTES = 56;
   let motes: THREE.Points;
   const moteSeeds: { x: number; y: number; z: number; sp: number }[] = [];
   const safeZoneProbe = new THREE.Vector3();
@@ -2009,6 +2401,7 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
   const stateW = new Float32Array(4); // dormant, cruise, charged, transcend
   let travel = 0; // accumulated travel distance (drives all parallax)
   let flowClock = 0;
+  let engineParticleClock = 0;
   let nebulaClock = 0;
   let camSway = 0;
   let breath = 0;
@@ -2018,7 +2411,7 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
   let previousEngineImpact = 0;
   let engineBeatCooldown = 0;
 
-  // --- the pulse system: energy packets born at the stern travel bow-ward --
+  // --- the pulse system: beat packets born at the bow travel toward the stern
   const PULSES = 6;
   const pulseU = new Float32Array(PULSES); // head position along hull
   const pulseE = new Float32Array(PULSES); // packet energy
@@ -2033,8 +2426,16 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
   const colA = new THREE.Color();
   const colB = new THREE.Color();
   const colEnergy = new THREE.Color();
+  const colFlow = new THREE.Color();
   const colBeat = new THREE.Color("#ffe9c4");
   const colCoral = new THREE.Color();
+  const colSector = new THREE.Color();
+  const colSectorAlt = new THREE.Color();
+  const colSectorDeep = new THREE.Color();
+  const colStar = new THREE.Color();
+  const colIce = new THREE.Color();
+  const colDebris = new THREE.Color();
+  const colWeather = new THREE.Color();
   const vec = new THREE.Vector3();
   const vecB = new THREE.Vector3();
   const bez = new Float32Array(3);
@@ -2052,31 +2453,21 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
   function render(frame: ThreeFrame): void {
     const { freq, dt, elapsed } = frame;
     const mood = frame.mood ?? neutralMoodState();
-    const hue = ((frame.options.themeHue ?? 171) / 360) % 1;
+    const themeHue = frame.options.themeHue ?? 171;
+    const atmosphere = voyageAtmosphere(mood);
+    const sectorHue = (((themeHue + atmosphere.hueShift) % 360) + 360) % 360 / 360;
     const materialPreview = frame.options.materialPreview === 1;
-    const effectVisibility = materialPreview ? 0 : 1;
+    const backgroundPass = Math.round(frame.options.backgroundPass ?? 0);
+    const backgroundOnly = backgroundPass > 0;
+    const compositionVisibility = backgroundOnly ? 0 : 1;
+    const spaceLayerVisibility = backgroundPass === 1 ? 0 : 1;
+    const effectVisibility = materialPreview ? 0 : compositionVisibility;
     const backgroundVisibility = materialPreview ? 0.08 : 1;
-    const lineVisibility = frame.options.wireframe === 0 ? 0 : 1;
-    bloomPass.strength = frame.options.bloom === 0 || materialPreview ? 0 : 0.18;
+    const localSpaceVisibility = backgroundVisibility * spaceLayerVisibility;
+    const lineVisibility = frame.options.wireframe === 0 ? 0 : compositionVisibility;
     const motion = frame.prefersReducedMotion ? 0.15 : 1;
-
-    if (materialPreview) {
-      ambientLight.color.setHex(0xf2eee6);
-      ambientLight.groundColor.setHex(0x252b2e);
-      ambientLight.intensity = 0.98;
-      nebulaFill.color.setHex(0xfff7e8);
-      nebulaFill.intensity = 1.32;
-      rimLight.color.setHex(0xe8edf0);
-      rimLight.intensity = 0.86;
-    } else {
-      ambientLight.color.setHex(0x193f50);
-      ambientLight.groundColor.setHex(0x010205);
-      ambientLight.intensity = 0.82;
-      nebulaFill.color.setHex(0x48a8b8);
-      nebulaFill.intensity = 1.18;
-      rimLight.color.setHex(0x7ee8f1);
-      rimLight.intensity = 1.56;
-    }
+    ship.visible = !backgroundOnly;
+    planetGroup.visible = localSpaceVisibility > 0;
 
     // ---- band analysis → compressed, envelope-followed duties -------------
     const bands = smoother.step(bandLevels(freq, BANDS), dt);
@@ -2123,24 +2514,82 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
     hush = attackRelease(hush, Math.min(1, Math.max(0, (loud - 0.22) / 0.75)), dt, 0.9, 2.2);
     const alive = (1 - wDormant) * (0.25 + hush * 0.75); // structural integrity 0..1
 
-    // dormant: the opaque mass itself recedes — facets sink toward black,
-    // leaving outline, engine embers and a few window lights
-    const massLift = materialPreview ? 1 : 0.68 + alive * 0.32 + wCharged * 0.06;
-    hullMat.color.setScalar(massLift);
-    superMat.color.setScalar(materialPreview ? 1 : massLift * 0.9);
+    // ---- mood atmosphere: one ship, five emotional navigation sectors ------
+    const ionFlash = atmosphere.ion * Math.min(1, env.beat * 1.25 + Math.max(0, mood.swell) * 0.12);
+    colSector.setHSL(sectorHue, 0.72, 0.54);
+    colSectorAlt.setHSL((sectorHue + 0.11) % 1, 0.66, 0.42);
+    colSectorDeep.setHSL((sectorHue + 0.56) % 1, 0.48, 0.075);
+    colStar.copy(STAR_NEUTRAL);
+    colIce.setHSL((sectorHue + 0.035) % 1, 0.24, 0.9);
+    colDebris.setHSL((sectorHue + 0.1) % 1, 0.38, 0.62);
 
-    // palette (valence tilts the energy hue slightly warm/cold)
-    const eHue = (hue + mood.valence * 0.03 + 1) % 1;
+    if (materialPreview) {
+      renderer.toneMappingExposure = 1.18;
+      bloomPass.strength = 0;
+      ambientLight.color.setHex(0xf2eee6);
+      ambientLight.groundColor.setHex(0x252b2e);
+      ambientLight.intensity = 0.98;
+      nebulaFill.color.setHex(0xfff7e8);
+      nebulaFill.intensity = 1.32;
+      rimLight.color.setHex(0xe8edf0);
+      rimLight.intensity = 0.86;
+    } else {
+      renderer.toneMappingExposure = 1.06;
+      bloomPass.strength =
+        frame.options.bloom === 0 ? 0 : 0.18 * atmosphere.bloom + ionFlash * 0.16;
+      ambientLight.color.copy(AMBIENT_NEUTRAL);
+      ambientLight.groundColor.copy(GROUND_NEUTRAL);
+      ambientLight.intensity = 0.98 + atmosphere.starClarity * 0.06;
+      nebulaFill.color.copy(FILL_NEUTRAL).lerp(colSectorAlt, 0.08);
+      nebulaFill.intensity = 0.82 + atmosphere.nebula * 0.14 + ionFlash * 0.1;
+      rimLight.color.copy(RIM_NEUTRAL).lerp(colSector, 0.05);
+      rimLight.intensity = 1.46 + mood.arousal * 0.12 + ionFlash * 0.15;
+    }
+
+    // Music changes the armor's presence without making the ship disappear:
+    // even dormant facets retain a readable neutral titanium floor.
+    const massLift =
+      materialPreview
+        ? 1
+        : Math.min(1.06, 0.88 + alive * 0.14 + wCharged * 0.02 + mood.valence * 0.02);
+    hullMat.color.setScalar(massLift);
+    superMat.color.setScalar(materialPreview ? 1 : massLift * 0.98);
+
+    // Sector color reaches the ship's signal layers while armor stays neutral.
+    const eHue = (sectorHue + (mood.valence - 0.5) * 0.025 + 1) % 1;
     colEnergy.setHSL(eHue, 0.82, 0.58);
-    colA.setHSL(hue, 0.14, 0.29); // low-saturation silhouette base
-    colB.setHSL(hue, 0.18, 0.25); // low-saturation structure base
+    colFlow.copy(colEnergy).lerp(colStar, 0.42);
+    colA.setHSL(sectorHue, 0.09, 0.32); // soft, nearly neutral silhouette base
+    colB.setHSL(sectorHue, 0.12, 0.29); // restrained structure base
     colCoral.setHSL(0.04, 0.85, 0.6);
+    for (const material of hullMarkMaterials) {
+      material.color.copy(colStar).lerp(colA, materialPreview ? 0.58 : 0.74);
+      material.emissive.copy(colStar).lerp(colB, 0.84);
+      material.emissiveIntensity = materialPreview
+        ? 0.1
+        : 0.035 + alive * 0.045 + ionFlash * 0.025;
+      material.opacity = materialPreview
+        ? 0.36
+        : (0.22 + alive * 0.1 + ionFlash * 0.04) * effectVisibility;
+    }
+    const catBreathGlow = logoBreathLevel(elapsed, frame.prefersReducedMotion);
+    const catBeatGlow = Math.min(1, p.impact * 1.2 + env.beat * 0.9);
+    hullCatGlowMaterial.color.copy(colEnergy).lerp(colStar, 0.36 + catBreathGlow * 0.2);
+    hullCatGlowMaterial.opacity =
+      logoGlowOpacity(catBreathGlow, catBeatGlow, alive) * effectVisibility;
+    const catGlowScale = 1.025 + catBreathGlow * 0.055 + catBeatGlow * 0.025;
+    hullCatGlowMesh.scale.setScalar(catGlowScale);
 
     // ---- travel: one shared vector, speed from state + energy -------------
-    const speed = (0.16 + alive * 0.5 + wCharged * 0.7 + wTranscend * 1.1 + env.sub * 0.5) * motion;
+    const thrust = 0.16 + alive * 0.5 + wCharged * 0.7 + wTranscend * 1.1 + env.sub * 0.5;
+    const speed = Math.min(4.2, thrust * atmosphere.travelScale) * motion;
     travel += dt * speed * 46;
-    flowClock += dt * motion;
-    nebulaClock += dt * (0.22 + Math.min(1, p.energy * 2.5) * 0.18) * motion;
+    flowClock += dt * (0.78 + mood.arousal * 0.65 + mood.wind * 0.35) * motion;
+    engineParticleClock += dt * motion;
+    nebulaClock +=
+      dt *
+      (0.14 + atmosphere.nebula * 0.3 + mood.wind * 0.18 + Math.min(1, p.energy * 2.5) * 0.14) *
+      motion;
     const pinnedBackgroundTime = frame.options.backgroundTime ?? -1;
     const backgroundClock = pinnedBackgroundTime >= 0 ? pinnedBackgroundTime : nebulaClock;
     const backgroundTravel = pinnedBackgroundTime >= 0 ? pinnedBackgroundTime * 46 : travel;
@@ -2152,21 +2601,27 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
     shudder += shudderVel * dt;
 
     const breathScale = 1 + breath * 0.012 + shudder * 0.01;
+    const drift = (0.38 + mood.arousal * 0.72 + mood.wind * 0.42) * motion;
     ship.scale.set(breathScale, breathScale, 1);
-    ship.position.y = -18 + Math.sin(elapsed * 0.21) * 0.45 * motion + shudder * 0.35;
-    ship.position.x = 5 + Math.sin(elapsed * 0.147 + 1.7) * 0.35 * motion;
-    ship.rotation.z = Math.sin(elapsed * 0.117 + 0.6) * 0.014 * motion;
-    ship.rotation.x = Math.sin(elapsed * 0.171) * 0.008 * motion;
+    ship.position.y =
+      -18 + Math.sin(elapsed * 0.21) * drift + mood.swell * 0.48 * motion + shudder * 0.35;
+    ship.position.x = 5 + Math.sin(elapsed * 0.147 + 1.7) * drift * 0.78;
+    ship.rotation.z =
+      Math.sin(elapsed * 0.117 + 0.6) *
+      (0.012 + mood.tension * 0.018 + mood.wind * 0.014) *
+      motion;
+    ship.rotation.x =
+      Math.sin(elapsed * 0.171) * (0.007 + mood.arousal * 0.008) * motion;
 
-    // ---- pulse system: beats launch energy packets at the stern that ------
-    // travel the conduits bow-ward, lighting bays and nodes as they pass.
+    // ---- pulse system: beats launch energy packets at the bow that --------
+    // travel aft along the conduits, lighting bays and nodes as they pass.
     {
       pulseCooldown -= dt;
       const rising = env.beat > 0.42 && env.beat > lastBeat + 0.015;
       if (rising && pulseCooldown <= 0) {
         for (let i = 0; i < PULSES; i++) {
           if (pulseE[i] <= 0.02) {
-            pulseU[i] = 0.01;
+            pulseU[i] = BOW_CLIP - 0.01;
             pulseE[i] = Math.min(1, 0.45 + env.beat * 0.6);
             pulseLane[i] = nextLane;
             nextLane = (nextLane + 1) % conduits.length;
@@ -2179,94 +2634,132 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       const rate = (0.14 + env.lowmid * 0.3 + wCharged * 0.12) * motion;
       for (let i = 0; i < PULSES; i++) {
         if (pulseE[i] <= 0.02) continue;
-        pulseU[i] += dt * rate * (0.8 + pulseE[i] * 0.5);
+        pulseU[i] -= dt * rate * (0.8 + pulseE[i] * 0.5);
         pulseE[i] *= Math.exp(-dt * 0.5);
-        if (pulseU[i] > BOW_CLIP) pulseE[i] = 0;
+        if (pulseU[i] < 0) pulseE[i] = 0;
         const b = bayIdxOfU(pulseU[i]);
         if (pulseU[i] > BAY_U0 && pulseU[i] < BAY_U0 + BAY_COUNT * BAY_PITCH) {
           bayFlash[b] = Math.max(bayFlash[b], pulseE[i]);
         }
       }
-      // climax: bays link up stern→bow one after another and hold
+      // climax: bays link up bow→stern one after another and hold
       const linkN = (wCharged * 0.9 + wTranscend * 1.5) * BAY_COUNT;
       for (let b = 0; b < BAY_COUNT; b++) {
-        const target = Math.max(0, Math.min(1, linkN - b));
-        bayLink[b] = attackRelease(bayLink[b], target, dt, 0.25 + b * 0.1, 1.1);
+        const orderFromBow = BAY_COUNT - 1 - b;
+        const target = Math.max(0, Math.min(1, linkN - orderFromBow));
+        bayLink[b] = attackRelease(bayLink[b], target, dt, 0.25 + orderFromBow * 0.1, 1.1);
         bayFlash[b] *= Math.exp(-dt * 2.4);
       }
     }
 
-    // ---- layer 1: silhouette — always readable, beat lifts it briefly -----
+    // ---- layer 1: soft outline with a continuous bow→stern light sweep ----
     {
-      const base = 0.3 + alive * 0.22 + wTranscend * 0.1;
-      const beatLift = env.beat * 0.5;
+      const base = 0.22 + alive * 0.16 + wTranscend * 0.06;
+      const beatLift = env.beat * 0.16;
+      const sweepHead = bowToSternFlowU(flowClock, 0.18, 0.08) * BOW_CLIP;
       const n = silBase.length;
       for (let i = 0; i < n; i++) {
         const w = silBase[i];
-        // blend base color toward warm white on beats — 2% peak budget
-        const amp = w * (base + beatLift * w);
-        const warm = beatLift * 0.55;
-        silColors[i * 3] = (colA.r * (1 - warm) + colBeat.r * warm) * amp * 1.55;
-        silColors[i * 3 + 1] = (colA.g * (1 - warm) + colBeat.g * warm) * amp * 1.55;
-        silColors[i * 3 + 2] = (colA.b * (1 - warm) + colBeat.b * warm) * amp * 1.55;
+        const distance = silU[i] - sweepHead;
+        const sweep = Math.exp(-(distance * distance) / (2 * 0.065 * 0.065));
+        const amp = w * (base + beatLift * w + sweep * (0.24 + env.lowmid * 0.18));
+        const flowMix = Math.min(0.68, sweep * 0.58 + beatLift * 0.18);
+        silColors[i * 3] = (colA.r * (1 - flowMix) + colFlow.r * flowMix) * amp * 1.3;
+        silColors[i * 3 + 1] =
+          (colA.g * (1 - flowMix) + colFlow.g * flowMix) * amp * 1.3;
+        silColors[i * 3 + 2] =
+          (colA.b * (1 - flowMix) + colFlow.b * flowMix) * amp * 1.3;
       }
       (silhouette.geometry.getAttribute("color") as THREE.BufferAttribute).needsUpdate = true;
-      // transcend: hull de-rezzes — silhouette dims as particles take over
-      silhouetteMat.opacity = (0.72 - wTranscend * 0.28) * lineVisibility;
+      silhouetteMat.opacity = (0.48 - wTranscend * 0.1) * lineVisibility;
     }
 
-    // ---- structure layer: mid reveals frames wave-wise aft→bow ------------
+    // ---- structure layer: broad, soft scan follows the same bow→stern flow -
     {
       const reveal = env.mid * (0.55 + wCharged * 0.45) + wTranscend * 0.5;
       const quiet = 0.2 + alive * 0.8; // dormant: structure sleeps, outline holds
       const n = structBand.length;
-      const wavePos = (flowClock * 0.13) % 1.3;
+      const wavePos = bowToSternFlowU(flowClock, 0.16, 0.3) * BOW_CLIP;
       for (let i = 0; i < n; i++) {
         const u = structBand[i];
         const j = structJitter[i];
         // staggered gate: each frame band lights when reveal passes its slot
         const gate = Math.max(0, Math.min(1, (reveal - u * 0.55 - j * 0.18) * 3.2));
-        // slow scan wave adds a moving shimmer so structure never freezes
-        let wave = 1 - Math.abs(u - wavePos) * 3.2;
-        wave = wave > 0 ? wave * wave * 0.5 : 0;
+        const distance = u - wavePos;
+        const wave = Math.exp(-(distance * distance) / (2 * 0.075 * 0.075));
         // bay flash bleeds into the bulkheads of the segment it lights
         const bf = bayFlash[bayIdxOfU(u)] * 0.55 + bayLink[bayIdxOfU(u)] * 0.3;
-        const amp = (gate * (0.24 + wave) * (0.55 + wCruise * 0.25 + wCharged * 0.45) + bf) * quiet;
-        structColors[i * 3] = colB.r * amp * 1.45;
-        structColors[i * 3 + 1] = colB.g * amp * 1.45;
-        structColors[i * 3 + 2] = colB.b * amp * 1.45;
+        const amp =
+          (gate * (0.12 + reveal * 0.24) * (0.55 + wCruise * 0.25 + wCharged * 0.45) +
+            wave * (0.14 + env.mid * 0.18) +
+            bf) *
+          quiet;
+        const flowMix = Math.min(0.62, wave * 0.56);
+        structColors[i * 3] = (colB.r * (1 - flowMix) + colFlow.r * flowMix) * amp * 1.25;
+        structColors[i * 3 + 1] =
+          (colB.g * (1 - flowMix) + colFlow.g * flowMix) * amp * 1.25;
+        structColors[i * 3 + 2] =
+          (colB.b * (1 - flowMix) + colFlow.b * flowMix) * amp * 1.25;
       }
       (structure.geometry.getAttribute("color") as THREE.BufferAttribute).needsUpdate = true;
-      (structure.material as THREE.LineBasicMaterial).opacity = 0.7 * lineVisibility;
+      (structure.material as THREE.LineBasicMaterial).opacity = 0.42 * lineVisibility;
       (superLines.material as THREE.LineBasicMaterial).opacity =
-        (0.05 + alive * 0.2 + env.mid * 0.07) * lineVisibility;
+        (0.04 + alive * 0.12 + env.mid * 0.05) * lineVisibility;
+      bowBoomMaterial.opacity = 0.4 * lineVisibility;
+      mastMaterial.opacity = 0.28 * lineVisibility;
     }
 
-    // ---- energy layer: pulse packets run stern→bow along the ducts --------
+    // ---- energy layer: continuous soft flow plus beat packets bow→stern ---
     {
       const drive = env.lowmid;
-      const bright = 0.5 + drive * 1.5 + wCharged * 0.6 + wTranscend * 0.7;
+      const bright = 0.45 + drive * 1.25 + wCharged * 0.5 + wTranscend * 0.6;
       for (let ci = 0; ci < conduits.length; ci++) {
         const c = conduits[ci];
-        const base = 0.028 + alive * 0.05 + wCharged * 0.05;
+        const base = 0.014 + alive * 0.028 + wCharged * 0.026;
+        const flowU0 = bowToSternFlowU(flowClock, c.rate, c.head + c.lag) * BOW_CLIP;
+        const flowU1 = bowToSternFlowU(flowClock, c.rate, c.head + c.lag + 0.5) * BOW_CLIP;
         for (let i = 0; i < ENERGY_PTS; i++) {
           const u = (i / (ENERGY_PTS - 1)) * (BOW_CLIP - 0.01) + 0.005;
           let amp = base;
+          let continuous = 0;
+          for (let fi = 0; fi < 2; fi++) {
+            const flowU = fi === 0 ? flowU0 : flowU1;
+            const d = u - flowU;
+            const head = Math.exp(-(d * d) / (2 * 0.034 * 0.034));
+            const tail = d > 0 && d < 0.16 ? (1 - d / 0.16) ** 2 * 0.28 : 0;
+            continuous += head * 0.58 + tail;
+          }
+          amp += continuous * (0.16 + alive * 0.12 + drive * 0.24);
           for (let pi = 0; pi < PULSES; pi++) {
             if (pulseE[pi] <= 0.02 || pulseLane[pi] !== ci) continue;
             const d = u - pulseU[pi];
-            // packet: bright head + a tail that trails back toward the stern
+            // The packet moves aft, so its soft tail remains bow-ward.
             const sigma = 0.018 + pulseE[pi] * 0.014;
             const head = Math.exp((-d * d) / (2 * sigma * sigma));
-            const tail = d < 0 && d > -0.16 ? (1 + d / 0.16) * 0.32 : 0;
+            const tail = d > 0 && d < 0.16 ? (1 - d / 0.16) * 0.28 : 0;
             amp += (head + tail) * pulseE[pi] * bright;
           }
           amp *= effectVisibility;
-          c.colors[i * 3] = colEnergy.r * amp;
-          c.colors[i * 3 + 1] = colEnergy.g * amp;
-          c.colors[i * 3 + 2] = colEnergy.b * amp;
+          c.colors[i * 3] = colFlow.r * amp;
+          c.colors[i * 3 + 1] = colFlow.g * amp;
+          c.colors[i * 3 + 2] = colFlow.b * amp;
         }
         (c.line.geometry.getAttribute("color") as THREE.BufferAttribute).needsUpdate = true;
+        (c.line.material as THREE.LineBasicMaterial).opacity = 0.58 * lineVisibility;
+        for (let fi = 0; fi < 2; fi++) {
+          const flowU = fi === 0 ? flowU0 : flowU1;
+          chinePoint(flowU, c.k, vec);
+          const profile = daggerProfile(flowU);
+          c.markerPositions[fi * 3] = vec.x * 1.01;
+          c.markerPositions[fi * 3 + 1] = vec.y + c.lift + profile.halfHeight * 0.02;
+          c.markerPositions[fi * 3 + 2] = vec.z;
+        }
+        (c.markers.geometry.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
+        const markerMaterial = c.markers.material as THREE.PointsMaterial;
+        markerMaterial.color.copy(colFlow);
+        markerMaterial.opacity =
+          (0.16 + alive * 0.12 + drive * 0.16 + wCharged * 0.08) * lineVisibility;
+        markerMaterial.size = 1.8 + drive * 0.7 + env.beat * 0.35;
       }
       // spine nodes flare as a packet passes through them
       for (let i = 0; i < NODES; i++) {
@@ -2279,7 +2772,7 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
         }
         const m = nodeSprites[i].material as THREE.SpriteMaterial;
         m.opacity = (0.04 + hit * 0.9) * alive * effectVisibility;
-        m.color.copy(colEnergy);
+        m.color.copy(colFlow);
         nodeSprites[i].scale.setScalar(1.6 + hit * 2.4);
       }
       // armor bay edges: lit only by passing pulses or the climax link
@@ -2287,12 +2780,12 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       for (let i = 0; i < nB; i++) {
         const b = bayEdgeIdx[i];
         const amp = (0.015 + bayFlash[b] * 0.8 + bayLink[b] * 0.42) * effectVisibility;
-        bayColors[i * 3] = colEnergy.r * amp;
-        bayColors[i * 3 + 1] = colEnergy.g * amp;
-        bayColors[i * 3 + 2] = colEnergy.b * amp;
+        bayColors[i * 3] = colFlow.r * amp;
+        bayColors[i * 3 + 1] = colFlow.g * amp;
+        bayColors[i * 3 + 2] = colFlow.b * amp;
       }
       (bayLines.geometry.getAttribute("color") as THREE.BufferAttribute).needsUpdate = true;
-      (bayLines.material as THREE.LineBasicMaterial).opacity = 0.72 * lineVisibility;
+      (bayLines.material as THREE.LineBasicMaterial).opacity = 0.42 * lineVisibility;
     }
 
     // ---- portholes + windows + lamps: the ship's small life ---------------
@@ -2343,6 +2836,29 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
           (0.08 + ph * 0.34 + env.highmid * 0.22) * alive * effectVisibility;
       }
 
+      // Upper-deck pools reveal the citadel silhouette and breathe with the
+      // high-mid orchestration; ion impacts briefly overdrive each pool.
+      for (let i = 0; i < deckLights.length; i++) {
+        const deck = deckLights[i];
+        const breathe = 0.78 + Math.sin(flowClock * (0.7 + i * 0.06) + deck.phase) * 0.22;
+        const level =
+          (0.12 +
+            alive * 0.32 +
+            env.highmid * 0.48 +
+            mood.arousal * 0.18 +
+            wCharged * 0.15 +
+            ionFlash * 0.65) *
+          breathe *
+          effectVisibility;
+        deck.light.color.copy(colStar).lerp(colEnergy, i % 2 === 0 ? 0.18 : 0.38);
+        deck.light.intensity = level * 320;
+        deck.light.distance = 50 + env.highmid * 16 + ionFlash * 10;
+        const material = deck.beacon.material as THREE.SpriteMaterial;
+        material.color.copy(deck.light.color);
+        material.opacity = Math.min(0.7, level * 0.7);
+        deck.beacon.scale.setScalar(1.45 + level * 1.8);
+      }
+
       // spine crawlers: tiny service lights inching bow-ward
       for (const cr of crawlers) {
         const uu = 0.02 + ((cr.off + elapsed * cr.speed) % 0.84);
@@ -2377,7 +2893,12 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
         eng.beamFacing.rotation.z = beamFacing;
         eng.mainJetMat.uniforms.uLength.value = jetLength;
         eng.outerGlowMat.uniforms.uLength.value = jetLength * 1.03;
-        eng.outerGlowMat.uniforms.uParticleOffset.value = elapsed;
+        eng.mainJetMat.uniforms.uParticleOffset.value =
+          engineParticleClock * ENGINE_PARTICLE_FLOW_SPEED;
+        eng.mainJetMat.uniforms.uParticleAmount.value =
+          ENGINE_PARTICLE_OPACITY *
+          (0.72 + mood.arousal * 0.38 + env.treble * 0.2) *
+          effectVisibility;
         eng.coreMat.uniforms.uIntensity.value =
           0.78 * coreBrightness * (1 + engineBeat * 0.14) * effectVisibility;
         eng.mainJetMat.uniforms.uIntensity.value =
@@ -2502,36 +3023,78 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
         }
         (dr.trail.geometry.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
         (dr.trail.geometry.getAttribute("color") as THREE.BufferAttribute).needsUpdate = true;
+        (dr.trail.material as THREE.LineBasicMaterial).opacity = 0.24 * lineVisibility;
       }
     }
 
-    // ---- background: three speeds, one vector ------------------------------
+    // ---- background: one flight vector, five honest depth speeds -----------
     {
-      // far stars: barely rotate around the ship
+      // Celestial light still moves: every point advances along +Z, but at a
+      // minute fraction of the near dust speed. Perspective supplies the
+      // outward screen drift, so this reads as translation rather than a
+      // rotating wallpaper.
       for (let i = 0; i < starLayers.length; i++) {
         const sl = starLayers[i];
-        sl.points.rotation.y = travel * sl.rate * 0.001;
-        sl.points.rotation.z = Math.sin(elapsed * 0.03) * 0.02;
-        (sl.points.material as THREE.PointsMaterial).opacity =
-          (i === 0 ? 0.24 + env.treble * 0.035 : i === 1 ? 0.42 + env.treble * 0.1 : 0.62 + env.treble * 0.16) *
+        const position = sl.points.geometry.getAttribute("position") as THREE.BufferAttribute;
+        const positions = position.array as Float32Array;
+        for (let j = 0; j < sl.baseZ.length; j++) {
+          positions[j * 3 + 2] = parallaxDepth(
+            sl.baseZ[j],
+            backgroundTravel,
+            sl.rate,
+            STAR_FAR_Z,
+            STAR_NEAR_Z,
+          );
+        }
+        position.needsUpdate = true;
+        sl.points.rotation.y = Math.sin(backgroundClock * 0.055 + i * 1.7) * 0.004;
+        sl.points.rotation.z = Math.sin(backgroundClock * 0.08 + i) * 0.006;
+        const material = sl.points.material as THREE.PointsMaterial;
+        const base =
+          i === 0
+            ? 0.36 + env.treble * 0.035
+            : i === 1
+              ? 0.56 + env.treble * 0.1
+              : 0.82 + env.treble * 0.14;
+        material.color.copy(colStar);
+        material.size = sl.baseSize * (0.96 + atmosphere.starClarity * 0.4);
+        material.opacity =
+          Math.min(1, base * (0.34 + atmosphere.starClarity * 0.92)) *
           backgroundVisibility;
       }
 
       for (let i = 0; i < clusterLayers.length; i++) {
         const cluster = clusterLayers[i];
+        const depth = parallaxDepth(
+          cluster.base.z,
+          backgroundTravel,
+          cluster.rate,
+          LANDMARK_FAR_Z,
+          LANDMARK_NEAR_Z,
+        );
+        const depthFade = parallaxEdgeFade(
+          depth,
+          LANDMARK_FAR_Z,
+          LANDMARK_NEAR_Z,
+          46,
+        );
         cluster.points.position.x =
           cluster.base.x +
           Math.sin(backgroundTravel * cluster.rate * 0.001 + cluster.phase) * (6 + i * 3);
         cluster.points.position.y =
           cluster.base.y +
           Math.cos(backgroundTravel * cluster.rate * 0.0007 + cluster.phase) * (2.5 + i);
-        cluster.points.rotation.z = Math.sin(elapsed * 0.012 + cluster.phase) * 0.025;
-        (cluster.points.material as THREE.PointsMaterial).opacity =
-          (0.58 + env.treble * 0.08) * backgroundVisibility;
+        cluster.points.position.z = depth;
+        cluster.points.rotation.z = Math.sin(backgroundClock * 0.08 + cluster.phase) * 0.025;
+        const material = cluster.points.material as THREE.PointsMaterial;
+        material.color.copy(colStar);
+        material.opacity =
+          Math.min(0.9, 0.42 + atmosphere.starClarity * (0.45 + env.treble * 0.08)) *
+          backgroundVisibility *
+          depthFade;
       }
 
-      // Procedural nebula flow follows overall energy within a narrow range;
-      // the nearer lower cloud translates a little faster for parallax.
+      // Local nebula cells retain black space between their bounded volumes.
       for (let i = 0; i < nebulaLayers.length; i++) {
         const nebula = nebulaLayers[i];
         const driftPhase =
@@ -2544,14 +3107,38 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
           0.18 + slowBreath * 0.35 + Math.min(1, p.energy * 2.5) * 0.34 + Math.max(0, mood.swell) * 0.13,
         );
         nebula.mesh.quaternion.copy(camera.quaternion);
-        nebula.mesh.position.x = nebula.base.x + Math.sin(driftPhase) * (12 + i * 9);
-        nebula.mesh.position.y = nebula.base.y + Math.cos(driftPhase * 0.63 + i) * (5 + i * 2);
+        nebula.mesh.position.x = nebula.base.x + Math.sin(driftPhase) * (3 + i * 1.2);
+        nebula.mesh.position.y = nebula.base.y + Math.cos(driftPhase * 0.63 + i) * (2 + i * 0.6);
+        nebula.mesh.position.z = parallaxDepth(
+          nebula.base.z,
+          backgroundTravel,
+          nebula.depthRate,
+          GAS_FAR_Z,
+          GAS_NEAR_Z,
+        );
+        const depthFade = parallaxEdgeFade(
+          nebula.mesh.position.z,
+          GAS_FAR_Z,
+          GAS_NEAR_Z,
+          58,
+        );
         nebula.mesh.material.uniforms.uTime.value = backgroundClock * (1 + i * 0.35);
         nebula.mesh.material.uniforms.uPulse.value = pulseLevel;
+        (nebula.mesh.material.uniforms.uBlue.value as THREE.Color)
+          .copy(NEBULA_BLUE)
+          .lerp(colSector, 0.14);
+        (nebula.mesh.material.uniforms.uTeal.value as THREE.Color)
+          .copy(NEBULA_TEAL)
+          .lerp(colSectorAlt, 0.12);
+        (nebula.mesh.material.uniforms.uPurple.value as THREE.Color)
+          .copy(NEBULA_PURPLE)
+          .lerp(colSector, 0.04);
         nebula.mesh.material.uniforms.uOpacity.value =
-          (i === 0 ? 0.42 : 0.33) *
-          (0.92 + Math.min(1, p.energy * 2.2) * 0.12) *
-          backgroundVisibility;
+          nebula.baseOpacity *
+          (0.45 + atmosphere.nebula * 0.35) *
+          (0.88 + Math.min(1, p.energy * 2.2) * 0.08 + ionFlash * 0.08) *
+          localSpaceVisibility *
+          depthFade;
       }
 
       for (let i = 0; i < dustLayers.length; i++) {
@@ -2563,73 +3150,200 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
         const slowBreath = 0.5 + 0.5 * Math.sin(backgroundClock * 0.92 + i * 2.6 + 0.7);
         dust.mesh.quaternion.copy(camera.quaternion);
         dust.mesh.rotateZ(dust.tilt);
-        dust.mesh.position.x = dust.base.x + Math.sin(driftPhase) * (14 + i * 8);
-        dust.mesh.position.y = dust.base.y + Math.cos(driftPhase * 0.58 + i * 1.3) * (6 + i * 3);
+        dust.mesh.position.x = dust.base.x + Math.sin(driftPhase) * (2.5 + i);
+        dust.mesh.position.y = dust.base.y + Math.cos(driftPhase * 0.58 + i * 1.3) * (1.5 + i * 0.5);
+        dust.mesh.position.z = parallaxDepth(
+          dust.base.z,
+          backgroundTravel,
+          dust.depthRate,
+          GAS_FAR_Z,
+          GAS_NEAR_Z,
+        );
+        const depthFade = parallaxEdgeFade(
+          dust.mesh.position.z,
+          GAS_FAR_Z,
+          GAS_NEAR_Z,
+          52,
+        );
         dust.mesh.material.uniforms.uTime.value = backgroundClock * (1.1 + i * 0.34);
         dust.mesh.material.uniforms.uPulse.value =
-          0.3 + slowBreath * 0.38 + Math.min(1, p.energy * 2.2) * 0.24;
+          0.24 +
+          slowBreath * 0.3 +
+          Math.min(1, p.energy * 2.2) * 0.2 +
+          atmosphere.ion * env.beat * 0.35;
+        (dust.mesh.material.uniforms.uCold.value as THREE.Color)
+          .copy(DUST_COLD)
+          .lerp(colSectorDeep, 0.06);
+        (dust.mesh.material.uniforms.uWarm.value as THREE.Color)
+          .copy(DUST_WARM)
+          .lerp(colDebris, 0.03);
         dust.mesh.material.uniforms.uOpacity.value =
-          (i === 0 ? 0.68 : 0.5) *
-          (0.96 + Math.min(1, p.energy * 1.8) * 0.04) *
-          backgroundVisibility;
+          dust.baseOpacity *
+          (0.48 + atmosphere.dust * 0.25) *
+          (0.9 + Math.min(1, p.energy * 1.8) * 0.05) *
+          localSpaceVisibility *
+          depthFade;
       }
 
-      // distant planet: near-static, its halo breathing over minutes
-      (planetGlow.material as THREE.SpriteMaterial).opacity =
-        (0.055 + Math.sin(elapsed * 0.05) * 0.014) * backgroundVisibility;
+      // The planet is the slow landmark that makes the whole flight vector
+      // legible: it grows imperceptibly as we approach, fades, then recycles.
+      {
+        const depth = parallaxDepth(
+          planetBase.z,
+          backgroundTravel,
+          VOYAGE_PARALLAX_RATES.landmarks * 0.72,
+          LANDMARK_FAR_Z,
+          LANDMARK_NEAR_Z,
+        );
+        const depthFade = parallaxEdgeFade(
+          depth,
+          LANDMARK_FAR_Z,
+          LANDMARK_NEAR_Z,
+          58,
+        );
+        planetGroup.position.set(
+          planetBase.x + Math.sin(backgroundClock * 0.055) * 3.2,
+          planetBase.y + Math.cos(backgroundClock * 0.041) * 1.7,
+          depth,
+        );
+        planetGroup.rotation.y = backgroundClock * 0.0035;
+        const material = planetGlow.material as THREE.SpriteMaterial;
+        material.color.copy(NEBULA_BLUE).lerp(colSector, 0.08);
+        material.opacity =
+          (0.035 + atmosphere.nebula * 0.025 + Math.sin(elapsed * 0.05) * 0.01) *
+          localSpaceVisibility *
+          depthFade;
+      }
 
-      // far convoy lights: creep across the deep field, blinking slowly
+      // Convoys occupy the mid plane: clearly faster than the planet and gas,
+      // still far slower than particles skimming the lens.
       for (const fs of farShips) {
-        fs.sprite.position.x = fs.x + Math.sin(elapsed * 0.009 * fs.sp + fs.ph) * 55;
-        fs.sprite.position.z = fs.z + Math.cos(elapsed * 0.006 * fs.sp + fs.ph) * 28;
+        const depth = parallaxDepth(
+          fs.z,
+          backgroundTravel,
+          fs.rate,
+          LANDMARK_FAR_Z,
+          LANDMARK_NEAR_Z,
+        );
+        const depthFade = parallaxEdgeFade(
+          depth,
+          LANDMARK_FAR_Z,
+          LANDMARK_NEAR_Z,
+          42,
+        );
+        fs.sprite.position.x = fs.x + Math.sin(backgroundClock * 0.045 * fs.sp + fs.ph) * 34;
+        fs.sprite.position.y = fs.y + Math.cos(backgroundClock * 0.032 * fs.sp + fs.ph) * 5;
+        fs.sprite.position.z = depth;
         (fs.sprite.material as THREE.SpriteMaterial).opacity =
           (0.22 + Math.max(0, Math.sin(elapsed * 1.05 + fs.ph * 3)) * 0.26) *
-          backgroundVisibility;
+          localSpaceVisibility *
+          depthFade;
       }
 
-      // near streaks: fast, thin, brightness with speed
-      const streakAmp = (0.04 + speed * 0.16) * backgroundVisibility;
+      // Rain becomes fast debris, storms become ion shear; both remain aligned
+      // with the ship's travel so the weather reads as propulsion, not confetti.
+      const streakAmp =
+        (0.045 + speed * 0.14 + atmosphere.debris * 0.38 + ionFlash * 0.6) *
+        backgroundVisibility *
+        lineVisibility *
+        0.52;
+      colWeather
+        .copy(colSector)
+        .lerp(colDebris, atmosphere.debris)
+        .lerp(colStar, ionFlash);
+      const streakPos = streaks.geometry.getAttribute("position") as THREE.BufferAttribute;
+      const streakArr = streakPos.array as Float32Array;
       for (let i = 0; i < STREAKS; i++) {
         const s = streakSeeds[i];
-        let z = s.z + travel * s.sp * 1.9;
-        z = ((((z + 210) % 420) + 420) % 420) - 210;
-        const pos = streaks.geometry.getAttribute("position") as THREE.BufferAttribute;
-        const arr = pos.array as Float32Array;
-        arr[i * 6] = s.x;
-        arr[i * 6 + 1] = s.y;
-        arr[i * 6 + 2] = z;
-        arr[i * 6 + 3] = s.x;
-        arr[i * 6 + 4] = s.y;
-        arr[i * 6 + 5] = z + s.len * (1 + speed * 1.6);
+        const z = parallaxDepth(
+          s.z,
+          backgroundTravel,
+          s.sp * VOYAGE_PARALLAX_RATES.nearDust * 1.9,
+          PARTICLE_FAR_Z,
+          PARTICLE_NEAR_Z,
+        );
+        const shear =
+          (i % 2 === 0 ? -1 : 1) * mood.wind * atmosphere.debris * s.len * 0.85;
+        streakArr[i * 6] = s.x;
+        streakArr[i * 6 + 1] = s.y;
+        streakArr[i * 6 + 2] = z;
+        streakArr[i * 6 + 3] = s.x + shear;
+        streakArr[i * 6 + 4] =
+          s.y + Math.sin(flowClock * 4.1 + i * 1.7) * atmosphere.ion * 1.8;
+        streakArr[i * 6 + 5] =
+          z + s.len * (1 + speed * 1.3 + atmosphere.debris * 2.8 + ionFlash * 3.5);
         const nearFade = Math.max(0, 1 - Math.abs(z) / 210);
         safeZoneProbe.set(s.x, s.y, z).project(camera);
-        const a = isUiSafeZone(safeZoneProbe) ? 0 : streakAmp * nearFade;
-        streakColors[i * 6] = colB.r * a * 0.6;
-        streakColors[i * 6 + 1] = colB.g * a;
-        streakColors[i * 6 + 2] = colB.b * a * 1.2;
+        const startUnsafe = isUiSafeZone(safeZoneProbe);
+        safeZoneProbe
+          .set(streakArr[i * 6 + 3], streakArr[i * 6 + 4], streakArr[i * 6 + 5])
+          .project(camera);
+        const endUnsafe = isUiSafeZone(safeZoneProbe);
+        safeZoneProbe
+          .set(
+            (streakArr[i * 6] + streakArr[i * 6 + 3]) * 0.5,
+            (streakArr[i * 6 + 1] + streakArr[i * 6 + 4]) * 0.5,
+            (streakArr[i * 6 + 2] + streakArr[i * 6 + 5]) * 0.5,
+          )
+          .project(camera);
+        const midpointUnsafe = isUiSafeZone(safeZoneProbe);
+        const a = startUnsafe || endUnsafe || midpointUnsafe ? 0 : streakAmp * nearFade;
+        streakColors[i * 6] = colWeather.r * a;
+        streakColors[i * 6 + 1] = colWeather.g * a;
+        streakColors[i * 6 + 2] = colWeather.b * a;
         streakColors[i * 6 + 3] = 0;
         streakColors[i * 6 + 4] = 0;
         streakColors[i * 6 + 5] = 0;
-        pos.needsUpdate = true;
       }
+      streakPos.needsUpdate = true;
       (streaks.geometry.getAttribute("color") as THREE.BufferAttribute).needsUpdate = true;
 
-      // motes
+      // Snow becomes slow ice crystals; debris and wind stretch their drift.
       {
         const pos = motes.geometry.getAttribute("position") as THREE.BufferAttribute;
         const arr = pos.array as Float32Array;
+        const weatherFlow = 1 + atmosphere.debris * 1.4 - atmosphere.ice * 0.32;
         for (let i = 0; i < MOTES; i++) {
           const s = moteSeeds[i];
-          let z = s.z + travel * s.sp * 2.1;
-          z = ((((z + 210) % 420) + 420) % 420) - 210;
-          safeZoneProbe.set(s.x, s.y, z).project(camera);
-          arr[i * 3] = isUiSafeZone(safeZoneProbe) ? 1000 : s.x;
-          arr[i * 3 + 1] = s.y;
+          const z = parallaxDepth(
+            s.z,
+            backgroundTravel,
+            s.sp * VOYAGE_PARALLAX_RATES.nearDust * 2.1 * weatherFlow,
+            PARTICLE_FAR_Z,
+            PARTICLE_NEAR_Z,
+          );
+          const phase = flowClock * (0.55 + s.sp * 0.15) + i * 0.91;
+          const x =
+            s.x +
+            Math.sin(phase) * atmosphere.ice * 7 +
+            Math.cos(phase * 0.7) * mood.wind * atmosphere.debris * 5;
+          const y =
+            s.y +
+            Math.cos(phase * 0.82) * atmosphere.ice * 4 +
+            Math.sin(phase * 2.3) * atmosphere.ion * 2;
+          safeZoneProbe.set(x, y, z).project(camera);
+          arr[i * 3] = isUiSafeZone(safeZoneProbe) ? 1000 : x;
+          arr[i * 3 + 1] = y;
           arr[i * 3 + 2] = z;
         }
         pos.needsUpdate = true;
-        (motes.material as THREE.PointsMaterial).opacity =
-          (0.14 + speed * 0.16) * backgroundVisibility;
+        const material = motes.material as THREE.PointsMaterial;
+        const iceMix =
+          atmosphere.ice /
+          Math.max(0.001, atmosphere.ice + atmosphere.debris + atmosphere.ion);
+        material.color.copy(colWeather).lerp(colIce, iceMix);
+        material.size = 0.45 + atmosphere.ice * 0.72 + atmosphere.debris * 0.12;
+        material.opacity =
+          Math.min(
+            1,
+            0.04 +
+              speed * 0.065 +
+              atmosphere.debris * 0.34 +
+              atmosphere.ice * 0.46 +
+              ionFlash * 0.2,
+          ) *
+          backgroundVisibility *
+          compositionVisibility;
       }
     }
 
@@ -2649,24 +3363,50 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       }
     }
 
-    // ---- camera: fixed low stern three-quarter ------------------------------
-    // Music never changes the lens or framing; acceptance states therefore use
-    // the same shot. Only a slow sub-pixel-scale drift keeps the live view alive.
+    // ---- camera: composition stays legible, emotion changes how it breathes --
     {
-      camSway += dt * 0.045 * motion;
+      camSway += dt * (0.04 + mood.arousal * 0.07 + mood.wind * 0.035) * motion;
+      const tremor = atmosphere.cameraTremor * motion;
+      const swayX = 1 + mood.arousal * 1.25 + mood.wind * 0.65;
+      const swayY = 0.65 + mood.arousal * 0.7 + mood.wind * 0.45;
       vec.set(
-        camPos.x + Math.sin(camSway * 0.7) * 1.1,
-        camPos.y + Math.sin(camSway * 0.53 + 1.2) * 0.7,
-        camPos.z + Math.cos(camSway * 0.61) * 0.9,
+        camPos.x +
+          Math.sin(camSway * 0.7) * swayX +
+          Math.sin(elapsed * 13.7) * tremor * 1.8,
+        camPos.y +
+          Math.sin(camSway * 0.53 + 1.2) * swayY +
+          mood.swell * 0.75 * motion +
+          Math.sin(elapsed * 17.3 + 1.1) * tremor * 1.1,
+        camPos.z +
+          Math.cos(camSway * 0.61) * (0.8 + mood.arousal * 0.65) -
+          p.bass * (1.8 + mood.arousal * 2.2) * motion -
+          ionFlash * 0.8,
       );
-      camera.position.lerp(vec, 1 - Math.exp(-dt * 2.2));
+      camera.position.lerp(vec, 1 - Math.exp(-dt * (2.2 + mood.arousal * 1.6)));
       vecB.set(
-        camLook.x + Math.sin(camSway * 0.43) * 1.2,
-        camLook.y + Math.sin(camSway * 0.37 + 2) * 0.7,
+        camLook.x +
+          Math.sin(camSway * 0.43) * (1.1 + mood.wind * 0.9) +
+          Math.sin(elapsed * 15.1 + 2.3) * tremor * 2.2,
+        camLook.y +
+          Math.sin(camSway * 0.37 + 2) * 0.7 +
+          (mood.valence - 0.5) * 3 +
+          env.treble * 1.8 * motion,
         camLook.z,
       );
       camera.lookAt(vecB);
-      camera.rotation.z += ship.rotation.z * 0.5; // subtle bank coupling
+      camera.rotation.z +=
+        ship.rotation.z * 0.5 + Math.sin(elapsed * 12.1) * tremor * 0.006;
+      const targetFov =
+        46 +
+        mood.arousal * 2.5 +
+        mood.buildUp * 3.6 +
+        Math.max(0, mood.swell) * 1.4 +
+        ionFlash * 3 +
+        p.impact * 1.2;
+      if (Math.abs(camera.fov - targetFov) > 0.02) {
+        camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 4.5);
+        camera.updateProjectionMatrix();
+      }
     }
 
     const cameraMask = camera.layers.mask;
@@ -2674,6 +3414,14 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
     bloomComposer.render();
     camera.layers.mask = cameraMask;
     finalComposer.render();
+    moodHud.render(
+      renderer,
+      mood,
+      frame.positionFraction,
+      themeHue,
+      dt,
+      (frame.options.moodHud ?? 1) >= 0.5 && !backgroundOnly,
+    );
   }
 
   return {
@@ -2684,12 +3432,16 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       bloomComposer.setSize(width, height);
       finalComposer.setPixelRatio(Math.min(dpr, 2));
       finalComposer.setSize(width, height);
+      moodHud.resize(width, height);
     },
     dispose: () => {
       bloomComposer.dispose();
       finalComposer.dispose();
+      moodHud.dispose();
       shell.dispose();
       glow.dispose();
+      hullCatMark.dispose();
+      hullIdMark.dispose();
     },
   };
 }

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  neutralMoodState,
+  type MoodState,
+  type MoodWorld,
+  type WeatherMode,
+} from "./mood";
+import {
   CRUISE_BASE,
   CRUISE_MAX,
   DAGGER_BOW_Z,
@@ -8,11 +14,15 @@ import {
   ENGINE_CORE_DIAMETER_RATIO,
   ENGINE_GLOW_WIDTH_RATIO,
   ENGINE_JET_LENGTH_DIAMETERS,
+  ENGINE_PARTICLE_FLOW_SPEED,
   ENGINE_PARTICLE_OPACITY,
+  LOGO_BREATH_PERIOD_SECONDS,
   SHIP_BOW_Z,
   SHIP_STERN_Z,
+  VOYAGE_PARALLAX_RATES,
   attackRelease,
   bezier3,
+  bowToSternFlowU,
   compressLevel,
   cruiseSpeed,
   daggerProfile,
@@ -23,10 +33,15 @@ import {
   helixPoints,
   hullProfile,
   hullRadius,
+  logoBreathLevel,
+  logoGlowOpacity,
+  parallaxDepth,
+  parallaxEdgeFade,
   robotPose,
   samplePath,
   shipU,
   stagePhase,
+  voyageAtmosphere,
   voyageStateWeights,
   wrapCoord,
   type RobotPose,
@@ -34,6 +49,21 @@ import {
 
 const CALM = { arousal: 0, pulse: 0, buildUp: 0, swell: 0 };
 const FULL = { arousal: 1, pulse: 1, buildUp: 1, swell: 1 };
+
+function sceneMood(
+  world: MoodWorld,
+  weather: WeatherMode,
+  axes: Partial<Pick<MoodState, "arousal" | "valence" | "tension" | "buildUp" | "swell" | "wind">> = {},
+): MoodState {
+  const state = neutralMoodState();
+  for (const key of Object.keys(state.weights) as MoodWorld[]) state.weights[key] = key === world ? 1 : 0;
+  for (const key of Object.keys(state.weather) as WeatherMode[]) {
+    state.weather[key] = key === weather ? 1 : 0;
+  }
+  state.dominant = world;
+  state.weatherMode = weather;
+  return Object.assign(state, axes);
+}
 
 describe("cruiseSpeed", () => {
   it("keeps drifting forward in silence", () => {
@@ -69,6 +99,65 @@ describe("wrapCoord", () => {
 
   it("degrades safely on an empty span", () => {
     expect(wrapCoord(5, 2, 2)).toBe(2);
+  });
+});
+
+describe("hull logo breathing light", () => {
+  it("breathes smoothly from dim to bright and returns to dim", () => {
+    expect(logoBreathLevel(0)).toBeCloseTo(0);
+    expect(logoBreathLevel(LOGO_BREATH_PERIOD_SECONDS / 4)).toBeCloseTo(0.5);
+    expect(logoBreathLevel(LOGO_BREATH_PERIOD_SECONDS / 2)).toBeCloseTo(1);
+    expect(logoBreathLevel(LOGO_BREATH_PERIOD_SECONDS)).toBeCloseTo(0);
+  });
+
+  it("stays at a steady midpoint when reduced motion is requested", () => {
+    expect(logoBreathLevel(0, true)).toBe(0.5);
+    expect(logoBreathLevel(42, true)).toBe(0.5);
+  });
+
+  it("remains visible in silence and lets a beat accent the crest without clipping", () => {
+    const dim = logoGlowOpacity(0, 0, 0);
+    const bright = logoGlowOpacity(1, 0, 0);
+    const accented = logoGlowOpacity(1, 1, 1);
+    expect(dim).toBeGreaterThan(0.08);
+    expect(bright).toBeGreaterThan(dim);
+    expect(accented).toBeGreaterThan(bright);
+    expect(accented).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("voyage parallax", () => {
+  it("keeps every depth plane ordered from celestial light to near dust", () => {
+    expect(VOYAGE_PARALLAX_RATES.farStars).toBeLessThan(VOYAGE_PARALLAX_RATES.brightStars);
+    expect(VOYAGE_PARALLAX_RATES.brightStars).toBeLessThan(VOYAGE_PARALLAX_RATES.deepGas);
+    expect(VOYAGE_PARALLAX_RATES.deepGas).toBeLessThan(VOYAGE_PARALLAX_RATES.landmarks);
+    expect(VOYAGE_PARALLAX_RATES.landmarks).toBeLessThan(VOYAGE_PARALLAX_RATES.nearDust);
+  });
+
+  it("streams toward the camera and recycles behind the far plane", () => {
+    expect(parallaxDepth(-500, 100, 0.1, -600, -200)).toBeCloseTo(-490);
+    expect(parallaxDepth(-210, 200, 0.1, -600, -200)).toBeCloseTo(-590);
+    expect(parallaxDepth(-500, -100, 0.1, -600, -200)).toBeCloseTo(-500);
+  });
+
+  it("fades landmarks at recycling boundaries but not through the flight corridor", () => {
+    expect(parallaxEdgeFade(-600, -600, -200, 40)).toBe(0);
+    expect(parallaxEdgeFade(-580, -600, -200, 40)).toBeCloseTo(0.5);
+    expect(parallaxEdgeFade(-400, -600, -200, 40)).toBe(1);
+    expect(parallaxEdgeFade(-200, -600, -200, 40)).toBe(0);
+  });
+});
+
+describe("bowToSternFlowU", () => {
+  it("moves continuously from the bow toward the stern", () => {
+    expect(bowToSternFlowU(0, 0.25)).toBe(1);
+    expect(bowToSternFlowU(1, 0.25)).toBeCloseTo(0.75);
+    expect(bowToSternFlowU(2, 0.25)).toBeCloseTo(0.5);
+  });
+
+  it("wraps back to the bow and supports lane phase offsets", () => {
+    expect(bowToSternFlowU(4, 0.25)).toBe(1);
+    expect(bowToSternFlowU(0, 0.25, 0.2)).toBeCloseTo(0.8);
   });
 });
 
@@ -246,6 +335,10 @@ describe("engine optics", () => {
     expect(engineCoreBrightnessScale(1)).toBeCloseTo(1.15);
   });
 
+  it("runs embedded exhaust particles at five times wall-clock", () => {
+    expect(ENGINE_PARTICLE_FLOW_SPEED).toBe(5);
+  });
+
   it("shapes each beat as a fast brightness pulse with a 100 ms release", () => {
     expect(ENGINE_BEAT_RELEASE_SECONDS).toBeGreaterThanOrEqual(0.08);
     expect(ENGINE_BEAT_RELEASE_SECONDS).toBeLessThanOrEqual(0.12);
@@ -255,6 +348,38 @@ describe("engine optics", () => {
     for (let i = 0; i < 6; i++) pulse = engineBeatEnvelope(pulse, false, 1 / 60);
     expect(pulse).toBeLessThan(peak);
     expect(pulse).toBeGreaterThan(0);
+  });
+});
+
+describe("voyageAtmosphere", () => {
+  it("turns every emotion world into a distinct navigation-sector hue", () => {
+    const hues = (["cosmos", "starlight", "ocean", "meadow", "city"] as const).map(
+      (world) => Math.round(voyageAtmosphere(sceneMood(world, "clear")).hueShift),
+    );
+    expect(new Set(hues).size).toBe(hues.length);
+  });
+
+  it("turns misty ocean material into local gas and dark dust", () => {
+    const clear = voyageAtmosphere(sceneMood("starlight", "clear"));
+    const mist = voyageAtmosphere(sceneMood("ocean", "mist"));
+    expect(mist.nebula).toBeGreaterThan(clear.nebula);
+    expect(mist.dust).toBeGreaterThan(clear.dust);
+    expect(mist.starClarity).toBeLessThan(clear.starClarity);
+  });
+
+  it("separates rain debris, snow crystals, and tense ion storms", () => {
+    const clear = voyageAtmosphere(sceneMood("cosmos", "clear"));
+    const rain = voyageAtmosphere(sceneMood("city", "rain", { wind: 0.8 }));
+    const snow = voyageAtmosphere(sceneMood("starlight", "snow"));
+    const storm = voyageAtmosphere(
+      sceneMood("cosmos", "storm", { arousal: 0.9, tension: 0.95, buildUp: 0.8 }),
+    );
+    expect(rain.debris).toBeGreaterThan(clear.debris);
+    expect(snow.ice).toBeGreaterThan(rain.ice);
+    expect(storm.ion).toBeGreaterThan(0.8);
+    expect(storm.cameraTremor).toBeGreaterThan(clear.cameraTremor);
+    expect(storm.travelScale).toBeGreaterThan(clear.travelScale);
+    expect(storm.bloom).toBeGreaterThan(clear.bloom);
   });
 });
 

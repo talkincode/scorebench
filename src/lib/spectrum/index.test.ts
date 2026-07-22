@@ -9,4 +9,15 @@ describe("visualStyles", () => {
       { id: "voyage", label: "Voyage" },
     ]);
   });
+
+  it("offers the shared in-canvas HUD on every mood-aware imagery", () => {
+    for (const style of visualStyles.filter((entry) => entry.moodAware)) {
+      expect(style.options?.find((option) => option.key === "moodHud")?.defaultValue).toBe(1);
+    }
+  });
+
+  it("enables Voyage line effects by default", () => {
+    const voyage = visualStyles.find((entry) => entry.id === "voyage");
+    expect(voyage?.options?.find((option) => option.key === "wireframe")?.defaultValue).toBe(1);
+  });
 });

@@ -4,11 +4,10 @@ import {
   MOOD_WORLDS,
   neutralMoodState,
   seededRandom,
-  type MoodState,
   type MoodWorld,
-  type WeatherMode,
 } from "../mood";
 import { bandLevels, bassLevel, createShell, energyLevel, glowTexture } from "./common";
+import { createMoodHud } from "./moodHud";
 import type { ThreeFrame, ThreeInstance } from "./types";
 
 /**
@@ -55,15 +54,6 @@ const CAMERA: Record<MoodWorld, { pos: readonly [number, number, number]; look: 
   ocean: { pos: [0, 6.5, 21], look: [0, 4, -90] },
   meadow: { pos: [0, 4.5, 19], look: [0, 5.5, -90] },
   city: { pos: [0, 7.5, 27], look: [0, 10, -75] },
-};
-
-/** HUD glyph per weather mode — the atmosphere the engine is hearing. */
-const WEATHER_GLYPH: Record<WeatherMode, string> = {
-  clear: "晴",
-  mist: "雾",
-  rain: "雨",
-  snow: "雪",
-  storm: "雷",
 };
 
 function setWorldColors(colors: Record<MoodWorld, THREE.Color>, hue: number, lightBoost = 0) {
@@ -557,112 +547,7 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
   };
   placeMoon(1);
 
-  // --- Mood HUD: read-only acceptance instrument ---------------------------
-  // A small ortho overlay (bottom-left) charting the emotion axes the engine
-  // is *hearing* — valence / arousal / tension, the build-up charge, the
-  // dominant world, the declared-intent marker when the score's key is
-  // known, and a hue-tinted playback progress line. This is the visual
-  // verification half of the mood spectrum: observation only, redrawn at
-  // most ~7×/s, toggled by the moodHud option.
-  const hudCanvas = document.createElement("canvas");
-  hudCanvas.width = 256;
-  hudCanvas.height = 128;
-  const hudCtx = hudCanvas.getContext("2d");
-  const hudTexture = new THREE.CanvasTexture(hudCanvas);
-  const hudMaterial = new THREE.SpriteMaterial({
-    map: hudTexture,
-    fog: false,
-    transparent: true,
-    opacity: 0.92,
-    depthWrite: false,
-  });
-  const hudSprite = new THREE.Sprite(hudMaterial);
-  hudSprite.scale.set(30, 15, 1);
-  const hudScene = new THREE.Scene();
-  hudScene.add(hudSprite);
-  let hudClock = Number.POSITIVE_INFINITY; // draw on the very first frame
-  const placeHud = (aspect: number) => {
-    // Sit above the fullscreen transport row (bottom ~9 ortho units) so the
-    // acceptance HUD never occludes play/time/REC controls.
-    hudSprite.position.set(-50 * aspect + 17.5, -50 + 16, 0);
-  };
-  placeHud(1);
-  const HUD_TRACK_X = 30;
-  const HUD_TRACK_W = 214;
-  const drawHud = (
-    mood: MoodState,
-    intentMode: number | undefined,
-    progress: number,
-    hue: number,
-  ) => {
-    const g = hudCtx;
-    if (!g) return;
-    g.clearRect(0, 0, 256, 128);
-    g.fillStyle = "rgba(8, 12, 20, 0.6)";
-    g.beginPath();
-    g.roundRect(0.5, 0.5, 255, 127, 10);
-    g.fill();
-    const bars: ReadonlyArray<readonly [string, number, string]> = [
-      ["V", mood.valence, `hsl(${Math.round(220 - mood.valence * 180)} 72% 62%)`],
-      ["A", mood.arousal, "hsl(48 82% 62%)"],
-      ["T", mood.tension, "hsl(6 78% 58%)"],
-    ];
-    g.font = "12px ui-monospace, SFMono-Regular, Menlo, monospace";
-    g.textBaseline = "middle";
-    for (let i = 0; i < bars.length; i++) {
-      const [label, value, color] = bars[i];
-      const y = 15 + i * 24;
-      g.fillStyle = "rgba(235, 240, 250, 0.75)";
-      g.fillText(label, 11, y);
-      g.fillStyle = "rgba(255, 255, 255, 0.13)";
-      g.fillRect(HUD_TRACK_X, y - 4, HUD_TRACK_W, 8);
-      g.fillStyle = color;
-      g.fillRect(HUD_TRACK_X, y - 4, HUD_TRACK_W * value, 8);
-    }
-    // Neutral-valence midline.
-    g.fillStyle = "rgba(255, 255, 255, 0.38)";
-    g.fillRect(HUD_TRACK_X + HUD_TRACK_W / 2, 15 - 7, 1, 14);
-    // Declared intent: a hollow diamond on the valence track marking where
-    // the score *says* the mood should lean. Agreement = fill meets diamond.
-    if (intentMode !== undefined) {
-      const x = HUD_TRACK_X + HUD_TRACK_W * (0.5 + (intentMode - 0.5) * 0.8);
-      g.strokeStyle = "rgba(255, 255, 255, 0.92)";
-      g.lineWidth = 1.5;
-      g.beginPath();
-      g.moveTo(x, 15 - 7);
-      g.lineTo(x + 5, 15);
-      g.lineTo(x, 15 + 7);
-      g.lineTo(x - 5, 15);
-      g.closePath();
-      g.stroke();
-    }
-    // Build-up charge line.
-    const buildY = 15 + 3 * 24;
-    g.fillStyle = "rgba(235, 240, 250, 0.55)";
-    g.fillText("↗", 11, buildY);
-    g.fillStyle = "rgba(255, 255, 255, 0.1)";
-    g.fillRect(HUD_TRACK_X, buildY - 2, HUD_TRACK_W, 4);
-    g.fillStyle = `rgba(255, 214, 130, ${(0.45 + mood.buildUp * 0.55).toFixed(3)})`;
-    g.fillRect(HUD_TRACK_X, buildY - 2, HUD_TRACK_W * mood.buildUp, 4);
-    // Dominant world, weather glyph, and the dominant weight.
-    g.font = "13px ui-monospace, SFMono-Regular, Menlo, monospace";
-    g.fillStyle = "rgba(235, 240, 250, 0.92)";
-    const pct = Math.round(mood.weights[mood.dominant] * 100);
-    const intentTag = intentMode !== undefined ? "  ◆ intent" : "";
-    const wxPct = Math.round(mood.weather[mood.weatherMode] * 100);
-    g.fillText(
-      `${mood.dominant} ${pct}% · ${WEATHER_GLYPH[mood.weatherMode]} ${wxPct}%${intentTag}`,
-      11,
-      110,
-    );
-    // Playback progress: a spectrum-hue scrub line along the bottom edge.
-    const scrub = Math.max(0, Math.min(1, progress));
-    g.fillStyle = "rgba(255, 255, 255, 0.14)";
-    g.fillRect(11, 120, HUD_TRACK_X + HUD_TRACK_W - 11, 3);
-    g.fillStyle = `hsl(${Math.round(hue)} 75% 62%)`;
-    g.fillRect(11, 120, (HUD_TRACK_X + HUD_TRACK_W - 11) * scrub, 3);
-    hudTexture.needsUpdate = true;
-  };
+  const moodHud = createMoodHud();
 
   // --- Ground: one wave field that morphs between sea and grassland --------
   const geometry = new THREE.PlaneGeometry(GROUND_W, GROUND_D, COLS - 1, ROWS - 1);
@@ -886,7 +771,6 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
     render(frame: ThreeFrame) {
       // Perception arrives through the frame contract; the scene only renders.
       const mood = frame.mood ?? fallbackMood;
-      const intentMode = mood.intent?.modeMajor;
       const w = mood.weights;
       tempValence += (mood.valence - tempValence) * Math.min(1, frame.dt * 0.35);
 
@@ -1298,25 +1182,21 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       shell.renderer.clearDepth();
       shell.renderer.autoClear = false;
       shell.renderer.render(shell.scene, shell.camera);
-      // HUD pass: reuses the ortho moon camera so bars stay pixel-true.
-      const hudOn = (frame.options.moodHud ?? 1) >= 0.5;
-      hudSprite.visible = hudOn;
-      if (hudOn) {
-        hudClock += frame.dt;
-        if (hudClock >= 0.15) {
-          hudClock = 0;
-          drawHud(mood, intentMode, frame.positionFraction, hue);
-        }
-        shell.renderer.clearDepth();
-        shell.renderer.render(hudScene, moonCamera);
-      }
+      moodHud.render(
+        shell.renderer,
+        mood,
+        frame.positionFraction,
+        hue,
+        frame.dt,
+        (frame.options.moodHud ?? 1) >= 0.5,
+      );
       shell.renderer.autoClear = true;
     },
     resize(width, height, dpr) {
       shell.resize(width, height, dpr);
       const aspect = width / Math.max(1, height);
       placeMoon(aspect);
-      placeHud(aspect);
+      moodHud.resize(width, height);
     },
     dispose() {
       city.dispose();
@@ -1336,8 +1216,7 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
       moonHazeMaterial.dispose();
       wispMap.dispose();
       for (const wisp of wisps) wisp.material.dispose();
-      hudTexture.dispose();
-      hudMaterial.dispose();
+      moodHud.dispose();
       shell.dispose();
     },
   };

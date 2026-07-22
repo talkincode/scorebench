@@ -248,16 +248,26 @@ window.addEventListener("keydown", (event) => {
 
 // Deep link: ?scene=1..6 starts the journey at that leg. ?hold=1 pins the
 // spectrum; ?at=0..1 chooses the point inside the leg; ?freeze=1 fixes visual
-// time as well, so acceptance captures share the exact same camera.
+// time as well, so acceptance captures share the exact same camera. ?time=N
+// selects that fixed time for motion-phase comparisons such as logo breathing.
 const query = new URLSearchParams(location.search);
 const sceneParam = Number(query.get("scene"));
 if (sceneParam >= 1 && sceneParam <= legs.length) jumpTo(sceneParam - 1);
 const holdLeg = query.get("hold") === "1";
 const holdFraction = Math.max(0.05, Math.min(0.95, Number(query.get("at") ?? 0.62)));
 const freezeVisual = query.get("freeze") === "1";
+const requestedVisualTime = Number(query.get("time"));
+const frozenVisualTime =
+  query.has("time") && Number.isFinite(requestedVisualTime)
+    ? Math.max(0, requestedVisualTime)
+    : 18.5;
 const wireframe = query.get("wire") === "0" ? 0 : 1;
 const bloom = query.get("bloom") === "0" ? 0 : 1;
 const materialPreview = query.get("material") === "1" ? 1 : 0;
+const backgroundPass =
+  query.get("pass") === "stars" ? 1 : query.get("pass") === "space" ? 2 : 0;
+const cleanCapture = query.get("clean") === "1";
+if (cleanCapture) document.body.classList.add("capture-clean");
 const requestedBackgroundTime = Number(query.get("bg"));
 const backgroundTime =
   query.has("bg") && Number.isFinite(requestedBackgroundTime)
@@ -299,7 +309,7 @@ function frameLoop(now: number) {
   last = now;
   if (!paused) {
     clock = holdClock >= 0 ? holdClock : (clock + dt) % TOTAL;
-    elapsed = freezeVisual ? 18.5 : elapsed + dt;
+    elapsed = freezeVisual ? frozenVisualTime : elapsed + dt;
 
     const { index, at } = legAt(clock);
     const leg = legs[index];
@@ -331,7 +341,15 @@ function frameLoop(now: number) {
       dt,
       elapsed,
       prefersReducedMotion: false,
-      options: { themeHue: HUES[hueIndex], wireframe, bloom, materialPreview, backgroundTime },
+      options: {
+        themeHue: HUES[hueIndex],
+        wireframe,
+        bloom,
+        materialPreview,
+        backgroundTime,
+        backgroundPass,
+        moodHud: cleanCapture ? 0 : 1,
+      },
       mood,
     };
     instance.render(frame);

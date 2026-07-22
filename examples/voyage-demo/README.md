@@ -56,13 +56,18 @@ npm run demo:voyage
 # open http://127.0.0.1:5176/
 ```
 
-Deterministic acceptance captures can use `?scene=1..6&hold=1&at=0..1&freeze=1`.
-Append `&wire=0` to disable all ship line layers, or `&safe=1` to display the
-top-left, bottom and close-button exclusion zones. Append `&bloom=0` to verify
+Deterministic acceptance captures can use `?scene=1..6&hold=1&at=0..1&freeze=1`;
+append `&time=<seconds>` to select an exact motion phase, including the hull-logo
+breathing cycle.
+Soft bow-to-stern line flow is enabled by default; append `&wire=0` to disable it. Append
+`&safe=1` to display the top-left, bottom and close-button exclusion zones. Append `&bloom=0` to verify
 the armor and background without post-process glow. Append `&material=1` for
 the neutral-white-light gunmetal material plate (effects and most background
 layers suppressed). `&bg=<seconds>` pins the procedural background clock for
-deterministic motion comparisons. The safe-area overlay is off by default.
+deterministic motion comparisons. Background acceptance captures use
+`&pass=stars` for the base starfield, `&pass=space` for stars plus local nebula
+and planet, and the default for the final composite. Add `&clean=1` to hide the
+demo and in-canvas HUDs. The safe-area overlay is off by default.
 
 ## Keys
 
