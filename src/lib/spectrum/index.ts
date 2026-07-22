@@ -4,7 +4,7 @@ import { bars } from "./bars";
 
 export type { SpectrumFrame, SpectrumOptionDefinition, SpectrumStyle } from "./types";
 export type { ThreeFrame, ThreeInstance, ThreeStyleModule } from "./three/types";
-export { drawWithFallback } from "./runtime";
+export { drawWithFallback, ThreeInstanceCache } from "./runtime";
 export { AUTO_STYLE_ID, analyzeTraits, pickStyle } from "./auto";
 export type { AudioTraits, BufferLike } from "./auto";
 export { MoodEngine, neutralMoodState } from "./mood";
@@ -46,7 +46,7 @@ export const visualStyles: VisualStyleEntry[] = [
   {
     kind: "three",
     id: "mood",
-    label: "情绪 · Mood",
+    label: "Mood",
     moodAware: true,
     options: [{ key: "moodHud", label: "HUD", min: 0, max: 1, step: 1, defaultValue: 1 }],
     load: () => import("./three/mood"),
@@ -54,7 +54,7 @@ export const visualStyles: VisualStyleEntry[] = [
   {
     kind: "three",
     id: "voyage",
-    label: "航线 · Voyage",
+    label: "Voyage",
     moodAware: true,
     options: [
       { key: "wireframe", label: "Line layers", min: 0, max: 1, step: 1, defaultValue: 1 },
