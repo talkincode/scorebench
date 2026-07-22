@@ -19,6 +19,12 @@
     recordingState = "idle",
     recordingTime = "",
     recordError = null,
+    hasHud = false,
+    hudOn = true,
+    hue = 171,
+    hueLinked = true,
+    onhue,
+    onhud,
     onrecord,
     onrecordstop,
     ontoggle,
@@ -46,6 +52,16 @@
     recordingState?: "idle" | "starting" | "recording" | "saving";
     recordingTime?: string;
     recordError?: string | null;
+    /** The active style draws an in-canvas HUD recordings could capture. */
+    hasHud?: boolean;
+    /** Live visibility of the in-canvas HUD (what shows is what records). */
+    hudOn?: boolean;
+    /** Effective spectrum palette hue in degrees. */
+    hue?: number;
+    /** True while the spectrum hue follows the UI theme (no override). */
+    hueLinked?: boolean;
+    onhue?: (value: number | null) => void;
+    onhud?: (value: boolean) => void;
     onrecord?: (canvas: HTMLCanvasElement | null) => void;
     onrecordstop?: () => void;
     ontoggle?: () => void;
@@ -137,6 +153,16 @@
     {#if recordError}
       <span class="rec-error" title={recordError}>{recordError}</span>
     {/if}
+    {#if hasHud}
+      <label class="rec-hud" class:off={!hudOn} title={t("overlay.hudToggleHint")}>
+        <input
+          type="checkbox"
+          checked={hudOn}
+          onchange={(event) => onhud?.(event.currentTarget.checked)}
+        />
+        {t("overlay.hudToggle")}
+      </label>
+    {/if}
     <nav class="styles" aria-label="Visual styles">
       <button
         class:active={styleId === AUTO_STYLE_ID}
@@ -149,6 +175,27 @@
         <button class:active={styleId === entry.id} disabled={recordingActive} onclick={() => onstyle?.(entry.id)}>{entry.label}</button>
       {/each}
     </nav>
+    <label class="hue-ctl" title={t("player.spectrumHue")}>
+      <span aria-hidden="true">◐</span>
+      <input
+        type="range"
+        min="0"
+        max="359"
+        step="1"
+        value={hue}
+        style:accent-color={`hsl(${hue} 72% 58%)`}
+        aria-label={t("player.spectrumHue")}
+        oninput={(event) => onhue?.(Number(event.currentTarget.value))}
+      />
+      <b class:linked={hueLinked}>{hueLinked ? "UI" : `${hue}°`}</b>
+      <button
+        class="hue-reset"
+        disabled={hueLinked}
+        onclick={() => onhue?.(null)}
+        title={t("player.hueFollow")}
+        aria-label={t("player.hueFollow")}
+      >↺</button>
+    </label>
     <span class="hint">ESC to exit · double-click stage</span>
   </footer>
 </div>
@@ -330,6 +377,73 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .rec-hud {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 11px;
+    color: var(--fg-dim);
+    border: 1px solid var(--line-strong);
+    border-radius: 20px;
+    background: rgba(0, 0, 0, 0.4);
+    font: 11px var(--mono);
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .rec-hud.off {
+    opacity: 0.7;
+  }
+  .rec-hud input {
+    width: 12px;
+    height: 12px;
+    margin: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .hue-ctl {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--fg-dim);
+    font: 11px var(--mono);
+  }
+  .hue-ctl span {
+    font-size: 13px;
+  }
+  .hue-ctl input[type="range"] {
+    width: 92px;
+    height: 3px;
+  }
+  .hue-ctl b {
+    min-width: 30px;
+    font-weight: 400;
+    text-align: right;
+  }
+  .hue-ctl b.linked {
+    opacity: 0.6;
+  }
+  .hue-reset {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    color: var(--fg-dim);
+    border: 1px solid var(--line-strong);
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.4);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .hue-reset:hover:not(:disabled) {
+    color: var(--accent);
+    border-color: var(--accent-line-strong);
+  }
+  .hue-reset:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
   @keyframes rec-pulse {
     0%,
     100% {
@@ -379,6 +493,11 @@
     color: var(--fg-dim);
     font-size: 11px;
     white-space: nowrap;
+  }
+  @media (max-width: 1180px) {
+    .hint {
+      display: none;
+    }
   }
   @keyframes viz-in {
     from {

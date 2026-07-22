@@ -1,3 +1,5 @@
+import type { MoodState } from "./mood";
+
 export interface SpectrumFrame {
   ctx: CanvasRenderingContext2D;
   width: number;
@@ -7,6 +9,12 @@ export interface SpectrumFrame {
   positionFraction: number;
   prefersReducedMotion: boolean;
   options: Readonly<Record<string, number>>;
+  /**
+   * Perception substrate: emotion coordinates computed once per frame by the
+   * view's shared MoodEngine, present only while the active style is
+   * mood-aware (`VisualStyleEntry.moodAware`). Mood-blind styles ignore it.
+   */
+  mood?: MoodState;
 }
 
 export interface SpectrumOptionDefinition {

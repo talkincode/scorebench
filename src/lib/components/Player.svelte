@@ -38,6 +38,8 @@
   let styleId = $state(AUTO_STYLE_ID);
   let autoPicked = $state<string | null>(null);
   let styleOptions = $state<Record<string, number>>({ bars: 64, themeHue: 171 });
+  /** Spectrum palette hue override; null follows the UI theme hue. */
+  let spectrumHue = $state<number | null>(null);
   let seeking = $state(false);
   let overlayOpen = $state(false);
   let sceneMeta = $state<SceneDisplay | null>(null);
@@ -98,6 +100,11 @@
   let effectiveStyleId = $derived(styleId === AUTO_STYLE_ID ? (autoPicked ?? "bars") : styleId);
   let activeEntry = $derived(visualStyleById(effectiveStyleId) ?? visualStyleById("bars")!);
   let autoLabel = $derived(autoPicked ? (visualStyleById(autoPicked)?.label ?? autoPicked) : null);
+  let uiHue = $derived(bench.themeHuePreview ?? bench.settings?.theme_hue ?? 171);
+  /** The active style draws an in-canvas HUD the recorder could capture. */
+  let hasHud = $derived(activeEntry.options?.some((option) => option.key === "moodHud") ?? false);
+  /** Live visibility of that HUD — what the canvas shows is what takes record. */
+  let hudOn = $derived((styleOptions.moodHud ?? 1) >= 0.5);
 
   function ensureGraph() {
     if (audioCtx) return;
@@ -342,12 +349,14 @@
       const saved = bench.settings.spectrum_style;
       styleId = saved === AUTO_STYLE_ID || visualStyleById(saved) ? saved : "bars";
       styleOptions.bars = bench.settings.spectrum_bars;
+      spectrumHue = bench.settings.spectrum_hue;
       settingsApplied = true;
     }
   });
 
+  // Spectrum palette hue: the override wins, otherwise follow the UI theme.
   $effect(() => {
-    styleOptions.themeHue = bench.themeHuePreview ?? bench.settings?.theme_hue ?? 171;
+    styleOptions.themeHue = spectrumHue ?? uiHue;
   });
 
   // Declared intent for the mood spectrum: the scene's key names a mode the
@@ -367,6 +376,7 @@
       ...bench.settings,
       spectrum_style: styleId,
       spectrum_bars: Math.round(styleOptions.bars ?? 64),
+      spectrum_hue: spectrumHue,
     };
     bench.settings = next;
     try {
@@ -383,6 +393,12 @@
 
   function setStyleOption(key: string, value: number) {
     styleOptions[key] = value;
+    void persistSpectrum();
+  }
+
+  /** null re-links the spectrum palette to the UI theme hue. */
+  function setSpectrumHue(value: number | null) {
+    spectrumHue = value === null ? null : Math.max(0, Math.min(359, Math.round(value)));
     void persistSpectrum();
   }
 
@@ -429,7 +445,7 @@
       }
     }
 
-    const hue = styleOptions.themeHue ?? 171;
+    const hue = uiHue;
     const colWidth = 7;
     const gap = 6;
     const x0 = (w - colWidth * 2 - gap) / 2;
@@ -548,6 +564,26 @@
         {/each}
       </select>
     </label>
+    <label class="style-option hue-row">
+      <span>{t("player.spectrumHue")}</span>
+      <input
+        type="range"
+        min="0"
+        max="359"
+        step="1"
+        value={Math.round(styleOptions.themeHue ?? 171)}
+        style:accent-color={`hsl(${Math.round(styleOptions.themeHue ?? 171)} 72% 55%)`}
+        oninput={(event) => setSpectrumHue(Number(event.currentTarget.value))}
+      />
+      <b class:linked={spectrumHue === null}>{spectrumHue === null ? "UI" : `${spectrumHue}°`}</b>
+      <button
+        class="hue-reset"
+        disabled={spectrumHue === null}
+        onclick={() => setSpectrumHue(null)}
+        title={t("player.hueFollow")}
+        aria-label={t("player.hueFollow")}
+      >↺</button>
+    </label>
     <div class="option-rows">
       {#each activeEntry.options ?? [] as option}
         <label class="style-option">
@@ -590,6 +626,12 @@
     {recordingState}
     recordingTime={fmtTime(recordingElapsed)}
     {recordError}
+    {hasHud}
+    {hudOn}
+    hue={Math.round(styleOptions.themeHue ?? 171)}
+    hueLinked={spectrumHue === null}
+    onhue={setSpectrumHue}
+    onhud={(value) => (styleOptions.moodHud = value ? 1 : 0)}
     onrecord={(canvas) => void startRecording(canvas)}
     onrecordstop={() => void stopRecording()}
     ontoggle={toggle}
@@ -864,6 +906,34 @@
     font: 10px var(--mono);
     font-weight: 400;
     text-align: right;
+  }
+  .hue-row b {
+    min-width: 28px;
+  }
+  .hue-row b.linked {
+    opacity: 0.6;
+  }
+  .hue-reset {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    color: var(--fg-dim);
+    border: 1px solid var(--line-strong);
+    border-radius: 5px;
+    background: var(--control-bg);
+    font-size: 11px;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+  }
+  .hue-reset:hover:not(:disabled) {
+    color: var(--accent);
+    border-color: var(--accent-line-strong);
+  }
+  .hue-reset:disabled {
+    opacity: 0.35;
+    cursor: default;
   }
   .option-idle {
     color: var(--fg-dim);

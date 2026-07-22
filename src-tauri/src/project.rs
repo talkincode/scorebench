@@ -16,6 +16,7 @@ pub struct SceneEntry {
     /// Path relative to the project root (stable identifier for the UI).
     pub rel_path: String,
     pub name: String,
+    pub modified_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -100,6 +101,7 @@ fn collect(
             scenes.push(SceneEntry {
                 rel_path,
                 name: file_name,
+                modified_ms: modified_ms(&path),
             });
         } else if lower.ends_with(".ogg") || lower.ends_with(".wav") {
             assets.push(asset_entry(&path, rel_path, file_name, "audio"));
@@ -110,6 +112,17 @@ fn collect(
     Ok(())
 }
 
+fn modified_ms(path: &Path) -> Option<u64> {
+    std::fs::metadata(path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| {
+            t.duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .map(|d| d.as_millis() as u64)
+        })
+}
+
 fn asset_entry(path: &Path, rel_path: String, name: String, kind: &str) -> AssetEntry {
     let metadata = std::fs::metadata(path).ok();
     AssetEntry {
@@ -117,11 +130,7 @@ fn asset_entry(path: &Path, rel_path: String, name: String, kind: &str) -> Asset
         name,
         kind: kind.to_string(),
         size_bytes: metadata.as_ref().map(|m| m.len()).unwrap_or(0),
-        modified_ms: metadata.and_then(|m| m.modified().ok()).and_then(|t| {
-            t.duration_since(std::time::UNIX_EPOCH)
-                .ok()
-                .map(|d| d.as_millis() as u64)
-        }),
+        modified_ms: modified_ms(path),
     }
 }
 
@@ -328,6 +337,10 @@ mod tests {
         let info = scan(&dir).unwrap();
         let scene_paths: Vec<_> = info.scenes.iter().map(|s| s.rel_path.as_str()).collect();
         assert_eq!(scene_paths, vec!["forest.yaml", "scenes/cave.yml"]);
+        assert!(
+            info.scenes.iter().all(|s| s.modified_ms.is_some()),
+            "scenes carry a modified timestamp for rail sorting"
+        );
         let asset_paths: Vec<_> = info.assets.iter().map(|a| a.rel_path.as_str()).collect();
         assert_eq!(asset_paths, vec!["out/forest.meta.json", "out/forest.ogg"]);
         assert_eq!(info.assets[0].kind, "meta");

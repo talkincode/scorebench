@@ -67,16 +67,14 @@ export function analyzeTraits(buffer: BufferLike): AudioTraits {
 }
 
 /**
- * Deterministic trait → style mapping:
- * sparse or near-silent material drifts in the nebula; punchy material gets
- * the reactive crystal; bright driving mixes ride the tunnel; steady grooves
- * roll over the terrain; anything undecodable falls back to bars.
+ * Deterministic trait → style mapping. With the registry pruned to the bars
+ * readout and the mood imagery, the rule is simple: anything with musical
+ * content gets the atmosphere instrument; near-silence and undecodable input
+ * stay on the plain readout. The trait analysis above remains the substrate
+ * for emotion-affinity selection once more imageries land (roadmap M9).
  */
 export function pickStyle(traits: AudioTraits | null | undefined): string {
   if (!traits) return "bars";
-  if (traits.density < 0.35 || traits.energy < 0.05) return "flux";
-  if (traits.dynamics > 0.9) return "crystal";
-  if (traits.brightness > 0.55 && traits.energy > 0.18) return "rings";
-  if (traits.energy > 0.1) return "terrain";
-  return "flux";
+  if (traits.density < 0.1 || traits.energy < 0.02) return "bars";
+  return "mood";
 }

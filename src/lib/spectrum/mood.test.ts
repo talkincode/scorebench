@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MOOD_WORLDS,
   MoodEngine,
+  neutralMoodState,
   seededRandom,
   WEATHER_MODES,
   type MoodWorld,
@@ -204,6 +205,9 @@ describe("MoodEngine", () => {
     }
     expect(neutral.valence - biased.valence).toBeGreaterThan(0.2);
     expect(biased.valence).toBeLessThan(0.35);
+    // The declared intent is echoed back so consumers (HUD) can plot it.
+    expect(biased.intent?.modeMajor).toBe(0);
+    expect(neutral.intent).toBeUndefined();
   });
 
   it("does not flip the dominant world on a brief spike", () => {
@@ -296,6 +300,25 @@ describe("MoodEngine weather", () => {
     const still = run(calmEngine, () => sad, 8);
     const busy = run(busyEngine, (t) => stormFrame(t), 8);
     expect(busy.wind).toBeGreaterThan(still.wind + 0.15);
+  });
+});
+
+describe("neutralMoodState", () => {
+  it("matches the engine's starting point", () => {
+    const neutral = neutralMoodState();
+    expect(neutral.dominant).toBe("cosmos");
+    expect(neutral.weatherMode).toBe("clear");
+    expect(neutral.valence).toBe(0.5);
+    expect(neutral.intent).toBeUndefined();
+    const total = MOOD_WORLDS.reduce((sum, world) => sum + neutral.weights[world], 0);
+    expect(total).toBeCloseTo(1, 6);
+  });
+
+  it("returns independent objects", () => {
+    const a = neutralMoodState();
+    const b = neutralMoodState();
+    a.weights.city = 1;
+    expect(b.weights.city).toBe(0);
   });
 });
 

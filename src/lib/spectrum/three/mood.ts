@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { AudioPulse, BandSmoother } from "../dynamics";
 import {
   MOOD_WORLDS,
-  MoodEngine,
+  neutralMoodState,
   seededRandom,
   type MoodState,
   type MoodWorld,
@@ -13,7 +13,8 @@ import type { ThreeFrame, ThreeInstance } from "./types";
 
 /**
  * 情绪 (Mood) — an abstract random digital world that resonates with the
- * music. A MoodEngine folds the spectrum into slow world weights
+ * music. The shared MoodEngine (run by the view, delivered as `frame.mood`)
+ * folds the spectrum into slow world weights
  * (宇宙 cosmos / 星空 starlight / 大海 ocean / 草原 meadow / 城市 city) and every
  * element cross-fades along those weights: nebulae and meteors own the void,
  * a wire ground rolls as sea or breathes as grassland, an instanced skyline
@@ -559,9 +560,10 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
   // --- Mood HUD: read-only acceptance instrument ---------------------------
   // A small ortho overlay (bottom-left) charting the emotion axes the engine
   // is *hearing* — valence / arousal / tension, the build-up charge, the
-  // dominant world, and the declared-intent marker when the score's key is
-  // known. This is the visual verification half of the mood spectrum:
-  // observation only, redrawn at most ~7×/s, toggled by the moodHud option.
+  // dominant world, the declared-intent marker when the score's key is
+  // known, and a hue-tinted playback progress line. This is the visual
+  // verification half of the mood spectrum: observation only, redrawn at
+  // most ~7×/s, toggled by the moodHud option.
   const hudCanvas = document.createElement("canvas");
   hudCanvas.width = 256;
   hudCanvas.height = 128;
@@ -587,7 +589,12 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
   placeHud(1);
   const HUD_TRACK_X = 30;
   const HUD_TRACK_W = 214;
-  const drawHud = (mood: MoodState, intentMode: number | undefined) => {
+  const drawHud = (
+    mood: MoodState,
+    intentMode: number | undefined,
+    progress: number,
+    hue: number,
+  ) => {
     const g = hudCtx;
     if (!g) return;
     g.clearRect(0, 0, 256, 128);
@@ -646,8 +653,14 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
     g.fillText(
       `${mood.dominant} ${pct}% · ${WEATHER_GLYPH[mood.weatherMode]} ${wxPct}%${intentTag}`,
       11,
-      114,
+      110,
     );
+    // Playback progress: a spectrum-hue scrub line along the bottom edge.
+    const scrub = Math.max(0, Math.min(1, progress));
+    g.fillStyle = "rgba(255, 255, 255, 0.14)";
+    g.fillRect(11, 120, HUD_TRACK_X + HUD_TRACK_W - 11, 3);
+    g.fillStyle = `hsl(${Math.round(hue)} 75% 62%)`;
+    g.fillRect(11, 120, (HUD_TRACK_X + HUD_TRACK_W - 11) * scrub, 3);
     hudTexture.needsUpdate = true;
   };
 
@@ -838,7 +851,7 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
   let strikeCooldown = 0;
 
   // --- Shared per-frame state ----------------------------------------------
-  const engine = new MoodEngine();
+  const fallbackMood = neutralMoodState();
   const pulse = new AudioPulse();
   const smoother = new BandSmoother(BANDS, 30, 10);
   const ripples: Ripple[] = [];
@@ -871,13 +884,9 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
 
   return {
     render(frame: ThreeFrame) {
-      const binHz =
-        (frame.options.sampleRate ?? 48000) / Math.max(2, frame.freq.length * 2);
-      const intentMode = frame.options.intentMode;
-      const mood = engine.update(frame.freq, frame.dt, {
-        binHz,
-        intent: intentMode === undefined ? undefined : { modeMajor: intentMode },
-      });
+      // Perception arrives through the frame contract; the scene only renders.
+      const mood = frame.mood ?? fallbackMood;
+      const intentMode = mood.intent?.modeMajor;
       const w = mood.weights;
       tempValence += (mood.valence - tempValence) * Math.min(1, frame.dt * 0.35);
 
@@ -1296,7 +1305,7 @@ export function create(canvas: HTMLCanvasElement): ThreeInstance {
         hudClock += frame.dt;
         if (hudClock >= 0.15) {
           hudClock = 0;
-          drawHud(mood, intentMode);
+          drawHud(mood, intentMode, frame.positionFraction, hue);
         }
         shell.renderer.clearDepth();
         shell.renderer.render(hudScene, moonCamera);

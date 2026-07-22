@@ -38,6 +38,8 @@ const BUILTIN_SOURCES: &[&str] = &[
     include_str!("../styles/builtin/chinese-campus-folk-90s.yaml"),
     include_str!("../styles/builtin/chiptune-adventure.yaml"),
     include_str!("../styles/builtin/cinematic-underscore.yaml"),
+    include_str!("../styles/builtin/eastern-wuxia.yaml"),
+    include_str!("../styles/builtin/aaa-game-score.yaml"),
 ];
 
 /// One style pack. `yaml` is the single authoritative representation; the

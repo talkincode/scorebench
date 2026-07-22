@@ -1,3 +1,5 @@
+import type { MoodState } from "../mood";
+
 /**
  * Contract for WebGL (three.js) spectrum scenes. Like 2D styles they are
  * observation-only: they receive analyser buffers and never touch playback.
@@ -13,6 +15,12 @@ export interface ThreeFrame {
   elapsed: number;
   prefersReducedMotion: boolean;
   options: Readonly<Record<string, number>>;
+  /**
+   * Perception substrate: emotion coordinates computed once per frame by the
+   * view's shared MoodEngine, present only while the active style is
+   * mood-aware (`VisualStyleEntry.moodAware`). Mood-blind scenes ignore it.
+   */
+  mood?: MoodState;
 }
 
 export interface ThreeInstance {

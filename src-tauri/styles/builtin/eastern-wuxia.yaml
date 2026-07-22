@@ -1,0 +1,56 @@
+id: eastern-wuxia
+name: 东方武侠音乐
+name_en: Eastern Wuxia
+category: scoring
+
+defaults:
+  tempo_bpm: [56, 144]
+  meters: ["4/4", "2/4"]
+  density: medium
+  dynamics: contrasting
+
+harmony:
+  language: pentatonic
+  modes:
+    - gong
+    - yu
+    - zhi
+  colors:
+    - open_fourths
+    - open_fifths
+  modulation: sectional
+
+melody:
+  range: wide
+  character: lyrical_heroic
+  ornaments: essential
+  bends_and_slides: encouraged
+
+arrangement:
+  preferred:
+    - dizi
+    - erhu
+    - guzheng
+    - pipa
+    - chinese_percussion
+    - strings
+  avoid:
+    - dense_jazz_harmony
+    - electronic_grooves
+  techniques:
+    - guzheng_glissando
+    - pipa_tremolo
+    - call_and_response
+    - drum_battle_build
+
+form:
+  preferred:
+    - san_man_zhong_kuai_san
+    - theme_and_climax
+
+review:
+  criteria:
+    - pentatonic_authenticity
+    - martial_energy
+    - lyrical_heroism
+    - instrument_idiomatic_writing

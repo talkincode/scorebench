@@ -3,6 +3,7 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 export interface SceneEntry {
   rel_path: string;
   name: string;
+  modified_ms: number | null;
 }
 
 export interface AssetEntry {
@@ -46,6 +47,8 @@ export interface Settings {
   max_turns: number;
   spectrum_style: string;
   spectrum_bars: number;
+  /** Spectrum palette hue override in degrees; null follows `theme_hue`. */
+  spectrum_hue: number | null;
   theme_hue: number;
   locale: string;
 }

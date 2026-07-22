@@ -105,6 +105,26 @@ export interface MoodState {
   weatherMode: WeatherMode;
   /** Air movement 0..1 — spectral restlessness, drives drift/shear/sway. */
   wind: number;
+  /** Echo of the declared intent last fed in, so consumers (HUD) can compare
+   * intended vs. heard mood without re-reading player options. */
+  intent?: MoodIntent;
+}
+
+/** The state a mood-aware style should assume before (or without) evidence. */
+export function neutralMoodState(): MoodState {
+  return {
+    arousal: 0,
+    valence: 0.5,
+    tension: 0,
+    pulse: 0,
+    buildUp: 0,
+    swell: 0,
+    weights: { cosmos: 1, starlight: 0, ocean: 0, meadow: 0, city: 0 },
+    dominant: "cosmos",
+    weather: { clear: 1, mist: 0, rain: 0, snow: 0, storm: 0 },
+    weatherMode: "clear",
+    wind: 0,
+  };
 }
 
 export interface MoodUpdateOptions {
@@ -143,22 +163,11 @@ export class MoodEngine {
   private weatherChallengerIndex = -1;
   private weatherChallengeTime = 0;
 
-  private readonly state: MoodState = {
-    arousal: 0,
-    valence: 0.5,
-    tension: 0,
-    pulse: 0,
-    buildUp: 0,
-    swell: 0,
-    weights: { cosmos: 1, starlight: 0, ocean: 0, meadow: 0, city: 0 },
-    dominant: "cosmos",
-    weather: { clear: 1, mist: 0, rain: 0, snow: 0, storm: 0 },
-    weatherMode: "clear",
-    wind: 0,
-  };
+  private readonly state: MoodState = neutralMoodState();
 
   /** Feed one analyser frame (byte spectrum 0..255); returns the mood state. */
   update(freq: ArrayLike<number>, dt: number, opts?: MoodUpdateOptions): MoodState {
+    this.state.intent = opts?.intent;
     const n = freq.length;
     if (n === 0) return this.state;
     const step = Math.max(1e-4, dt);

@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>装甲材质实验场 · Armor Material Lab</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        color: #d5e1e9;
+        background: #05070a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 50% 46%, rgba(19, 31, 40, 0.34), transparent 42%),
+          #05070a;
+      }
+      #stage {
+        position: fixed;
+        inset: 0;
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      .hud {
+        position: fixed;
+        z-index: 2;
+        pointer-events: none;
+        text-shadow: 0 2px 12px #000;
+      }
+      #title {
+        top: 28px;
+        left: 32px;
+      }
+      .eyebrow {
+        color: #7892a3;
+        font-size: 10px;
+        letter-spacing: 0.28em;
+      }
+      h1 {
+        margin: 7px 0 5px;
+        color: #e4edf2;
+        font-size: 24px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+      }
+      #subtitle {
+        color: #8da1ae;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+      }
+      #status {
+        top: 34px;
+        right: 32px;
+        text-align: right;
+      }
+      #mode-name {
+        color: #aee6ff;
+        font-size: 15px;
+        letter-spacing: 0.12em;
+      }
+      #mode-note {
+        max-width: 400px;
+        margin-top: 8px;
+        color: #78909e;
+        font-size: 10px;
+        line-height: 1.6;
+      }
+      #modes {
+        right: 32px;
+        bottom: 30px;
+        display: grid;
+        width: 290px;
+        gap: 5px;
+        pointer-events: auto;
+      }
+      button {
+        display: grid;
+        grid-template-columns: 24px 1fr auto;
+        align-items: center;
+        padding: 7px 9px;
+        border: 1px solid rgba(130, 169, 191, 0.16);
+        border-radius: 2px;
+        color: #76909f;
+        background: rgba(5, 10, 14, 0.72);
+        font: inherit;
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-align: left;
+        cursor: pointer;
+      }
+      button:hover,
+      button.active {
+        border-color: rgba(118, 215, 255, 0.55);
+        color: #d6f3ff;
+        background: rgba(15, 45, 58, 0.76);
+      }
+      button .key {
+        color: #526975;
+      }
+      button .kind {
+        color: #4e6570;
+        font-size: 8px;
+      }
+      button.active .kind {
+        color: #74b6d1;
+      }
+      #legend {
+        left: 32px;
+        bottom: 30px;
+        max-width: 390px;
+        padding-left: 13px;
+        border-left: 2px solid rgba(104, 203, 239, 0.34);
+        color: #708692;
+        font-size: 10px;
+        line-height: 1.75;
+      }
+      #legend strong {
+        color: #a8bac4;
+        font-weight: 500;
+      }
+      .swatch {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        margin: 0 4px 0 8px;
+        border-radius: 50%;
+        box-shadow: 0 0 6px currentColor;
+      }
+      .rust {
+        color: #d25732;
+        background: currentColor;
+      }
+      .metal {
+        color: #49d8c7;
+        background: currentColor;
+      }
+      .oil {
+        color: #5d78dd;
+        background: currentColor;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+    <section id="title" class="hud">
+      <div class="eyebrow">MATERIAL PIPELINE / UV-FREE</div>
+      <h1>装甲材质实验场</h1>
+      <div id="subtitle">单板 · object-space triplanar · Bloom OFF · Outline OFF</div>
+    </section>
+    <section id="status" class="hud">
+      <div id="mode-name">FINAL PBR</div>
+      <div id="mode-note"></div>
+    </section>
+    <nav id="modes" aria-label="材质输出通道"></nav>
+    <aside id="legend" class="hud"></aside>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

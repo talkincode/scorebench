@@ -27,10 +27,6 @@ export function energyLevel(freq: Uint8Array): number {
   return freq.length ? sum / freq.length / 255 : 0;
 }
 
-export function hueColor(hue: number, saturation = 0.8, lightness = 0.55): THREE.Color {
-  return new THREE.Color().setHSL((((hue % 360) + 360) % 360) / 360, saturation, lightness);
-}
-
 /** Round sprite texture for glow/particle materials, generated once per call. */
 export function glowTexture(size = 64): THREE.Texture {
   const canvas = document.createElement("canvas");

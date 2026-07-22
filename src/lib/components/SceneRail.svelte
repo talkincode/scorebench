@@ -9,6 +9,33 @@
   let creating = $state(false);
   let newName = $state("");
   let createError = $state<string | null>(null);
+  let filter = $state("");
+  let sortBy = $state<"name" | "time">("name");
+
+  /** Stable per-scene number/art hue: position in the scan order, immune to rail sorting/filtering. */
+  const sceneIndex = $derived(new Map((bench.project?.scenes ?? []).map((scene, index) => [scene.rel_path, index])));
+
+  const visibleScenes = $derived.by(() => {
+    const scenes = [...(bench.project?.scenes ?? [])];
+    const query = filter.trim().toLowerCase();
+    const matched = query
+      ? scenes.filter(
+          (scene) =>
+            scene.rel_path.toLowerCase().includes(query) || titleFor(scene.rel_path).toLowerCase().includes(query),
+        )
+      : scenes;
+    if (sortBy === "time") {
+      // Newest first; unknown timestamps sink to the bottom.
+      matched.sort(
+        (a, b) => (b.modified_ms ?? -1) - (a.modified_ms ?? -1) || a.rel_path.localeCompare(b.rel_path),
+      );
+    } else {
+      matched.sort(
+        (a, b) => titleFor(a.rel_path).localeCompare(titleFor(b.rel_path)) || a.rel_path.localeCompare(b.rel_path),
+      );
+    }
+    return matched;
+  });
 
   $effect(() => {
     const scenes = bench.project?.scenes ?? [];
@@ -108,7 +135,7 @@
   <header>
     <div>
       <span>{t("rail.scenes")}</span>
-      <b>{bench.project?.scenes.length ?? 0}</b>
+      <b>{filter.trim() ? `${visibleScenes.length}/${bench.project?.scenes.length ?? 0}` : (bench.project?.scenes.length ?? 0)}</b>
     </div>
     <button
       class="rail-new"
@@ -139,13 +166,39 @@
     </div>
   {/if}
 
+  {#if bench.project?.scenes.length}
+    <div class="rail-tools">
+      <input
+        class="rail-filter"
+        type="search"
+        placeholder={t("rail.filter")}
+        aria-label={t("rail.filter")}
+        bind:value={filter}
+        onkeydown={(event) => {
+          if (event.key === "Escape") filter = "";
+        }}
+      />
+      <div class="sort-toggle" role="group" aria-label={t("rail.sort")}>
+        <button class:active={sortBy === "name"} aria-pressed={sortBy === "name"} onclick={() => (sortBy = "name")}>
+          {t("rail.sortName")}
+        </button>
+        <button class:active={sortBy === "time"} aria-pressed={sortBy === "time"} onclick={() => (sortBy = "time")}>
+          {t("rail.sortTime")}
+        </button>
+      </div>
+    </div>
+  {/if}
+
   <div class="scene-scroll">
     {#if !(bench.project?.scenes.length)}
       <p class="empty">{t("rail.empty")}</p>
+    {:else if !visibleScenes.length}
+      <p class="empty">{t("rail.noMatch")}</p>
     {:else}
-      {#each bench.project.scenes as scene, index}
+      {#each visibleScenes as scene (scene.rel_path)}
         {@const asset = matchingAsset(scene.rel_path)}
         {@const isPlaying = Boolean(asset) && asset === bench.loadedAsset && bench.playing}
+        {@const stableIndex = sceneIndex.get(scene.rel_path) ?? 0}
         <button
           class="scene-card"
           class:selected={bench.selectedScene === scene.rel_path}
@@ -153,13 +206,13 @@
           oncontextmenu={(event) => openMenu(event, scene.rel_path)}
           aria-pressed={bench.selectedScene === scene.rel_path}
         >
-          <span class="scene-art art-{index % 7}" aria-hidden="true">
+          <span class="scene-art art-{stableIndex % 7}" aria-hidden="true">
             <i></i><i></i><i></i>
           </span>
           <span class="scene-copy">
             <strong>{titleFor(scene.rel_path)}</strong>
             <small>{scene.rel_path}</small>
-            <span class="scene-tags"><i>YAML</i><i>{index + 1}</i></span>
+            <span class="scene-tags"><i>YAML</i><i>{stableIndex + 1}</i></span>
           </span>
           <span
             class="scene-play"
@@ -306,6 +359,50 @@
     color: var(--bad);
     font: 10.5px var(--mono);
     overflow-wrap: anywhere;
+  }
+  .rail-tools {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  .rail-filter {
+    height: 24px;
+    min-width: 0;
+    padding: 0 8px;
+    color: var(--fg);
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    background: var(--control-bg);
+    font: 11px var(--mono);
+  }
+  .rail-filter::placeholder { color: var(--fg-dim); }
+  .rail-filter:focus { outline: none; border-color: var(--accent-line-strong); }
+  .sort-toggle {
+    display: flex;
+    padding: 2px;
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    background: var(--control-bg);
+  }
+  .sort-toggle button {
+    padding: 2px 7px;
+    color: var(--fg-dim);
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    cursor: pointer;
+    transition: color .15s ease, background .15s ease;
+  }
+  .sort-toggle button:hover { color: var(--fg); }
+  .sort-toggle button.active {
+    color: var(--accent);
+    background: var(--accent-soft);
   }
   .scene-scroll {
     flex: 1;
