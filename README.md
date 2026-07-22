@@ -39,6 +39,7 @@ In one line: **the user speaks the vocabulary of emotion, the system works in th
 - **One project per window.** Opening scorebench means opening one project directory (scene YAML + rendered assets + agent memory). No multi-project tabs.
 - **Agent-first authoring.** The agent is the primary scene writer. Experienced users can also use the raw-source editor with explicit Validate and Save actions; there is no autosave. Parameter panels remain read-only observations.
 - **Playback & spectrum in the webview.** Decoding, FFT, and progress come from the browser's WebAudio API (`AnalyserNode`) — no Rust audio stack, no in-house DSP.
+- **ScoreKit 0.3 sound textures.** Scenes can schedule looped ambience and one-shot effects through portable source keys; scorebench persists the selected texture profile, checks mappings, and passes it to ScoreKit without mixing audio itself.
 - **Project memory.** The agent maintains a rolling project summary; when the conversation exceeds the configured context budget it compacts automatically.
 
 ## Iron rules
@@ -80,7 +81,7 @@ Install scorebench from [Releases](https://github.com/talkincode/scorebench/rele
 - Linux: use the `.deb` or `.AppImage` artifact.
 - Windows: use the `.msi` or `-setup.exe` artifact.
 
-Install ScoreKit separately (for example with Homebrew `brew install talkincode/tap/scorekit`, or from [ScoreKit Releases](https://github.com/talkincode/scorekit/releases)), then confirm:
+Install ScoreKit 0.3.x separately (for example with Homebrew `brew install talkincode/tap/scorekit`, or from [ScoreKit Releases](https://github.com/talkincode/scorekit/releases)), then confirm:
 
 ```bash
 brew trust --tap talkincode/tap   # when installing ScoreKit via Homebrew tap

@@ -1,6 +1,6 @@
 //! Subprocess boundary to the `scorekit` CLI.
 //!
-//! Contract (recorded from scorekit 0.1.0, see `tests/fixtures/`):
+//! Contract (recorded through scorekit 0.3.0, see `tests/fixtures/`):
 //! - success: exit 0; `build` writes `<output stem>.meta.json` as the machine-readable result
 //! - failure: stderr carries one JSON object `{code, exit_code, field, location, message}`
 //! - `doctor --json`: stdout JSON report
@@ -18,7 +18,7 @@ use crate::error::BenchError;
 
 /// Environment variable that pins the scorekit binary explicitly.
 pub const SCOREKIT_ENV: &str = "SCOREBENCH_SCOREKIT";
-pub const TESTED_SCOREKIT_RANGE: &str = ">=0.2.0, <0.3.0";
+pub const TESTED_SCOREKIT_RANGE: &str = ">=0.3.0, <0.4.0";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Handshake {
@@ -325,6 +325,7 @@ pub struct BuildParams {
     pub stems: Option<bool>,
     pub soundfont: Option<String>,
     pub profile: Option<String>,
+    pub texture_profile: Option<String>,
 }
 
 impl BuildParams {
@@ -350,6 +351,9 @@ impl BuildParams {
         }
         if let Some(profile) = &self.profile {
             args.extend(["--profile".into(), profile.clone()]);
+        }
+        if let Some(profile) = &self.texture_profile {
+            args.extend(["--texture-profile".into(), profile.clone()]);
         }
         args
     }
@@ -452,6 +456,10 @@ mod tests {
             value.get("tools").is_some(),
             "doctor JSON must have `tools`"
         );
+        assert_eq!(
+            value.get("scorekit_version").and_then(Value::as_str),
+            Some("0.3.0")
+        );
     }
 
     #[test]
@@ -489,6 +497,7 @@ mod tests {
             stems: Some(true),
             soundfont: None,
             profile: None,
+            texture_profile: Some("profiles/forest-textures.yaml".into()),
         };
         assert_eq!(
             params.to_args(),
@@ -501,7 +510,9 @@ mod tests {
                 "0.7",
                 "--quality",
                 "6",
-                "--stems"
+                "--stems",
+                "--texture-profile",
+                "profiles/forest-textures.yaml"
             ]
             .into_iter()
             .map(String::from)
@@ -522,7 +533,7 @@ mod tests {
     fn handshake_gates_machine_readable_version() {
         let report = serde_json::json!({
             "ready": true,
-            "scorekit_version": "0.2.0",
+            "scorekit_version": "0.3.0",
             "hints": ["install a renderer"]
         });
         let handshake = handshake_from_report(PathBuf::from("scorekit"), report);
@@ -531,7 +542,7 @@ mod tests {
 
         let outdated = handshake_from_report(
             PathBuf::from("scorekit"),
-            serde_json::json!({"ready":true,"scorekit_version":"0.1.3","hints":[]}),
+            serde_json::json!({"ready":true,"scorekit_version":"0.2.3","hints":[]}),
         );
         assert_eq!(outdated.compatible, Some(false));
         assert!(outdated

@@ -20,6 +20,8 @@ pub struct SceneInspection {
     /// Compatibility with the project's persisted render configuration;
     /// `None` when no sfizz profile is active.
     pub render_profile: Option<manifest::ProfileCompat>,
+    /// Texture source compatibility; `None` when the scene has no textures.
+    pub texture_profile: Option<manifest::TextureProfileCompat>,
     pub last_diff: Option<JsonValue>,
 }
 
@@ -42,6 +44,7 @@ pub struct SceneDisplay {
     pub harmony: Vec<String>,
     pub sections: Vec<SectionDisplay>,
     pub tracks: Vec<TrackDisplay>,
+    pub textures: Vec<TextureDisplay>,
     pub has_performance: bool,
 }
 
@@ -62,6 +65,15 @@ pub struct TrackDisplay {
     pub motif: Option<String>,
     pub intensity: Option<f64>,
     pub articulation: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+pub struct TextureDisplay {
+    pub source: Option<String>,
+    pub mode: Option<String>,
+    pub gain: Option<f64>,
+    pub start_beat: Option<f64>,
+    pub at: Vec<f64>,
 }
 
 pub fn inspect_scene(root: &Path, rel_path: &str) -> Result<SceneInspection, BenchError> {
@@ -91,15 +103,15 @@ pub fn inspect_scene(root: &Path, rel_path: &str) -> Result<SceneInspection, Ben
             error: Some(error),
         },
     };
-    let render_profile = manifest::load(root)
-        .0
-        .render
-        .and_then(|render| manifest::check_scene_profile(root, &path, &render));
+    let render = manifest::load(root).0.render.unwrap_or_default();
+    let render_profile = manifest::check_scene_profile(root, &path, &render);
+    let texture_profile = manifest::check_scene_texture_profile(root, &path, &render);
     Ok(SceneInspection {
         scene,
         parse_error,
         validation,
         render_profile,
+        texture_profile,
         last_diff: read_last_diff(root, rel_path)?,
     })
 }
@@ -183,6 +195,20 @@ fn display(mapping: &Mapping) -> SceneDisplay {
                 motif: string(track, "motif"),
                 intensity: number(track, "intensity"),
                 articulation: string(track, "articulation"),
+            })
+            .collect(),
+        textures: sequence(mapping, "textures")
+            .into_iter()
+            .filter_map(|value| value.as_mapping())
+            .map(|texture| TextureDisplay {
+                source: string(texture, "source"),
+                mode: string(texture, "mode"),
+                gain: number(texture, "gain"),
+                start_beat: number(texture, "start_beat"),
+                at: sequence(texture, "at")
+                    .into_iter()
+                    .filter_map(Value::as_f64)
+                    .collect(),
             })
             .collect(),
         has_performance: get(mapping, "performance").is_some(),
@@ -301,6 +327,19 @@ mod tests {
         assert_eq!(scene.sections.len(), 4);
         assert_eq!(scene.sections[2].tempo, Some(132.0));
         assert_eq!(scene.sections[0].mute, vec![3, 4]);
+    }
+
+    #[test]
+    fn parses_texture_layers_for_observation() {
+        let value: Value = serde_yaml::from_str(
+            "textures:\n  - { source: river, mode: loop, gain: 0.25, start_beat: 2 }\n  - { source: birds, mode: one_shot, at: [4, 12], gain: 0.5 }\n",
+        )
+        .unwrap();
+        let scene = display(value.as_mapping().unwrap());
+        assert_eq!(scene.textures.len(), 2);
+        assert_eq!(scene.textures[0].source.as_deref(), Some("river"));
+        assert_eq!(scene.textures[0].start_beat, Some(2.0));
+        assert_eq!(scene.textures[1].at, vec![4.0, 12.0]);
     }
 
     #[test]

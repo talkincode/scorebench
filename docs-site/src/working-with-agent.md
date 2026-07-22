@@ -40,11 +40,12 @@ You do not need to know every theory term. A phrase such as “a distant memory,
 - A **StylePack** is a scorebench creative preference package. It guides the Agent toward particular harmony, orchestration, form, and review criteria.
 - A **grammar profile** is a set of measurable ScoreKit aesthetic checks, such as tempo limits, voice count, and melody rest ratio.
 - A **renderer profile** maps ScoreKit instruments and articulations to local SFZ files for sfizz.
+- A **texture profile** maps portable ambience and sound-effect source names to local audio files, independently of the renderer.
 
-StylePack influences choices, grammar checks the compiled music, and a renderer profile controls timbre. None of them replaces the others.
+StylePack influences choices, grammar checks the compiled music, a renderer profile controls instrumental timbre, and a texture profile binds scheduled recordings. None of them replaces the others.
 
 ## Project files and recovery
 
 Scenes, the project manifest, sessions, and Agent memory are plain files. When the Agent writes a scene, scorebench records semantic history and validates immediately. Invalid YAML may remain on disk with a visible error so the Agent can repair it. Put the project under Git if you want review and rollback.
 
-The selected renderer and SFZ profile are stored in `bench.json`. Sample rate, gain, quality, format, and stems are immediate Render-panel choices. Never put secrets in `bench.json`.
+The selected renderer, SFZ profile, and texture profile are stored in `bench.json`. Sample rate, gain, quality, format, and stems are immediate Render-panel choices. Never put secrets in `bench.json`.

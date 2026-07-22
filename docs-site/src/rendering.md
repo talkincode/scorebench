@@ -13,9 +13,12 @@ MIDI
    └── sfizz_render + SFZ profile
             │
             ▼
-         raw audio
-            │ loop seal / tail / export
-            ▼
+         synth audio ──┐
+                       ├── texture profile → scheduled ambience / SFX
+                       ▼
+                    raw mix
+                       │ loop seal / tail / export
+                       ▼
  OGG or WAV + meta.json + optional stems
 ```
 
@@ -42,8 +45,9 @@ FluidSynth is the default. Switch to sfizz only when the musical structure is st
 | Quality | Vorbis quality from 0 to 10 | Primarily affects OGG size and encoding quality; default 5 |
 | Stems | Render every track as aligned audio | Enable for adaptive playback or downstream mixing |
 | SFZ profile | Maps instruments and articulations to `.sfz` files | Used only by sfizz; missing mappings fail the build |
+| Texture profile | Maps portable texture source names to local audio files | Renderer-independent; required only when the scene declares `textures` |
 
-The renderer and SFZ profile are stored in the project's `bench.json`, allowing the Agent to check instrument compatibility while writing a scene. The other controls are immediate Render-panel choices.
+The renderer, SFZ profile, and texture profile are stored in the project's `bench.json`, allowing the Agent to check instrument and texture-source compatibility while writing a scene. The other controls are immediate Render-panel choices.
 
 ## Output files
 
@@ -56,7 +60,8 @@ out/
 └── forest.stems/
     ├── 01-flute.ogg
     ├── 02-slow_strings.ogg
-    └── ...
+    ├── ...
+    └── 04-texture-river.ogg
 ```
 
 `meta.json` is the machine-readable build result. It records the sample rate, total samples, loop range, audio asset, stems, and related metadata. scorebench uses this file to determine build success rather than parsing human-oriented ScoreKit stdout.

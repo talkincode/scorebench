@@ -246,8 +246,8 @@ pub fn system_prompt(
 }
 
 /// Prompt block describing the render configuration persisted in bench.json,
-/// including the instrument keys the active sfizz profile maps, so the model
-/// composes with instruments the user's renderer can actually play.
+/// including the instrument and texture source keys active profiles map, so
+/// the model only composes material the configured toolchain can build.
 fn render_config_section(root: &Path) -> String {
     let Some(render) = manifest::load(root).0.render else {
         return String::new();
@@ -275,6 +275,28 @@ fn render_config_section(root: &Path) -> String {
             }
         }
         _ => {}
+    }
+    if let Some(profile) = render
+        .texture_profile
+        .as_deref()
+        .filter(|profile| !profile.trim().is_empty())
+    {
+        match manifest::texture_profile_sources(root, profile) {
+            Ok((name, sources)) => {
+                let name = name.unwrap_or_else(|| profile.to_owned());
+                section.push_str(&format!(
+                    "texture profile: {profile} ({name})\n\
+                     texture sources mapped by this profile: {}\n\
+                     Use only these portable source keys in scene textures; any other key will FAIL the build.\n",
+                    sources.join(", ")
+                ));
+            }
+            Err(error) => {
+                section.push_str(&format!(
+                    "texture profile: {profile}\nWARNING: the texture profile could not be read ({error}); textured builds will fail until it is fixed.\n"
+                ));
+            }
+        }
     }
     section.push('\n');
     section
@@ -936,8 +958,13 @@ mod tests {
         )
         .unwrap();
         std::fs::write(
+            root.join("profiles/forest-textures.yaml"),
+            "name: forest\nsources:\n  birds: birds.wav\n  river: river.wav\n",
+        )
+        .unwrap();
+        std::fs::write(
             root.join("bench.json"),
-            r#"{"render":{"renderer":"sfizz","profile":"profiles/open.yaml"}}"#,
+            r#"{"render":{"renderer":"sfizz","profile":"profiles/open.yaml","texture_profile":"profiles/forest-textures.yaml"}}"#,
         )
         .unwrap();
         let section = render_config_section(&root);
@@ -945,6 +972,8 @@ mod tests {
         assert!(section.contains("renderer: sfizz"));
         assert!(section.contains("piano, strings"));
         assert!(section.contains("FAIL the sfizz build"));
+        assert!(section.contains("birds, river"));
+        assert!(section.contains("portable source keys"));
         let prompt = system_prompt(&root, "main", None).unwrap();
         assert!(prompt.contains("ACTIVE RENDER CONFIGURATION"));
 
