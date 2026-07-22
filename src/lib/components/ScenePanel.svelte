@@ -20,6 +20,7 @@
   let stems = $state(false);
   let format = $state<"ogg" | "wav">("ogg");
   let profilePath = $state<string | null>(null);
+  let textureProfilePath = $state<string | null>(null);
   let renderConfigRoot: string | null = null;
   let inspection = $state<SceneInspection | null>(null);
   let inspectionError = $state<string | null>(null);
@@ -34,6 +35,21 @@
     { key: "gauge.complexity", words: ["Simple", "Layered", "Intricate"] },
     { key: "gauge.energy", words: ["Calm", "Driving", "Intense"] },
   ] as const;
+
+  function absoluteConfigPath(root: string, path: string | null | undefined): string | null {
+    if (!path) return null;
+    const absolute =
+      path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
+    return absolute ? path : `${root}/${path}`;
+  }
+
+  function manifestConfigPath(root: string, path: string | null): string | null {
+    if (!path) return null;
+    for (const prefix of [`${root}/`, `${root}\\`]) {
+      if (path.startsWith(prefix)) return path.slice(prefix.length);
+    }
+    return path;
+  }
 
   $effect(() => {
     const root = bench.project?.root;
@@ -55,33 +71,38 @@
   });
 
   // Load the persisted render selection (bench.json) once per project so the
-  // agent and the render panel agree on renderer + profile.
+  // agent and the render panel agree on renderer and both profile types.
   $effect(() => {
     const root = bench.project?.root;
     if (!root || root === renderConfigRoot) return;
     renderConfigRoot = root;
     void api.loadRenderConfig(root).then(
       ([config]) => {
-        if (renderConfigRoot !== root || !config) return;
-        if (config.renderer) renderer = config.renderer;
-        profilePath = config.profile
-          ? config.profile.startsWith("/")
-            ? config.profile
-            : `${root}/${config.profile}`
-          : null;
+        if (renderConfigRoot !== root) return;
+        renderer = config?.renderer ?? "fluidsynth";
+        profilePath = absoluteConfigPath(root, config?.profile);
+        textureProfilePath = absoluteConfigPath(root, config?.texture_profile);
       },
-      () => {},
+      (error) => {
+        if (renderConfigRoot !== root) return;
+        bench.buildFailed = true;
+        bench.buildStatus = errorText(error);
+      },
     );
   });
 
   function persistRenderConfig() {
     const root = bench.project?.root;
     if (!root) return;
-    const profile =
-      profilePath && profilePath.startsWith(root + "/")
-        ? profilePath.slice(root.length + 1)
-        : profilePath;
-    void api.saveRenderConfig(root, { renderer, profile }).catch(() => {});
+    const profile = manifestConfigPath(root, profilePath);
+    const texture_profile = manifestConfigPath(root, textureProfilePath);
+    void api.saveRenderConfig(root, { renderer, profile, texture_profile }).then(
+      () => bench.projectRevision++,
+      (error) => {
+        bench.buildFailed = true;
+        bench.buildStatus = errorText(error);
+      },
+    );
   }
 
   const audioAssets = $derived((bench.project?.assets ?? []).filter((asset) => asset.kind === "audio"));
@@ -95,9 +116,15 @@
       ? intensities.reduce((sum, value) => sum + value, 0) / intensities.length
       : 0.45;
     return [
-      Math.min(100, 18 + scene.tracks.length * 13 + scene.sections.length * 5),
+      Math.min(
+        100,
+        18 + scene.tracks.length * 13 + scene.sections.length * 5 + scene.textures.length * 7,
+      ),
       Math.min(100, Math.round(average * 100)),
-      Math.min(100, 16 + scene.harmony.length * 7 + scene.tracks.length * 9),
+      Math.min(
+        100,
+        16 + scene.harmony.length * 7 + scene.tracks.length * 9 + scene.textures.length * 6,
+      ),
       Math.min(100, Math.max(12, Math.round(((scene.tempo ?? 90) - 45) * 0.85 + average * 22))),
     ];
   });
@@ -147,6 +174,9 @@
   }
 
   const needsProfile = $derived(renderer === "sfizz" && !profilePath);
+  const needsTextureProfile = $derived(
+    (inspection?.scene?.textures.length ?? 0) > 0 && !textureProfilePath,
+  );
 
   async function pickProfile() {
     const picked = await open({
@@ -161,8 +191,28 @@
     }
   }
 
+  async function pickTextureProfile() {
+    const picked = await open({
+      multiple: false,
+      directory: false,
+      defaultPath: bench.project?.root,
+      filters: [{ name: "Texture profile", extensions: ["yaml", "yml"] }],
+    });
+    if (typeof picked === "string") {
+      textureProfilePath = picked;
+      persistRenderConfig();
+    }
+  }
+
   async function render() {
-    if (!bench.project || !bench.selectedScene || bench.building || needsProfile) return;
+    if (
+      !bench.project ||
+      !bench.selectedScene ||
+      bench.building ||
+      needsProfile ||
+      needsTextureProfile
+    )
+      return;
     bench.building = true;
     bench.buildFailed = false;
     bench.buildStatus = "starting…";
@@ -171,6 +221,7 @@
       // Absolute path: the scorekit subprocess does not run from the project root.
       params.profile = profilePath;
     }
+    if (textureProfilePath) params.texture_profile = textureProfilePath;
     try {
       await api.runBuild(bench.project.root, bench.selectedScene, params, format, onBuildEvent);
     } catch (error) {
@@ -277,6 +328,7 @@
           <span><b>{inspection.scene.tracks.length}</b><i>{t("preview.tracks")}</i></span>
           <span><b>{inspection.scene.sections.length}</b><i>{t("preview.sections")}</i></span>
           <span><b>{inspection.scene.harmony.length}</b><i>{t("preview.harmony")}</i></span>
+          <span><b>{inspection.scene.textures.length}</b><i>{t("preview.textures")}</i></span>
         </div>
         {#if inspection.last_diff}
           <details class="scene-detail diff">
@@ -291,6 +343,18 @@
             <p class="status failed">{t("panel.profileUnmapped", {
               profile: inspection.render_profile.profile_name ?? inspection.render_profile.profile,
               instruments: inspection.render_profile.unmapped.join(", "),
+            })}</p>
+          {/if}
+        {/if}
+        {#if inspection.texture_profile}
+          {#if !inspection.texture_profile.profile}
+            <p class="status failed">{t("panel.textureProfileMissing")}</p>
+          {:else if inspection.texture_profile.error}
+            <p class="status failed">{t("panel.textureProfileUnusable", { error: inspection.texture_profile.error })}</p>
+          {:else if inspection.texture_profile.missing.length}
+            <p class="status failed">{t("panel.textureProfileUnmapped", {
+              profile: inspection.texture_profile.profile_name ?? inspection.texture_profile.profile,
+              sources: inspection.texture_profile.missing.join(", "),
             })}</p>
           {/if}
         {/if}
@@ -314,21 +378,42 @@
         <label class="check"><input type="checkbox" bind:checked={stems} disabled={bench.building} /><span>{t("panel.stems")}</span></label>
       </div>
       {#if renderer === "sfizz"}
-        <div class="profile-row">
-          <button class="profile-pick" onclick={pickProfile} disabled={bench.building}>
+        <div class="profile-field">
+          <span class="profile-label">{t("panel.sfzProfile")}</span>
+          <div class="profile-row">
+            <button class="profile-pick" onclick={pickProfile} disabled={bench.building}>
+              {#if profilePath}
+                <strong title={profilePath}>{profilePath.split(/[\\/]/).at(-1)}</strong>
+              {:else}
+                <span>{t("panel.chooseProfile")}</span>
+              {/if}
+            </button>
             {#if profilePath}
-              <strong title={profilePath}>{profilePath.split("/").at(-1)}</strong>
-            {:else}
-              <span>{t("panel.chooseProfile")}</span>
+              <button class="profile-clear" onclick={() => { profilePath = null; persistRenderConfig(); }} disabled={bench.building} aria-label="Clear profile">×</button>
             {/if}
-          </button>
-          {#if profilePath}
-            <button class="profile-clear" onclick={() => { profilePath = null; persistRenderConfig(); }} disabled={bench.building} aria-label="Clear profile">×</button>
-          {/if}
+          </div>
         </div>
         {#if needsProfile}
           <p class="profile-hint">{t("panel.profileHint")}</p>
         {/if}
+      {/if}
+      <div class="profile-field">
+        <span class="profile-label">{t("panel.textureProfile")}</span>
+        <div class="profile-row">
+          <button class="profile-pick" onclick={pickTextureProfile} disabled={bench.building}>
+            {#if textureProfilePath}
+              <strong title={textureProfilePath}>{textureProfilePath.split(/[\\/]/).at(-1)}</strong>
+            {:else}
+              <span>{t("panel.chooseProfile")}</span>
+            {/if}
+          </button>
+          {#if textureProfilePath}
+            <button class="profile-clear" onclick={() => { textureProfilePath = null; persistRenderConfig(); }} disabled={bench.building} aria-label="Clear texture profile">×</button>
+          {/if}
+        </div>
+      </div>
+      {#if needsTextureProfile}
+        <p class="profile-hint">{t("panel.textureProfileHint")}</p>
       {/if}
       {#if renderer === "sfizz" && inspection?.render_profile}
         {#if inspection.render_profile.error}
@@ -340,7 +425,19 @@
           })}</p>
         {/if}
       {/if}
-      <button class="render-btn" onclick={render} disabled={!bench.project || !bench.selectedScene || bench.building || needsProfile}>
+      {#if inspection?.texture_profile}
+        {#if !inspection.texture_profile.profile}
+          <p class="status failed">{t("panel.textureProfileMissing")}</p>
+        {:else if inspection.texture_profile.error}
+          <p class="status failed">{t("panel.textureProfileUnusable", { error: inspection.texture_profile.error })}</p>
+        {:else if inspection.texture_profile.missing.length}
+          <p class="status failed">{t("panel.textureProfileUnmapped", {
+            profile: inspection.texture_profile.profile_name ?? inspection.texture_profile.profile ?? "—",
+            sources: inspection.texture_profile.missing.join(", "),
+          })}</p>
+        {/if}
+      {/if}
+      <button class="render-btn" onclick={render} disabled={!bench.project || !bench.selectedScene || bench.building || needsProfile || needsTextureProfile}>
         <span class="render-glyph">▮▮▮</span>{bench.building ? t("panel.rendering") : t("panel.renderBtn")}
       </button>
       {#if bench.building}<div class="progress" role="progressbar" aria-label="rendering"><div></div></div>{/if}
@@ -480,7 +577,7 @@
   .dial strong { z-index: 1; grid-area: 1 / 1; color: var(--fg); font: 14px var(--mono); font-weight: 400; }
   .dial small { color: var(--fg-muted); font-size: 10px; }
 
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); }
   .stats span { display: grid; gap: 3px; justify-items: center; padding: 11px 6px 10px; border-right: 1px solid var(--line); }
   .stats span:last-child { border-right: 0; }
   .stats b { color: var(--fg); font: 17px var(--mono); font-weight: 450; }
@@ -500,7 +597,9 @@
   .params select:focus, .params input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
   .params .check { display: flex; align-items: center; gap: 5px; padding-top: 11px; }
   .params input[type="checkbox"] { accent-color: var(--accent); }
-  .profile-row { display: flex; gap: 6px; margin: -2px 10px 8px; }
+  .profile-field { display: grid; gap: 4px; margin: -2px 10px 8px; }
+  .profile-label { color: var(--fg-label); font-size: var(--ui-label-size); font-weight: var(--ui-label-weight); letter-spacing: var(--ui-label-tracking); text-transform: uppercase; }
+  .profile-row { display: flex; gap: 6px; }
   .profile-pick { display: flex; flex: 1; align-items: center; min-width: 0; height: 28px; padding: 0 10px; color: var(--fg); background: var(--panel-glass); border: 1px solid var(--accent-line); border-radius: 6px; font: 11px var(--mono); cursor: pointer; transition: border-color .15s ease, background .15s ease; }
   .profile-pick:hover:not(:disabled) { border-color: var(--accent-line-strong); background: var(--accent-soft); }
   .profile-pick strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }

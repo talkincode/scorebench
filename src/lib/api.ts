@@ -114,6 +114,14 @@ export interface TrackDisplay {
   articulation?: string | null;
 }
 
+export interface TextureDisplay {
+  source?: string | null;
+  mode?: string | null;
+  gain?: number | null;
+  start_beat?: number | null;
+  at: number[];
+}
+
 export interface SceneDisplay {
   title?: string | null;
   story?: string | null;
@@ -125,6 +133,7 @@ export interface SceneDisplay {
   harmony: string[];
   sections: SectionDisplay[];
   tracks: TrackDisplay[];
+  textures: TextureDisplay[];
   has_performance: boolean;
 }
 
@@ -133,6 +142,7 @@ export interface SceneInspection {
   parse_error?: string | null;
   validation: ValidationDisplay;
   render_profile?: RenderProfileCompat | null;
+  texture_profile?: TextureProfileCompat | null;
   last_diff?: unknown;
 }
 
@@ -145,6 +155,7 @@ export interface ValidationDisplay {
 export interface RenderConfig {
   renderer?: string | null;
   profile?: string | null;
+  texture_profile?: string | null;
 }
 
 /** Matches the Rust `manifest::ProfileCompat` serde shape. */
@@ -153,6 +164,15 @@ export interface RenderProfileCompat {
   profile_name?: string | null;
   mapped: string[];
   unmapped: string[];
+  error?: string | null;
+}
+
+/** Matches the Rust `manifest::TextureProfileCompat` serde shape. */
+export interface TextureProfileCompat {
+  profile?: string | null;
+  profile_name?: string | null;
+  available: string[];
+  missing: string[];
   error?: string | null;
 }
 
@@ -202,6 +222,7 @@ export interface BuildParams {
   stems?: boolean;
   soundfont?: string;
   profile?: string;
+  texture_profile?: string;
 }
 
 export interface PerspectiveReview {

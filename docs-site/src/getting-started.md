@@ -4,7 +4,7 @@ This chapter takes the shortest path through the complete loop: install the depe
 
 ## 1. Install scorebench and ScoreKit
 
-scorebench needs the ScoreKit CLI at runtime. The desktop app does not bundle the CLI.
+scorebench needs the ScoreKit CLI at runtime. The desktop app does not bundle the CLI. This version is tested with ScoreKit 0.3.x.
 
 ### macOS (Homebrew, recommended)
 
@@ -93,7 +93,7 @@ The main workspace areas are:
 - **Source:** inspect the scene YAML or use explicit Validate and Save actions for manual raw-YAML editing.
 - **Preview:** inspect compiled musical parameters and the latest semantic diff.
 - **Review:** request structured advice from composing, arranging, production, and media-scoring perspectives.
-- **Render:** select a backend, sample rate, format, gain, quality, and optional stems.
+- **Render:** select a backend, sample rate, format, gain, quality, optional stems, and an optional sound-texture profile.
 - **Outputs:** load audio from `out/` and inspect the matching `meta.json` summary.
 
 For a first render, keep the defaults:

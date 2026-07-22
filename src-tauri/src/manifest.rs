@@ -29,6 +29,9 @@ pub struct RenderConfig {
     /// absolute otherwise (mirrors the GUI build parameter).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
+    /// Texture profile path, independent of the synthesizer backend.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub texture_profile: Option<String>,
 }
 
 /// Persisted style pack selection: the id of a pack in the global style
@@ -138,6 +141,50 @@ impl ProfileCompat {
     }
 }
 
+/// Result of checking a scene's texture source keys against the active texture
+/// profile. A scene with no textures produces no compatibility result.
+#[derive(Debug, Clone, Serialize)]
+pub struct TextureProfileCompat {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_name: Option<String>,
+    /// Portable source keys offered by the profile.
+    pub available: Vec<String>,
+    /// Source keys used by the scene but absent from the profile.
+    pub missing: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl TextureProfileCompat {
+    pub fn is_compatible(&self) -> bool {
+        self.profile.is_some() && self.missing.is_empty() && self.error.is_none()
+    }
+
+    pub fn message(&self) -> String {
+        let Some(profile) = self.profile.as_deref() else {
+            return "scene uses textures but no texture profile is configured; the scorekit build will fail".into();
+        };
+        let name = self.profile_name.as_deref().unwrap_or(profile);
+        if let Some(error) = &self.error {
+            return format!("texture profile `{name}` is unusable: {error}");
+        }
+        if self.missing.is_empty() {
+            format!("all texture sources are mapped by texture profile `{name}`")
+        } else {
+            format!(
+                "texture profile `{name}` has no mapping for source(s) {}; the scorekit build will fail",
+                self.missing
+                    .iter()
+                    .map(|key| format!("`{key}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
+    }
+}
+
 /// The profile only matters for the sfizz backend (SF2 renderers take a
 /// soundfont instead), matching scorekit's `--profile` contract.
 fn active_profile(render: &RenderConfig) -> Option<&str> {
@@ -177,6 +224,25 @@ pub fn profile_instruments(
     Ok((wire.name, wire.instruments.into_keys().collect()))
 }
 
+/// Load the portable source keys a scorekit texture profile exposes.
+pub fn texture_profile_sources(
+    root: &Path,
+    profile: &str,
+) -> Result<(Option<String>, Vec<String>), String> {
+    #[derive(Deserialize)]
+    struct ProfileWire {
+        #[serde(default)]
+        name: Option<String>,
+        sources: BTreeMap<String, String>,
+    }
+    let path = resolve_profile_path(root, profile);
+    let raw = std::fs::read_to_string(&path)
+        .map_err(|error| format!("cannot read `{}`: {error}", path.display()))?;
+    let wire: ProfileWire = serde_yaml::from_str(&raw)
+        .map_err(|error| format!("`{}` is not a texture profile: {error}", path.display()))?;
+    Ok((wire.name, wire.sources.into_keys().collect()))
+}
+
 /// Cross-check a scene's track instruments against the manifest's active
 /// renderer profile. `None` when no sfizz profile is configured or the scene
 /// YAML does not parse (scorekit validate owns that failure).
@@ -214,6 +280,57 @@ pub fn check_scene_profile(
     })
 }
 
+/// Cross-check a scene's portable texture source keys against the profile that
+/// scorekit will receive through `--texture-profile`.
+pub fn check_scene_texture_profile(
+    root: &Path,
+    scene: &Path,
+    render: &RenderConfig,
+) -> Option<TextureProfileCompat> {
+    let used = scene_texture_sources(scene)?;
+    if used.is_empty() {
+        return None;
+    }
+    let Some(profile) = render
+        .texture_profile
+        .as_deref()
+        .filter(|profile| !profile.trim().is_empty())
+    else {
+        return Some(TextureProfileCompat {
+            profile: None,
+            profile_name: None,
+            available: Vec::new(),
+            missing: used,
+            error: None,
+        });
+    };
+    let (profile_name, available) = match texture_profile_sources(root, profile) {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            return Some(TextureProfileCompat {
+                profile: Some(profile.to_owned()),
+                profile_name: None,
+                available: Vec::new(),
+                missing: Vec::new(),
+                error: Some(error),
+            });
+        }
+    };
+    let mut missing = used
+        .into_iter()
+        .filter(|source| !available.contains(source))
+        .collect::<Vec<_>>();
+    missing.sort_unstable();
+    missing.dedup();
+    Some(TextureProfileCompat {
+        profile: Some(profile.to_owned()),
+        profile_name,
+        available,
+        missing,
+        error: None,
+    })
+}
+
 /// Track instrument names from scene YAML. Tolerant reader: unparseable
 /// scenes or tracks without a string instrument yield nothing here because
 /// `scorekit validate` is the authority for scene shape errors.
@@ -225,6 +342,21 @@ fn scene_instruments(scene: &Path) -> Option<Vec<String>> {
         tracks
             .iter()
             .filter_map(|track| track.get("instrument")?.as_str().map(ToOwned::to_owned))
+            .collect(),
+    )
+}
+
+fn scene_texture_sources(scene: &Path) -> Option<Vec<String>> {
+    let raw = std::fs::read_to_string(scene).ok()?;
+    let value: serde_yaml::Value = serde_yaml::from_str(&raw).ok()?;
+    let Some(textures) = value.get("textures") else {
+        return Some(Vec::new());
+    };
+    let textures = textures.as_sequence()?;
+    Some(
+        textures
+            .iter()
+            .filter_map(|texture| texture.get("source")?.as_str().map(ToOwned::to_owned))
             .collect(),
     )
 }
@@ -255,10 +387,28 @@ mod tests {
         .unwrap();
     }
 
+    fn write_texture_profile(root: &Path) {
+        std::fs::create_dir_all(root.join("profiles")).unwrap();
+        std::fs::write(
+            root.join("profiles/forest-textures.yaml"),
+            "name: forest\nsources:\n  birds: audio/birds.wav\n  river: audio/river.flac\n",
+        )
+        .unwrap();
+    }
+
     fn sfizz_render() -> RenderConfig {
         RenderConfig {
             renderer: Some("sfizz".into()),
             profile: Some("profiles/open.yaml".into()),
+            texture_profile: Some("profiles/forest-textures.yaml".into()),
+        }
+    }
+
+    fn textured_render() -> RenderConfig {
+        RenderConfig {
+            renderer: Some("fluidsynth".into()),
+            profile: None,
+            texture_profile: Some("profiles/forest-textures.yaml".into()),
         }
     }
 
@@ -379,11 +529,13 @@ mod tests {
         let fluidsynth = RenderConfig {
             renderer: Some("fluidsynth".into()),
             profile: Some("profiles/open.yaml".into()),
+            texture_profile: None,
         };
         assert!(check_scene_profile(&root, &scene, &fluidsynth).is_none());
         let no_profile = RenderConfig {
             renderer: Some("sfizz".into()),
             profile: None,
+            texture_profile: None,
         };
         assert!(check_scene_profile(&root, &scene, &no_profile).is_none());
         assert!(check_scene_profile(&root, &scene, &RenderConfig::default()).is_none());
@@ -407,6 +559,41 @@ mod tests {
         write_profile(&root);
         std::fs::write(root.join("scene.yaml"), "tracks: [unterminated").unwrap();
         assert!(check_scene_profile(&root, &root.join("scene.yaml"), &sfizz_render()).is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn texture_sources_are_checked_against_independent_profile() {
+        let root = temp_project();
+        write_texture_profile(&root);
+        std::fs::write(
+            root.join("scene.yaml"),
+            "textures:\n  - { source: river, mode: loop }\n  - { source: wind, mode: one_shot, at: [4] }\n",
+        )
+        .unwrap();
+        let compat =
+            check_scene_texture_profile(&root, &root.join("scene.yaml"), &textured_render())
+                .unwrap();
+        assert!(!compat.is_compatible());
+        assert_eq!(compat.available, vec!["birds", "river"]);
+        assert_eq!(compat.missing, vec!["wind"]);
+        assert_eq!(compat.profile_name.as_deref(), Some("forest"));
+        assert!(compat.message().contains("`wind`"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn textured_scene_requires_profile_but_plain_scene_does_not() {
+        let root = temp_project();
+        let scene = root.join("scene.yaml");
+        std::fs::write(&scene, "textures:\n  - { source: river, mode: loop }\n").unwrap();
+        let compat = check_scene_texture_profile(&root, &scene, &RenderConfig::default()).unwrap();
+        assert!(!compat.is_compatible());
+        assert!(compat.profile.is_none());
+        assert!(compat.message().contains("no texture profile"));
+
+        std::fs::write(&scene, "tracks: []\n").unwrap();
+        assert!(check_scene_texture_profile(&root, &scene, &RenderConfig::default()).is_none());
         std::fs::remove_dir_all(root).unwrap();
     }
 }

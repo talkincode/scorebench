@@ -69,6 +69,7 @@ tracks:
 | `motifs` | Named melodic material | Referenced by `melody` tracks |
 | `performance` | Swing, legato, dynamics, and deterministic humanization | Optional |
 | `tracks` | Instrument tracks | 1–16, with at most one drum track |
+| `textures` | Scheduled ambience, field recordings, and sound effects | Optional; portable source names are resolved by a separate texture profile |
 | `sections` | Named cues that share the scene's material | Optional; build emits one output per section |
 
 ScoreKit currently builds diatonic triads from the scene scale. Roman-numeral case is conventional: `VI` and `vi` select the same scale degree in the current protocol. This field is not a complete classical-harmony notation system.
@@ -105,6 +106,34 @@ A motif is a list of `{ degree, beats }` entries:
 
 A melody repeats or truncates its motif to fill the scene or section exactly. Split a rest longer than 16 beats into multiple entries.
 
+## Sound textures
+
+ScoreKit 0.3 adds deterministic non-instrument layers:
+
+```yaml
+textures:
+  - source: river
+    mode: loop
+    start_beat: 0
+    gain: 0.25
+  - source: birds
+    mode: one_shot
+    at: [4, 20]
+    gain: 0.5
+```
+
+`loop` repeats one source from `start_beat`; `one_shot` triggers it at each quarter-note beat in `at`. `gain` is a linear multiplier from 0 to 1. Source names are portable keys, never file paths. Bind them in a texture-profile YAML selected from scorebench's Render panel:
+
+```yaml
+name: forest-recordings
+root: recordings
+sources:
+  river: river.flac
+  birds: birds.wav
+```
+
+The Agent receives the active profile's source keys and the observation panel reports missing mappings before build. ScoreKit still performs the authoritative validation and mixing. Enabling stems produces aligned texture stems alongside instrument stems.
+
 ## Performance
 
 ```yaml
@@ -139,7 +168,7 @@ A section can change `bars`, `tempo`, `loop`, and overall `intensity`, or silenc
 
 ## What does not belong in the scene protocol
 
-- SoundFont, SFZ, and renderer paths. They are build parameters or renderer-profile data.
+- SoundFont, SFZ, renderer, and recording paths. They belong in build parameters, renderer profiles, or texture profiles; scene textures use portable source keys.
 - Arbitrary `mood`, `danger`, or `avoid` fields without compile semantics. Keep them in the conversation or `story`.
 - Plugin chains, mastering, equalization, or post-processing instructions.
 - Arbitrary MIDI events, automation curves, or free-form per-note editing outside the schema.

@@ -42,7 +42,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
         ),
         function(
             "write_scene",
-            "Atomically write one scene YAML file inside the project. Runs `scorekit validate` and the renderer-profile compatibility check afterwards and reports the result inline; pass validate:false only when writing non-scene YAML (grammar or renderer profile files).",
+            "Atomically write one scene YAML file inside the project. Runs `scorekit validate` plus renderer/texture-profile compatibility checks afterwards and reports the result inline; pass validate:false only when writing non-scene YAML (grammar, renderer profile, or texture profile files).",
             json!({"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"validate":{"type":"boolean","description":"Validate the written file as a scene (default true)."}},"required":["path","content"]}),
         ),
         function(
@@ -69,7 +69,8 @@ pub fn definitions() -> Vec<ToolDefinition> {
                     "quality":{"type":"integer","minimum":0,"maximum":10},
                     "stems":{"type":"boolean"},
                     "soundfont":{"type":"string"},
-                    "profile":{"type":"string"}
+                    "profile":{"type":"string"},
+                    "texture_profile":{"type":"string","description":"Project-relative scorekit texture profile path. Omit to inherit bench.json."}
                 },
                 "required":["path"]
             }),
@@ -163,9 +164,16 @@ fn execute_sync(root: &Path, call: &FunctionCall) -> Result<ToolResult, BenchErr
             let mut summary = String::from("scene valid");
             if let Some(compat) = profile_check(root, &path) {
                 if !compat.is_compatible() {
-                    summary = format!("scene valid, but {}", compat.message());
+                    summary = format!("{summary}; {}", compat.message());
                 }
                 output["render_profile"] = serde_json::to_value(&compat).map_err(BenchError::io)?;
+            }
+            if let Some(compat) = texture_profile_check(root, &path) {
+                if !compat.is_compatible() {
+                    summary = format!("{summary}; {}", compat.message());
+                }
+                output["texture_profile"] =
+                    serde_json::to_value(&compat).map_err(BenchError::io)?;
             }
             success(output, summary)
         }
@@ -194,12 +202,28 @@ fn execute_sync(root: &Path, call: &FunctionCall) -> Result<ToolResult, BenchErr
             let output = project::resolve_for_write(root, &rel_output)?;
             let project_render = manifest::load(root).0.render.unwrap_or_default();
             let mut renderer = args.renderer;
-            let inherited_profile =
-                inherit_render_config(&mut renderer, &args.profile, &project_render);
+            let (inherited_profile, inherited_texture_profile) = inherit_render_config(
+                &mut renderer,
+                &args.profile,
+                &args.texture_profile,
+                &project_render,
+            );
             let profile = match (resolve_optional(root, args.profile)?, inherited_profile) {
                 (Some(explicit), _) => Some(explicit),
                 // The project profile may live outside the root (GUI allows
                 // it), so resolve like the GUI render path does.
+                (None, Some(inherited)) => Some(
+                    manifest::resolve_profile_path(root, &inherited)
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
+                (None, None) => None,
+            };
+            let texture_profile = match (
+                resolve_optional(root, args.texture_profile)?,
+                inherited_texture_profile,
+            ) {
+                (Some(explicit), _) => Some(explicit),
                 (None, Some(inherited)) => Some(
                     manifest::resolve_profile_path(root, &inherited)
                         .to_string_lossy()
@@ -215,6 +239,7 @@ fn execute_sync(root: &Path, call: &FunctionCall) -> Result<ToolResult, BenchErr
                 stems: args.stems,
                 soundfont: resolve_optional(root, args.soundfont)?,
                 profile,
+                texture_profile,
             };
             let result = scorekit::build(&path, &output, &params)?;
             success(
@@ -223,6 +248,7 @@ fn execute_sync(root: &Path, call: &FunctionCall) -> Result<ToolResult, BenchErr
                     "output":rel_output,
                     "renderer":params.renderer,
                     "profile":params.profile,
+                    "texture_profile":params.texture_profile,
                     "meta_path":result.meta_path.strip_prefix(root).unwrap_or(&result.meta_path),
                     "meta":result.meta
                 }),
@@ -346,6 +372,12 @@ fn write_scene(root: &Path, args: WriteArgs) -> Result<ToolResult, BenchError> {
             }
             output["render_profile"] = serde_json::to_value(&compat).map_err(BenchError::io)?;
         }
+        if let Some(compat) = texture_profile_check(root, &target) {
+            if !compat.is_compatible() {
+                summary = format!("{summary}; {}", compat.message());
+            }
+            output["texture_profile"] = serde_json::to_value(&compat).map_err(BenchError::io)?;
+        }
     } else {
         output["validation"] = json!({"status": "skipped"});
     }
@@ -363,21 +395,33 @@ fn profile_check(root: &Path, scene_path: &Path) -> Option<manifest::ProfileComp
     manifest::check_scene_profile(root, scene_path, &render)
 }
 
+fn texture_profile_check(root: &Path, scene_path: &Path) -> Option<manifest::TextureProfileCompat> {
+    let render = manifest::load(root).0.render.unwrap_or_default();
+    manifest::check_scene_texture_profile(root, scene_path, &render)
+}
+
 /// Fill build parameters the model omitted from the project render config.
-/// Returns the inherited profile path, if any. Pure function for testing.
+/// Returns inherited renderer and texture profile paths. Pure for testing.
 fn inherit_render_config(
     renderer: &mut Option<String>,
     explicit_profile: &Option<String>,
+    explicit_texture_profile: &Option<String>,
     project_render: &manifest::RenderConfig,
-) -> Option<String> {
+) -> (Option<String>, Option<String>) {
     if renderer.is_none() {
         renderer.clone_from(&project_render.renderer);
     }
-    if explicit_profile.is_none() && renderer.as_deref() == Some("sfizz") {
+    let profile = if explicit_profile.is_none() && renderer.as_deref() == Some("sfizz") {
         project_render.profile.clone()
     } else {
         None
-    }
+    };
+    let texture_profile = if explicit_texture_profile.is_none() {
+        project_render.texture_profile.clone()
+    } else {
+        None
+    };
+    (profile, texture_profile)
 }
 
 fn require_scene_path(path: &str) -> Result<(), BenchError> {
@@ -444,6 +488,7 @@ struct BuildArgs {
     stems: Option<bool>,
     soundfont: Option<String>,
     profile: Option<String>,
+    texture_profile: Option<String>,
 }
 
 #[cfg(test)]
@@ -650,31 +695,43 @@ mod tests {
         let project_render = manifest::RenderConfig {
             renderer: Some("sfizz".into()),
             profile: Some("profiles/open.yaml".into()),
+            texture_profile: Some("profiles/forest-textures.yaml".into()),
         };
 
         let mut renderer = None;
-        let inherited = inherit_render_config(&mut renderer, &None, &project_render);
+        let (inherited, texture) =
+            inherit_render_config(&mut renderer, &None, &None, &project_render);
         assert_eq!(renderer.as_deref(), Some("sfizz"));
         assert_eq!(inherited.as_deref(), Some("profiles/open.yaml"));
+        assert_eq!(texture.as_deref(), Some("profiles/forest-textures.yaml"));
 
-        // Explicit renderer wins; a non-sfizz renderer takes no profile.
+        // Explicit renderer wins; texture profiles are renderer-independent.
         let mut renderer = Some("fluidsynth".to_owned());
-        let inherited = inherit_render_config(&mut renderer, &None, &project_render);
+        let (inherited, texture) =
+            inherit_render_config(&mut renderer, &None, &None, &project_render);
         assert_eq!(renderer.as_deref(), Some("fluidsynth"));
         assert!(inherited.is_none());
+        assert_eq!(texture.as_deref(), Some("profiles/forest-textures.yaml"));
 
         // Explicit profile wins over the project profile.
         let mut renderer = None;
         let explicit = Some("other.yaml".to_owned());
-        let inherited = inherit_render_config(&mut renderer, &explicit, &project_render);
+        let (inherited, texture) =
+            inherit_render_config(&mut renderer, &explicit, &explicit, &project_render);
         assert!(inherited.is_none());
+        assert!(texture.is_none());
 
         // Empty project config changes nothing.
         let mut renderer = None;
-        let inherited =
-            inherit_render_config(&mut renderer, &None, &manifest::RenderConfig::default());
+        let (inherited, texture) = inherit_render_config(
+            &mut renderer,
+            &None,
+            &None,
+            &manifest::RenderConfig::default(),
+        );
         assert!(renderer.is_none());
         assert!(inherited.is_none());
+        assert!(texture.is_none());
     }
 
     #[test]
@@ -719,6 +776,10 @@ mod tests {
         assert_eq!(
             build.parameters["properties"]["path"]["type"],
             serde_json::json!("string")
+        );
+        assert_eq!(
+            build.parameters["properties"]["texture_profile"]["type"],
+            serde_json::json!(["string", "null"])
         );
 
         let write = definitions()

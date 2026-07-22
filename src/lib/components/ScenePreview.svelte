@@ -53,6 +53,7 @@
           {#if scene.bars != null}<span class="chip"><b>{scene.bars}</b> bars</span>{/if}
           {#if scene.loop_enabled}<span class="chip">loop</span>{/if}
           {#if scene.has_performance}<span class="chip">performance</span>{/if}
+          {#if scene.textures.length}<span class="chip">{scene.textures.length} {t("preview.textures")}</span>{/if}
           <span class="chip status {inspection.validation.status}">{inspection.validation.status}</span>
         </div>
       </header>
@@ -128,6 +129,42 @@
           </table>
         {/if}
       </section>
+
+      {#if scene.textures.length}
+        <section>
+          <h3>{t("preview.textures")} <em>{scene.textures.length}</em></h3>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>{t("preview.source")}</th>
+                <th>{t("preview.mode")}</th>
+                <th>{t("preview.schedule")}</th>
+                <th class="num">{t("preview.gain")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each scene.textures as texture, index}
+                <tr>
+                  <td class="idx">{index + 1}</td>
+                  <td class="instrument">{texture.source ?? "—"}</td>
+                  <td>{texture.mode ?? "—"}</td>
+                  <td>
+                    {#if texture.mode === "loop"}
+                      {t("preview.beat")} {texture.start_beat ?? 0}
+                    {:else if texture.at.length}
+                      {texture.at.join(", ")}
+                    {:else}
+                      —
+                    {/if}
+                  </td>
+                  <td class="num">{(texture.gain ?? 1).toFixed(2)}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </section>
+      {/if}
     </div>
   {/if}
 </div>
