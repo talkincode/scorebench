@@ -931,12 +931,12 @@ mod tests {
         let root = temp_project("style-pack");
         let pack = styles::builtins()
             .into_iter()
-            .find(|pack| pack.id == "chinese-campus-folk-90s")
+            .find(|pack| pack.id == "epic-new-age-instrumental")
             .unwrap();
         let with_style = system_prompt(&root, "main", Some(&pack)).unwrap();
-        assert!(with_style.contains("ACTIVE STYLE PACK `chinese-campus-folk-90s`"));
+        assert!(with_style.contains("ACTIVE STYLE PACK `epic-new-age-instrumental`"));
         assert!(
-            with_style.contains("dense_brass"),
+            with_style.contains("orchestral_percussion"),
             "structured body present"
         );
         assert!(with_style.contains("STYLE CONFLICT DETECTION"));

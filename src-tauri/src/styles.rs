@@ -35,10 +35,8 @@ const MAX_NAME_CHARS: usize = 120;
 
 const BUILTIN_SOURCES: &[&str] = &[
     include_str!("../styles/builtin/epic-new-age-instrumental.yaml"),
-    include_str!("../styles/builtin/chinese-campus-folk-90s.yaml"),
     include_str!("../styles/builtin/chiptune-adventure.yaml"),
     include_str!("../styles/builtin/cinematic-underscore.yaml"),
-    include_str!("../styles/builtin/eastern-wuxia.yaml"),
     include_str!("../styles/builtin/aaa-game-score.yaml"),
 ];
 
@@ -331,7 +329,7 @@ mod tests {
             );
         }
         assert!(packs.iter().any(|p| p.id == "epic-new-age-instrumental"));
-        assert!(packs.iter().any(|p| p.id == "chinese-campus-folk-90s"));
+        assert!(packs.iter().any(|p| p.id == "aaa-game-score"));
     }
 
     #[test]
@@ -387,10 +385,10 @@ mod tests {
     #[test]
     fn builtin_packs_are_read_only() {
         let dir = test_dir("builtin-guard");
-        let clash = "id: chinese-campus-folk-90s\nname: overwrite attempt\n";
+        let clash = "id: epic-new-age-instrumental\nname: overwrite attempt\n";
         let error = save(&dir, clash, None).unwrap_err();
         assert!(error.to_string().contains("built-in"));
-        let error = delete(&dir, "chinese-campus-folk-90s").unwrap_err();
+        let error = delete(&dir, "epic-new-age-instrumental").unwrap_err();
         assert!(error.to_string().contains("built-in"));
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -413,7 +411,7 @@ mod tests {
         std::fs::write(dir.join(STYLES_DIR).join("broken.yaml"), "id: [not\nvalid").unwrap();
         std::fs::write(
             dir.join(STYLES_DIR).join("clash.yaml"),
-            "id: chinese-campus-folk-90s\nname: shadowing builtin\n",
+            "id: epic-new-age-instrumental\nname: shadowing builtin\n",
         )
         .unwrap();
         let (packs, warnings) = list(&dir);
@@ -428,13 +426,13 @@ mod tests {
     fn prompt_section_carries_pack_and_conflict_protocol() {
         let pack = builtins()
             .into_iter()
-            .find(|pack| pack.id == "chinese-campus-folk-90s")
+            .find(|pack| pack.id == "epic-new-age-instrumental")
             .unwrap();
         let section = prompt_section(&pack);
-        assert!(section.contains("ACTIVE STYLE PACK `chinese-campus-folk-90s`"));
-        assert!(section.contains("九十年代中国校园民谣"));
+        assert!(section.contains("ACTIVE STYLE PACK `epic-new-age-instrumental`"));
+        assert!(section.contains("宏大新世纪器乐"));
         assert!(
-            section.contains("dense_brass"),
+            section.contains("orchestral_percussion"),
             "structured body is injected verbatim"
         );
         assert!(section.contains("STYLE CONFLICT DETECTION"));

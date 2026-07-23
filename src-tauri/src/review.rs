@@ -682,13 +682,13 @@ mod tests {
         std::fs::write(root.join("forest.yaml"), "title: Forest\nbars: 8\n").unwrap();
         let pack = crate::styles::builtins()
             .into_iter()
-            .find(|pack| pack.id == "chinese-campus-folk-90s")
+            .find(|pack| pack.id == "epic-new-age-instrumental")
             .unwrap();
         let evidence = gather_evidence(&root, "main", "forest.yaml", Some(&pack)).unwrap();
         let style = evidence.style_pack.unwrap();
-        assert_eq!(style["id"], "chinese-campus-folk-90s");
-        assert_eq!(style["review"]["criteria"][0], "melody_singability");
-        assert_eq!(style["arrangement"]["avoid"][0], "dense_brass");
+        assert_eq!(style["id"], "epic-new-age-instrumental");
+        assert_eq!(style["review"]["criteria"][0], "climax_clarity");
+        assert_eq!(style["arrangement"]["preferred"][0], "piano");
         std::fs::remove_dir_all(root).unwrap();
     }
 

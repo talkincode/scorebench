@@ -1,5 +1,42 @@
 import { describe, expect, it } from "vitest";
-import { pickRecordingMime, recordingFileName } from "./recording";
+import {
+  DEFAULT_RECORDING_RESOLUTION_ID,
+  RECORDING_RESOLUTIONS,
+  containRecordingFrame,
+  pickRecordingMime,
+  recordingFileName,
+  recordingResolution,
+} from "./recording";
+
+describe("recording resolutions", () => {
+  it("offers standard 16:9 sizes with increasing bitrates", () => {
+    expect(RECORDING_RESOLUTIONS.map(({ id, width, height }) => ({ id, width, height }))).toEqual([
+      { id: "720p", width: 1280, height: 720 },
+      { id: "1080p", width: 1920, height: 1080 },
+      { id: "1440p", width: 2560, height: 1440 },
+      { id: "2160p", width: 3840, height: 2160 },
+    ]);
+    expect(recordingResolution(DEFAULT_RECORDING_RESOLUTION_ID).width).toBe(1920);
+    expect(RECORDING_RESOLUTIONS.map((preset) => preset.videoBitsPerSecond)).toEqual([
+      6_000_000, 12_000_000, 20_000_000, 35_000_000,
+    ]);
+  });
+
+  it("letterboxes frames without stretching or cropping", () => {
+    expect(containRecordingFrame(4, 3, 1920, 1080)).toEqual({
+      x: 240,
+      y: 0,
+      width: 1440,
+      height: 1080,
+    });
+    expect(containRecordingFrame(2560, 1080, 1920, 1080)).toEqual({
+      x: 0,
+      y: 135,
+      width: 1920,
+      height: 810,
+    });
+  });
+});
 
 describe("pickRecordingMime", () => {
   it("prefers mp4 with explicit codecs when supported", () => {
@@ -50,6 +87,12 @@ describe("recordingFileName", () => {
   it("zero-pads the timestamp", () => {
     expect(recordingFileName(null, "mp4", new Date(2026, 0, 5, 9, 7))).toBe(
       "spectrum-visualizer-20260105-0907.mp4",
+    );
+  });
+
+  it("includes the selected resolution when supplied", () => {
+    expect(recordingFileName("build/piece.ogg", "mp4", at, "2160p")).toBe(
+      "piece-visualizer-2160p-20260720-2058.mp4",
     );
   });
 });

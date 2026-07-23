@@ -1,5 +1,9 @@
 <script lang="ts">
   import { t } from "../i18n.svelte";
+  import {
+    RECORDING_RESOLUTIONS,
+    type RecordingResolutionId,
+  } from "../recording";
   import { sceneSignature } from "../titleCard";
   import { AUTO_STYLE_ID, visualStyles } from "../spectrum";
 
@@ -13,6 +17,7 @@
     meta = null,
     recordingState = "idle",
     recordingTime = "",
+    recordingResolutionId = "1080p",
     recordError = null,
     hasHud = false,
     hudOn = true,
@@ -21,6 +26,7 @@
     getCanvas = () => null,
     onhue,
     onhud,
+    onresolution,
     onrecord,
     onrecordstop,
     ontoggle,
@@ -43,6 +49,7 @@
     } | null;
     recordingState?: "idle" | "starting" | "recording" | "saving";
     recordingTime?: string;
+    recordingResolutionId?: RecordingResolutionId;
     recordError?: string | null;
     /** The active style draws an in-canvas HUD recordings could capture. */
     hasHud?: boolean;
@@ -56,6 +63,7 @@
     getCanvas?: () => HTMLCanvasElement | null;
     onhue?: (value: number | null) => void;
     onhud?: (value: boolean) => void;
+    onresolution?: (value: RecordingResolutionId) => void;
     onrecord?: (canvas: HTMLCanvasElement | null) => void;
     onrecordstop?: () => void;
     ontoggle?: () => void;
@@ -100,6 +108,12 @@
     if (event.target instanceof Element && event.target.closest(".hud")) return;
     onclose?.();
   }
+
+  function selectRecordingResolution(value: string) {
+    const resolution = RECORDING_RESOLUTIONS.find((candidate) => candidate.id === value);
+    if (!resolution) throw new Error(`unknown recording resolution: ${value}`);
+    onresolution?.(resolution.id);
+  }
 </script>
 
 <svelte:window onkeydown={onKeydown} onpointermove={wake} onpointerdown={wake} ondblclick={onDblclick} />
@@ -120,6 +134,21 @@
       {playing ? "❚❚" : "▶"}
     </button>
     <span class="time">{timeText}</span>
+    <label class="record-resolution" title={t("overlay.resolutionHint")}>
+      <span>{t("overlay.resolution")}</span>
+      <select
+        value={recordingResolutionId}
+        disabled={recordingActive}
+        aria-label={t("overlay.resolutionHint")}
+        onchange={(event) => selectRecordingResolution(event.currentTarget.value)}
+      >
+        {#each RECORDING_RESOLUTIONS as resolution}
+          <option value={resolution.id}>
+            {resolution.label} · {resolution.width}×{resolution.height}
+          </option>
+        {/each}
+      </select>
+    </label>
     {#if recordingState === "recording"}
       <button class="rec live" onclick={() => onrecordstop?.()} title={t("overlay.recordStop")} aria-label={t("overlay.recordStop")}>
         <i class="rec-dot" aria-hidden="true"></i>{recordingTime}
@@ -315,6 +344,42 @@
     font: 11px var(--mono);
     min-width: 74px;
   }
+  .record-resolution {
+    display: inline-flex;
+    align-items: center;
+    height: 28px;
+    padding-left: 9px;
+    overflow: hidden;
+    color: var(--fg-dim);
+    border: 1px solid var(--line-strong);
+    border-radius: 20px;
+    background: rgba(0, 0, 0, 0.4);
+    font: 9px var(--mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .record-resolution select {
+    align-self: stretch;
+    max-width: 150px;
+    margin-left: 7px;
+    padding: 0 24px 0 8px;
+    color: var(--fg);
+    border: 0;
+    border-left: 1px solid var(--line-strong);
+    outline: 0;
+    background: color-mix(in srgb, var(--accent) 8%, rgba(0, 0, 0, 0.65));
+    font: 10px var(--mono);
+    letter-spacing: 0;
+    text-transform: none;
+    cursor: pointer;
+  }
+  .record-resolution select:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  .record-resolution select:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
   .rec {
     display: inline-flex;
     align-items: center;
@@ -480,6 +545,18 @@
   @media (max-width: 1180px) {
     .hint {
       display: none;
+    }
+  }
+  @media (max-width: 900px) {
+    .record-resolution > span {
+      display: none;
+    }
+    .record-resolution {
+      padding-left: 0;
+    }
+    .record-resolution select {
+      margin-left: 0;
+      border-left: 0;
     }
   }
   @media (prefers-reduced-motion: reduce) {

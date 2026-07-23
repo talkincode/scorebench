@@ -253,6 +253,8 @@ const en = {
   "overlay.recordSaving": "Saving…",
   "overlay.recordHint": "Restarts the piece and captures this view with audio",
   "overlay.recordUnsupported": "Video recording is not supported by this webview",
+  "overlay.resolution": "Output",
+  "overlay.resolutionHint": "Recorded video resolution",
   "overlay.hudToggle": "HUD",
   "overlay.hudToggleHint": "Show the on-canvas HUD (recordings capture what the canvas shows)",
 };
@@ -492,6 +494,8 @@ const zh: Record<MessageKey, string> = {
   "overlay.recordSaving": "保存中…",
   "overlay.recordHint": "从头播放乐曲并录制当前画面与声音",
   "overlay.recordUnsupported": "当前 webview 不支持视频录制",
+  "overlay.resolution": "输出",
+  "overlay.resolutionHint": "录制视频分辨率",
   "overlay.hudToggle": "HUD",
   "overlay.hudToggleHint": "显示画面内 HUD（录制内容与画面一致）",
 };

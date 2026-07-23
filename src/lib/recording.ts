@@ -12,6 +12,31 @@ export interface RecordingMime {
   extension: "mp4" | "webm";
 }
 
+export type RecordingResolutionId = "720p" | "1080p" | "1440p" | "2160p";
+
+export interface RecordingResolution {
+  id: RecordingResolutionId;
+  label: string;
+  width: number;
+  height: number;
+  videoBitsPerSecond: number;
+}
+
+export const RECORDING_RESOLUTIONS: readonly RecordingResolution[] = [
+  { id: "720p", label: "720p", width: 1280, height: 720, videoBitsPerSecond: 6_000_000 },
+  { id: "1080p", label: "1080p", width: 1920, height: 1080, videoBitsPerSecond: 12_000_000 },
+  { id: "1440p", label: "1440p", width: 2560, height: 1440, videoBitsPerSecond: 20_000_000 },
+  { id: "2160p", label: "4K", width: 3840, height: 2160, videoBitsPerSecond: 35_000_000 },
+];
+
+export const DEFAULT_RECORDING_RESOLUTION_ID: RecordingResolutionId = "1080p";
+
+export function recordingResolution(id: RecordingResolutionId): RecordingResolution {
+  const resolution = RECORDING_RESOLUTIONS.find((candidate) => candidate.id === id);
+  if (!resolution) throw new Error(`unknown recording resolution: ${id}`);
+  return resolution;
+}
+
 const MIME_CANDIDATES: RecordingMime[] = [
   { mimeType: "video/mp4;codecs=avc1.42E01E,mp4a.40.2", extension: "mp4" },
   { mimeType: "video/mp4", extension: "mp4" },
@@ -34,6 +59,7 @@ export function recordingFileName(
   assetPath: string | null,
   extension: string,
   now: Date,
+  resolutionId?: RecordingResolutionId,
 ): string {
   const base = assetPath?.split("/").at(-1) ?? "spectrum";
   const dot = base.lastIndexOf(".");
@@ -43,7 +69,41 @@ export function recordingFileName(
   const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(
     now.getHours(),
   )}${pad(now.getMinutes())}`;
-  return `${safe}-visualizer-${stamp}.${extension}`;
+  const resolution = resolutionId ? `-${resolutionId}` : "";
+  return `${safe}-visualizer${resolution}-${stamp}.${extension}`;
+}
+
+export interface RecordingFrameRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Letterbox a source frame into the output without stretching or cropping it. */
+export function containRecordingFrame(
+  sourceWidth: number,
+  sourceHeight: number,
+  outputWidth: number,
+  outputHeight: number,
+): RecordingFrameRect {
+  if (
+    sourceWidth <= 0 ||
+    sourceHeight <= 0 ||
+    outputWidth <= 0 ||
+    outputHeight <= 0
+  ) {
+    throw new Error("recording frame dimensions must be positive");
+  }
+  const scale = Math.min(outputWidth / sourceWidth, outputHeight / sourceHeight);
+  const width = sourceWidth * scale;
+  const height = sourceHeight * scale;
+  return {
+    x: (outputWidth - width) / 2,
+    y: (outputHeight - height) / 2,
+    width,
+    height,
+  };
 }
 
 export interface CanvasRecorderInit {
@@ -54,6 +114,8 @@ export interface CanvasRecorderInit {
   mime: RecordingMime;
   fps?: number;
   videoBitsPerSecond?: number;
+  /** Exact encoded frame size and its tuned default bitrate. */
+  resolution?: RecordingResolution;
   /**
    * Paints chrome (the title card) over each frame. When present, capture
    * switches to an offscreen canvas composited per frame: source canvas
@@ -91,8 +153,8 @@ export class CanvasRecorder {
     this.destination = init.audioContext.createMediaStreamDestination();
     this.tap.connect(this.destination);
     const fps = init.fps ?? 30;
-    const captureSource = init.overlayDraw
-      ? this.startComposite(init.canvas, init.overlayDraw, fps)
+    const captureSource = init.overlayDraw || init.resolution
+      ? this.startComposite(init.canvas, init.overlayDraw, fps, init.resolution)
       : init.canvas;
     const video = captureSource.captureStream(fps);
     this.stream = new MediaStream([
@@ -101,7 +163,8 @@ export class CanvasRecorder {
     ]);
     this.recorder = new MediaRecorder(this.stream, {
       mimeType: init.mime.mimeType,
-      videoBitsPerSecond: init.videoBitsPerSecond ?? 12_000_000,
+      videoBitsPerSecond:
+        init.videoBitsPerSecond ?? init.resolution?.videoBitsPerSecond ?? 12_000_000,
     });
     this.extension = init.mime.extension;
     this.recorder.ondataavailable = (event) => {
@@ -118,18 +181,19 @@ export class CanvasRecorder {
    */
   private startComposite(
     source: HTMLCanvasElement,
-    overlayDraw: NonNullable<CanvasRecorderInit["overlayDraw"]>,
+    overlayDraw: CanvasRecorderInit["overlayDraw"],
     fps: number,
+    resolution?: RecordingResolution,
   ): HTMLCanvasElement {
     const composite = document.createElement("canvas");
-    composite.width = Math.max(2, source.width);
-    composite.height = Math.max(2, source.height);
+    composite.width = resolution?.width ?? Math.max(2, source.width);
+    composite.height = resolution?.height ?? Math.max(2, source.height);
     composite.style.cssText = "position: fixed; left: -10000px; top: 0; pointer-events: none;";
     document.body.appendChild(composite);
     const ctx = composite.getContext("2d");
     if (!ctx) {
       composite.remove();
-      return source;
+      throw new Error("could not create recording canvas");
     }
     this.composite = composite;
     const interval = 1000 / fps;
@@ -142,10 +206,17 @@ export class CanvasRecorder {
       ctx.fillStyle = "#010403";
       ctx.fillRect(0, 0, composite.width, composite.height);
       if (source.width > 0 && source.height > 0) {
-        ctx.drawImage(source, 0, 0, composite.width, composite.height);
+        const frame = containRecordingFrame(
+          source.width,
+          source.height,
+          composite.width,
+          composite.height,
+        );
+        ctx.drawImage(source, frame.x, frame.y, frame.width, frame.height);
       }
-      const dpr = source.clientWidth > 0 ? source.width / source.clientWidth : 1;
-      overlayDraw(ctx, composite.width, composite.height, dpr);
+      const dpr =
+        source.clientWidth > 0 ? composite.width / source.clientWidth : composite.width / 1920;
+      overlayDraw?.(ctx, composite.width, composite.height, dpr);
     };
     this.compositeRaf = requestAnimationFrame(loop);
     return composite;

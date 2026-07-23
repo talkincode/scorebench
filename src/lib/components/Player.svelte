@@ -1,11 +1,15 @@
 <script lang="ts">
-  import { api, errorText, type SceneDisplay } from "../api";
+  import { api, errorText, type ProjectInfo, type SceneDisplay } from "../api";
+  import { AsyncLruCache, audioAssetCacheKey } from "../audioCache";
   import { t } from "../i18n.svelte";
   import {
     CanvasRecorder,
+    DEFAULT_RECORDING_RESOLUTION_ID,
     pickRecordingMime,
     recordingFileName,
+    recordingResolution,
     type RecordingMime,
+    type RecordingResolutionId,
   } from "../recording";
   import { bench } from "../state.svelte";
   import { REPO_WATERMARK, WATERMARK_ALPHA, drawTitleCard, sceneSignature } from "../titleCard";
@@ -24,6 +28,7 @@
 
   let audioCtx: AudioContext | null = null;
   let analyser = $state<AnalyserNode | null>(null);
+  let graphAnalyser: AnalyserNode | null = null;
   let analyserL: AnalyserNode | null = null;
   let analyserR: AnalyserNode | null = null;
   let gainNode: GainNode | null = null;
@@ -87,6 +92,9 @@
   let recordingState = $state<"idle" | "starting" | "recording" | "saving">("idle");
   let recordingElapsed = $state(0);
   let recordError = $state<string | null>(null);
+  let recordingResolutionId = $state<RecordingResolutionId>(
+    DEFAULT_RECORDING_RESOLUTION_ID,
+  );
   let recordingStartedAt = 0;
 
   let spectrumView: { getActiveCanvas: () => HTMLCanvasElement | null } | undefined = $state();
@@ -94,9 +102,12 @@
   let startCtxTime = 0;
   let startOffset = 0;
   let lastLoadSeq = 0;
+  let loadGeneration = 0;
+  let cacheRoot: string | null = null;
   let settingsApplied = false;
   let meterTime: Uint8Array | null = null;
   const meterState = { l: 0, r: 0, peakL: 0, peakR: 0, heldL: 0, heldR: 0 };
+  const decodedAssets = new AsyncLruCache<AudioBuffer>(2);
 
   let effectiveStyleId = $derived(styleId === AUTO_STYLE_ID ? (autoPicked ?? "bars") : styleId);
   let activeEntry = $derived(visualStyleById(effectiveStyleId) ?? visualStyleById("bars")!);
@@ -107,8 +118,11 @@
   /** Live visibility of that HUD — what the canvas shows is what takes record. */
   let hudOn = $derived((styleOptions.moodHud ?? 1) >= 0.5);
 
-  function ensureGraph() {
-    if (audioCtx) return;
+  function ensureGraph(activate = true) {
+    if (audioCtx) {
+      if (activate && !analyser) analyser = graphAnalyser;
+      return;
+    }
     audioCtx = new AudioContext();
     // Analyser bin width depends on the device sample rate; the mood engine
     // needs it to map bins onto pitch classes.
@@ -132,7 +146,8 @@
     splitter.connect(analyserL, 0);
     splitter.connect(analyserR, 1);
     meterTime = new Uint8Array(512);
-    analyser = mainAnalyser;
+    graphAnalyser = mainAnalyser;
+    if (activate) analyser = mainAnalyser;
   }
 
   function teardownSource() {
@@ -260,6 +275,7 @@
       recordError = t("overlay.recordUnsupported");
       return;
     }
+    const resolution = recordingResolution(recordingResolutionId);
     recordingState = "starting";
     // Keep the take's head clean: silence playback while the encoder warms up
     // (WebKit's first run otherwise swallows roughly the first second).
@@ -275,6 +291,7 @@
         audioContext: audioCtx,
         tap: gainNode,
         mime,
+        resolution,
         overlayDraw: makeTitleCardDraw(canvas),
       });
       await recorder.start();
@@ -296,7 +313,12 @@
     recordingState = "saving";
     try {
       const blob = await recorder.stop();
-      const name = recordingFileName(bench.loadedAsset, recorder.extension, new Date());
+      const name = recordingFileName(
+        bench.loadedAsset,
+        recorder.extension,
+        new Date(),
+        recordingResolutionId,
+      );
       const target = await api.chooseRecordingPath(name);
       if (target) {
         await api.saveRecording(new Uint8Array(await blob.arrayBuffer()));
@@ -315,20 +337,66 @@
     overlayOpen = false;
   }
 
+  function audioAssetForScene(sceneRel: string) {
+    const stem = sceneRel.split("/").at(-1)!.replace(/\.ya?ml$/i, "");
+    return (
+      bench.project?.assets.find(
+        (asset) =>
+          asset.kind === "audio" &&
+          asset.rel_path.split("/").at(-1)?.startsWith(`${stem}.`),
+      ) ?? null
+    );
+  }
+
+  function decodeAsset(project: ProjectInfo, relPath: string): Promise<AudioBuffer> {
+    ensureGraph(false);
+    if (cacheRoot !== project.root) {
+      cacheRoot = project.root;
+      decodedAssets.clear();
+    }
+    const asset = project.assets.find((candidate) => candidate.rel_path === relPath);
+    const key = audioAssetCacheKey(
+      project.root,
+      relPath,
+      asset?.size_bytes ?? null,
+      asset?.modified_ms ?? null,
+    );
+    const context = audioCtx!;
+    return decodedAssets.getOrCreate(key, async () => {
+      const bytes = await api.readAsset(project.root, relPath);
+      return context.decodeAudioData(bytes);
+    });
+  }
+
   async function load(relPath: string) {
-    if (!bench.project) return;
+    const project = bench.project;
+    if (!project) return;
+    const generation = ++loadGeneration;
     ensureGraph();
+    const resume = audioCtx!.state === "running" ? Promise.resolve() : audioCtx!.resume();
     teardownSource();
     playing = false;
     loadError = null;
     try {
-      const bytes = await api.readAsset(bench.project.root, relPath);
-      buffer = await audioCtx!.decodeAudioData(bytes.slice(0));
-      duration = buffer.duration;
+      const decoded = await decodeAsset(project, relPath);
+      await resume;
+      if (
+        generation !== loadGeneration ||
+        bench.project?.root !== project.root ||
+        bench.loadedAsset !== relPath
+      )
+        return;
+      buffer = decoded;
+      duration = decoded.duration;
       position = 0;
-      autoPicked = pickStyle(analyzeTraits(buffer));
       play();
+      queueMicrotask(() => {
+        if (generation === loadGeneration && buffer === decoded) {
+          autoPicked = pickStyle(analyzeTraits(decoded));
+        }
+      });
     } catch (err) {
+      if (generation !== loadGeneration) return;
       buffer = null;
       duration = 0;
       position = 0;
@@ -343,6 +411,36 @@
       lastLoadSeq = seq;
       void load(rel);
     }
+  });
+
+  // Decode the selected scene during idle time so its first explicit play can
+  // reuse the AudioBuffer instead of putting file I/O and a full decode on the click path.
+  $effect(() => {
+    const project = bench.project;
+    const scene = bench.selectedScene;
+    const asset = scene ? audioAssetForScene(scene) : null;
+    if (!project || !asset) return;
+
+    let cancelled = false;
+    const host = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const preload = () => {
+      if (cancelled || document.visibilityState === "hidden") return;
+      void decodeAsset(project, asset.rel_path).catch((error) => {
+        if (!cancelled) console.warn(`audio preload failed for ${asset.rel_path}`, error);
+      });
+    };
+    const idleHandle = host.requestIdleCallback?.(preload, { timeout: 500 });
+    const timeoutHandle =
+      idleHandle === undefined ? window.setTimeout(preload, 120) : undefined;
+
+    return () => {
+      cancelled = true;
+      if (idleHandle !== undefined) host.cancelIdleCallback?.(idleHandle);
+      if (timeoutHandle !== undefined) window.clearTimeout(timeoutHandle);
+    };
   });
 
   $effect(() => {
@@ -553,6 +651,7 @@
           meta={sceneMeta}
           {recordingState}
           recordingTime={fmtTime(recordingElapsed)}
+          {recordingResolutionId}
           {recordError}
           {hasHud}
           {hudOn}
@@ -561,6 +660,7 @@
           getCanvas={() => spectrumView?.getActiveCanvas() ?? null}
           onhue={setSpectrumHue}
           onhud={(value) => (styleOptions.moodHud = value ? 1 : 0)}
+          onresolution={(value) => (recordingResolutionId = value)}
           onrecord={(canvas) => void startRecording(canvas)}
           onrecordstop={() => void stopRecording()}
           ontoggle={toggle}

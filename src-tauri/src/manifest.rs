@@ -466,7 +466,7 @@ mod tests {
         save_style(
             &root,
             Some(StyleRef {
-                id: "chinese-campus-folk-90s".into(),
+                id: "epic-new-age-instrumental".into(),
             }),
         )
         .unwrap();
@@ -476,7 +476,7 @@ mod tests {
         assert_eq!(
             manifest.style,
             Some(StyleRef {
-                id: "chinese-campus-folk-90s".into()
+                id: "epic-new-age-instrumental".into()
             })
         );
         assert!(manifest.extra.contains_key("future_field"));
