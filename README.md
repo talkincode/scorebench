@@ -81,7 +81,7 @@ Install scorebench from [Releases](https://github.com/talkincode/scorebench/rele
 - Linux: use the `.deb` or `.AppImage` artifact.
 - Windows: use the `.msi` or `-setup.exe` artifact.
 
-Install ScoreKit 0.3.x separately (for example with Homebrew `brew install talkincode/tap/scorekit`, or from [ScoreKit Releases](https://github.com/talkincode/scorekit/releases)), then confirm:
+Install ScoreKit 0.3.x–0.4.x separately (for example with Homebrew `brew install talkincode/tap/scorekit`, or from [ScoreKit Releases](https://github.com/talkincode/scorekit/releases)), then confirm:
 
 ```bash
 brew trust --tap talkincode/tap   # when installing ScoreKit via Homebrew tap
@@ -89,7 +89,7 @@ scorekit --version
 scorekit doctor
 ```
 
-If scorebench starts but cannot find ScoreKit, set `SCOREBENCH_SCOREKIT` to the absolute path of the ScoreKit executable and restart the app.
+If scorebench starts but cannot find ScoreKit, pin the executable's absolute path in Settings → scorekit binary (also the way to choose between several installed versions), or set `SCOREBENCH_SCOREKIT` and restart the app.
 
 ## Development (Contributors)
 

@@ -4,7 +4,7 @@ This chapter takes the shortest path through the complete loop: install the depe
 
 ## 1. Install scorebench and ScoreKit
 
-scorebench needs the ScoreKit CLI at runtime. The desktop app does not bundle the CLI. This version is tested with ScoreKit 0.3.x.
+scorebench needs the ScoreKit CLI at runtime. The desktop app does not bundle the CLI. This version is tested with ScoreKit 0.3.x–0.4.x.
 
 ### macOS (Homebrew, recommended)
 
@@ -50,7 +50,7 @@ scorekit doctor
 
 `scorekit doctor` should confirm FFmpeg, at least one renderer, and the default sound source status.
 
-> If scorebench cannot locate the command, set `SCOREBENCH_SCOREKIT` to the absolute path of the ScoreKit executable. GUI applications on macOS often receive a shorter `PATH` than terminal shells, so a command can work in Terminal and still be invisible to the app.
+> If scorebench cannot locate the command, pin the ScoreKit executable's absolute path in Settings → scorekit binary (or set `SCOREBENCH_SCOREKIT`). GUI applications on macOS often receive a shorter `PATH` than terminal shells, so a command can work in Terminal and still be invisible to the app.
 
 ## 2. Create a project directory
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { open } from "@tauri-apps/plugin-dialog";
   import { untrack } from "svelte";
   import { api, errorText, type Settings } from "../api";
   import { setLocale, t } from "../i18n.svelte";
@@ -9,6 +10,7 @@
     model: "gpt-5.6",
     context_budget_tokens: 128000,
     max_turns: 16,
+    scorekit_path: null,
     spectrum_style: "bars",
     spectrum_bars: 64,
     spectrum_hue: null,
@@ -17,6 +19,7 @@
   });
   let tab = $state<"connection" | "interface">("connection");
   let apiKey = $state("");
+  let scorekitPath = $state("");
   let allowInsecureStorage = $state(false);
   let busy = $state(false);
   let result = $state<string | null>(null);
@@ -36,6 +39,7 @@
       draft = { ...settings };
       bench.themeHuePreview = settings.theme_hue;
       apiKey = "";
+      scorekitPath = settings.scorekit_path ?? "";
       allowInsecureStorage = false;
       result = warning;
       failed = Boolean(warning);
@@ -49,6 +53,7 @@
     result = null;
     failed = false;
     try {
+      draft.scorekit_path = scorekitPath.trim() || null;
       await api.saveSettings(draft);
       const changingApiKey = Boolean(apiKey.trim());
       if (changingApiKey) {
@@ -63,6 +68,7 @@
       bench.settingsWarning = view.warning ?? null;
       setLocale(view.settings.locale);
       if (changingApiKey) apiKey = "";
+      await refreshScorekit();
       result = t("settings.saved");
       return true;
     } catch (err) {
@@ -72,6 +78,23 @@
     } finally {
       busy = false;
     }
+  }
+
+  /** Re-run the handshake so the versions block reflects a changed scorekit pin. */
+  async function refreshScorekit() {
+    try {
+      const info = await api.versionInfo();
+      bench.versionInfo = info;
+      bench.scorekitPath = info.scorekit.path ?? null;
+      bench.scorekitError = info.scorekit.ready ? null : (info.scorekit.warning ?? "scorekit unhealthy");
+    } catch (err) {
+      bench.scorekitError = errorText(err);
+    }
+  }
+
+  async function browseScorekit() {
+    const picked = await open({ multiple: false, directory: false, title: t("settings.scorekitPath") });
+    if (typeof picked === "string") scorekitPath = picked;
   }
 
   async function saveAndClose() {
@@ -165,6 +188,15 @@
             <span>{t("settings.insecure")}</span>
           </label>
 
+          <div class="path-line">
+            <label class="path-field">
+              <span>{t("settings.scorekitPath")}</span>
+              <input bind:value={scorekitPath} spellcheck="false" placeholder={t("settings.scorekitPathAuto")} />
+            </label>
+            <button type="button" class="ghost browse" onclick={browseScorekit}>{t("settings.browse")}</button>
+          </div>
+          <p class="field-hint">{t("settings.scorekitPathHint")}</p>
+
           {#if bench.versionInfo}
             <div class="versions">
               <h3>{t("settings.versions")}</h3>
@@ -173,6 +205,7 @@
                 <dt>scorekit</dt><dd>{bench.versionInfo.scorekit.version ?? "not reported"}</dd>
                 <dt>tested range</dt><dd>{bench.versionInfo.scorekit.tested_range}</dd>
                 <dt>path</dt><dd>{bench.versionInfo.scorekit.path ?? "not found"}</dd>
+                <dt>source</dt><dd>{bench.versionInfo.scorekit.source ?? "—"}</dd>
                 <dt>doctor</dt><dd>{bench.versionInfo.scorekit.ready ? "ready" : "unhealthy"}</dd>
               </dl>
               {#if bench.versionInfo.scorekit.warning}<p>{bench.versionInfo.scorekit.warning}</p>{/if}
@@ -361,6 +394,10 @@
   .check { display: flex; grid-template-columns: auto 1fr; align-items: flex-start; }
   .check input { width: auto; margin-top: 2px; }
   .check span { line-height: 1.45; }
+  .path-line { display: flex; gap: 8px; align-items: flex-end; }
+  .path-line .path-field { margin-bottom: 0; }
+  .path-line .browse { flex: 0 0 auto; padding: 8px 13px; font-size: 12.5px; }
+  .field-hint { margin: 6px 0 14px; color: var(--fg-dim); font-size: 12px; line-height: 1.45; }
   .result {
     padding: 9px 11px;
     color: var(--good);

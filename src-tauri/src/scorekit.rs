@@ -1,6 +1,6 @@
 //! Subprocess boundary to the `scorekit` CLI.
 //!
-//! Contract (recorded through scorekit 0.3.0, see `tests/fixtures/`):
+//! Contract (recorded through scorekit 0.4.0, see `tests/fixtures/`):
 //! - success: exit 0; `build` writes `<output stem>.meta.json` as the machine-readable result
 //! - failure: stderr carries one JSON object `{code, exit_code, field, location, message}`
 //! - `doctor --json`: stdout JSON report
@@ -9,6 +9,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::RwLock;
 
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
@@ -18,13 +19,42 @@ use crate::error::BenchError;
 
 /// Environment variable that pins the scorekit binary explicitly.
 pub const SCOREKIT_ENV: &str = "SCOREBENCH_SCOREKIT";
-pub const TESTED_SCOREKIT_RANGE: &str = ">=0.3.0, <0.4.0";
+pub const TESTED_SCOREKIT_RANGE: &str = ">=0.3.0, <0.5.0";
+
+/// Settings-pinned binary path, seeded by the host layer at startup and
+/// whenever settings are saved. Held here (not re-read from disk) so core
+/// callers stay synchronous and framework-free.
+static CONFIGURED_PATH: RwLock<Option<PathBuf>> = RwLock::new(None);
+
+pub fn set_configured_path(path: Option<PathBuf>) {
+    *CONFIGURED_PATH.write().expect("configured scorekit lock") = path;
+}
+
+fn configured_path() -> Option<PathBuf> {
+    CONFIGURED_PATH
+        .read()
+        .expect("configured scorekit lock")
+        .clone()
+}
+
+/// Which channel `locate` resolved the binary through — surfaced in the
+/// settings panel so a machine with several scorekit installs shows which
+/// copy is active and why.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LocateSource {
+    Env,
+    Settings,
+    Path,
+    WellKnown,
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Handshake {
     pub found: bool,
     pub ready: bool,
     pub path: Option<PathBuf>,
+    pub source: Option<LocateSource>,
     pub version: Option<String>,
     pub tested_range: String,
     pub compatible: Option<bool>,
@@ -34,30 +64,32 @@ pub struct Handshake {
 }
 
 pub fn handshake() -> Handshake {
-    let path = match locate() {
-        Ok(path) => path,
+    let (path, source) = match locate_traced() {
+        Ok(found) => found,
         Err(error) => {
             return Handshake {
                 found: false,
                 ready: false,
                 path: None,
+                source: None,
                 version: None,
                 tested_range: TESTED_SCOREKIT_RANGE.into(),
                 compatible: None,
                 doctor: None,
                 hints: vec![
-                    "Install scorekit, then restart scorebench or set SCOREBENCH_SCOREKIT.".into(),
+                    "Install scorekit, then pin its path in Settings or restart scorebench.".into(),
                 ],
                 warning: Some(error.to_string()),
             };
         }
     };
     match doctor() {
-        Ok(report) => handshake_from_report(path, report),
+        Ok(report) => handshake_from_report(path, source, report),
         Err(error) => Handshake {
             found: true,
             ready: false,
             path: Some(path),
+            source: Some(source),
             version: None,
             tested_range: TESTED_SCOREKIT_RANGE.into(),
             compatible: None,
@@ -68,7 +100,7 @@ pub fn handshake() -> Handshake {
     }
 }
 
-fn handshake_from_report(path: PathBuf, report: Value) -> Handshake {
+fn handshake_from_report(path: PathBuf, source: LocateSource, report: Value) -> Handshake {
     let ready = report
         .get("ready")
         .and_then(Value::as_bool)
@@ -120,6 +152,7 @@ fn handshake_from_report(path: PathBuf, report: Value) -> Handshake {
         found: true,
         ready,
         path: Some(path),
+        source: Some(source),
         version,
         tested_range: TESTED_SCOREKIT_RANGE.into(),
         compatible,
@@ -129,13 +162,20 @@ fn handshake_from_report(path: PathBuf, report: Value) -> Handshake {
     }
 }
 
-/// Locate the scorekit binary: explicit env override, then PATH, then the
-/// well-known install prefixes (GUI apps on macOS get a stripped PATH).
+/// Locate the scorekit binary: explicit env override, then the settings pin,
+/// then PATH, then the well-known install prefixes (GUI apps on macOS get a
+/// stripped PATH).
 pub fn locate() -> Result<PathBuf, BenchError> {
+    locate_traced().map(|(path, _)| path)
+}
+
+/// Like [`locate`], but also reports which channel won.
+pub fn locate_traced() -> Result<(PathBuf, LocateSource), BenchError> {
     let home = std::env::var_os("HOME").map(PathBuf::from);
     let candidates = well_known_candidates(home.as_deref());
     locate_with(
         std::env::var_os(SCOREKIT_ENV).map(PathBuf::from),
+        configured_path(),
         std::env::var_os("PATH"),
         &candidates,
     )
@@ -152,14 +192,18 @@ fn well_known_candidates(home: Option<&Path>) -> Vec<PathBuf> {
 }
 
 /// Pure locator core, unit-testable without touching the real environment.
+/// A pinned-but-invalid path (env or settings) is a hard error rather than a
+/// silent fallback: with several local versions installed, running the wrong
+/// one is worse than running none.
 pub fn locate_with(
     env_override: Option<PathBuf>,
+    configured: Option<PathBuf>,
     path_var: Option<std::ffi::OsString>,
     well_known: &[PathBuf],
-) -> Result<PathBuf, BenchError> {
+) -> Result<(PathBuf, LocateSource), BenchError> {
     if let Some(explicit) = env_override {
         if is_executable(&explicit) {
-            return Ok(explicit);
+            return Ok((explicit, LocateSource::Env));
         }
         return Err(BenchError::ScorekitMissing {
             message: format!(
@@ -168,23 +212,35 @@ pub fn locate_with(
             ),
         });
     }
+    if let Some(pinned) = configured {
+        if is_executable(&pinned) {
+            return Ok((pinned, LocateSource::Settings));
+        }
+        return Err(BenchError::ScorekitMissing {
+            message: format!(
+                "Settings pin scorekit to `{}` but it is not an executable file; \
+                 fix the path in Settings or clear it to use auto-discovery",
+                pinned.display()
+            ),
+        });
+    }
     if let Some(path_var) = path_var {
         for dir in std::env::split_paths(&path_var) {
             let candidate = dir.join("scorekit");
             if is_executable(&candidate) {
-                return Ok(candidate);
+                return Ok((candidate, LocateSource::Path));
             }
         }
     }
     for candidate in well_known {
         if is_executable(candidate) {
-            return Ok(candidate.clone());
+            return Ok((candidate.clone(), LocateSource::WellKnown));
         }
     }
     Err(BenchError::ScorekitMissing {
         message: format!(
             "scorekit not found on PATH or in ~/.local/bin, /opt/homebrew/bin, /usr/local/bin; \
-             install it (`make install` in the scorekit repo) or set {SCOREKIT_ENV}"
+             install it (`make install` in the scorekit repo), pin its path in Settings, or set {SCOREKIT_ENV}"
         ),
     })
 }
@@ -458,7 +514,7 @@ mod tests {
         );
         assert_eq!(
             value.get("scorekit_version").and_then(Value::as_str),
-            Some("0.3.0")
+            Some("0.4.0")
         );
     }
 
@@ -472,16 +528,76 @@ mod tests {
 
     #[test]
     fn locate_missing_everywhere_is_typed_error() {
-        let err = locate_with(None, None, &[]).unwrap_err();
+        let err = locate_with(None, None, None, &[]).unwrap_err();
         assert!(matches!(err, BenchError::ScorekitMissing { .. }));
     }
 
     #[test]
     fn locate_env_override_must_be_executable() {
-        let err = locate_with(Some(PathBuf::from("/definitely/not/here")), None, &[]).unwrap_err();
+        let err =
+            locate_with(Some(PathBuf::from("/definitely/not/here")), None, None, &[]).unwrap_err();
         match err {
             BenchError::ScorekitMissing { message } => {
                 assert!(message.contains(SCOREKIT_ENV));
+            }
+            other => panic!("expected ScorekitMissing, got {other:?}"),
+        }
+    }
+
+    /// Creates a real executable file so `is_executable` passes.
+    fn temp_executable(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("scorebench-locate-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("scorekit");
+        std::fs::write(&path, "#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        path
+    }
+
+    #[test]
+    fn locate_settings_pin_wins_over_path_and_well_known() {
+        let pinned = temp_executable("pinned");
+        let fallback = temp_executable("fallback");
+
+        let (found, source) = locate_with(
+            None,
+            Some(pinned.clone()),
+            Some(std::env::join_paths([fallback.parent().unwrap()]).unwrap()),
+            std::slice::from_ref(&fallback),
+        )
+        .unwrap();
+        assert_eq!(found, pinned);
+        assert_eq!(source, LocateSource::Settings);
+
+        // The explicit env override still outranks the settings pin.
+        let (found, source) =
+            locate_with(Some(fallback.clone()), Some(pinned.clone()), None, &[]).unwrap();
+        assert_eq!(found, fallback);
+        assert_eq!(source, LocateSource::Env);
+
+        // Without a pin, discovery falls through to the well-known prefixes.
+        let (found, source) =
+            locate_with(None, None, None, std::slice::from_ref(&fallback)).unwrap();
+        assert_eq!(found, fallback);
+        assert_eq!(source, LocateSource::WellKnown);
+
+        for path in [pinned, fallback] {
+            let _ = std::fs::remove_dir_all(path.parent().unwrap());
+        }
+    }
+
+    #[test]
+    fn locate_settings_pin_must_be_executable() {
+        let err =
+            locate_with(None, Some(PathBuf::from("/definitely/not/here")), None, &[]).unwrap_err();
+        match err {
+            BenchError::ScorekitMissing { message } => {
+                assert!(message.contains("Settings"), "message was: {message}");
             }
             other => panic!("expected ScorekitMissing, got {other:?}"),
         }
@@ -533,15 +649,26 @@ mod tests {
     fn handshake_gates_machine_readable_version() {
         let report = serde_json::json!({
             "ready": true,
-            "scorekit_version": "0.3.0",
+            "scorekit_version": "0.4.0",
             "hints": ["install a renderer"]
         });
-        let handshake = handshake_from_report(PathBuf::from("scorekit"), report);
+        let handshake =
+            handshake_from_report(PathBuf::from("scorekit"), LocateSource::Path, report);
         assert_eq!(handshake.compatible, Some(true));
         assert_eq!(handshake.hints, vec!["install a renderer"]);
+        assert_eq!(handshake.source, Some(LocateSource::Path));
+
+        // 0.3.x stays inside the tested range: both recorded contracts hold.
+        let floor = handshake_from_report(
+            PathBuf::from("scorekit"),
+            LocateSource::Path,
+            serde_json::json!({"ready":true,"scorekit_version":"0.3.0","hints":[]}),
+        );
+        assert_eq!(floor.compatible, Some(true));
 
         let outdated = handshake_from_report(
             PathBuf::from("scorekit"),
+            LocateSource::Settings,
             serde_json::json!({"ready":true,"scorekit_version":"0.2.3","hints":[]}),
         );
         assert_eq!(outdated.compatible, Some(false));
@@ -552,6 +679,7 @@ mod tests {
 
         let legacy = handshake_from_report(
             PathBuf::from("scorekit"),
+            LocateSource::WellKnown,
             serde_json::json!({"ready":true,"hints":[]}),
         );
         assert_eq!(legacy.compatible, None);

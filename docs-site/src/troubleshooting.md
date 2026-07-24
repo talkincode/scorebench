@@ -12,7 +12,7 @@ scorekit --version
 scorekit doctor
 ```
 
-If the CLI works in a terminal but not in the desktop application, set `SCOREBENCH_SCOREKIT` to the executable's absolute path and restart scorebench. Confirm that the current user can execute the file.
+If the CLI works in a terminal but not in the desktop application, pin the executable's absolute path in Settings → scorekit binary. The same field selects one copy when several ScoreKit versions are installed; the version block underneath shows which path and discovery channel are active. `SCOREBENCH_SCOREKIT` still works and overrides the settings pin, but requires restarting scorebench. Confirm that the current user can execute the file.
 
 ## Homebrew says `untrusted tap`
 

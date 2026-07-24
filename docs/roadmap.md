@@ -38,7 +38,7 @@ Technique is *relocated*, not eliminated: the user is freed from craft, but the 
 
 One window that opens a project directory, shows a chat panel wired to a stub agent loop, invokes `scorekit doctor --json` / `build --json` as subprocess tools, and plays a rendered OGG with a canvas spectrum. Proves the four seams: chat ↔ agent core, agent ↔ scorekit subprocess, disk ↔ project state, audio ↔ WebAudio.
 
-Findings: scorekit's machine contract is *failure-side* JSON — success is exit 0 plus (for `build`) the atomically-written `<stem>.meta.json`, which scorebench treats as the build result; human stdout is never parsed. The binary is located via `SCOREBENCH_SCOREKIT` > PATH > well-known prefixes (GUI apps on macOS launch with a stripped PATH). Asset bytes cross IPC as binary (`tauri::ipc::Response`) with a containment check pinning reads inside the project root; playback, FFT, and the spectrum stay entirely in the webview (WebAudio `AnalyserNode`), honoring the no-in-house-audio rule. The July 2026 GUI smoke covered native project opening, both renderers, OGG/WAV playback, seek/pause/loop, live spectrum switching, filesystem watching, scorekit-missing guidance, and the 960×640 minimum layout contract. M1 replaced the temporary slash-command stub with the real ReACT loop while preserving the tagged `AgentEvent` frontend contract.
+Findings: scorekit's machine contract is *failure-side* JSON — success is exit 0 plus (for `build`) the atomically-written `<stem>.meta.json`, which scorebench treats as the build result; human stdout is never parsed. The binary is located via `SCOREBENCH_SCOREKIT` > the settings pin (Settings → scorekit binary, for machines carrying several scorekit versions; the handshake reports which channel won) > PATH > well-known prefixes (GUI apps on macOS launch with a stripped PATH). Asset bytes cross IPC as binary (`tauri::ipc::Response`) with a containment check pinning reads inside the project root; playback, FFT, and the spectrum stay entirely in the webview (WebAudio `AnalyserNode`), honoring the no-in-house-audio rule. The July 2026 GUI smoke covered native project opening, both renderers, OGG/WAV playback, seek/pause/loop, live spectrum switching, filesystem watching, scorekit-missing guidance, and the 960×640 minimum layout contract. M1 replaced the temporary slash-command stub with the real ReACT loop while preserving the tagged `AgentEvent` frontend contract.
 
 ### M1 — Agent core (status: complete)
 
@@ -129,7 +129,7 @@ Rules (MUST):
 
 | Feature | Tier | Happy path | Failure path |
 | --- | --- | --- | --- |
-| scorekit binary discovery | 1 | integration tests run via PATH-located binary | `locate_missing_everywhere_is_typed_error`, `locate_env_override_must_be_executable` (`scorekit.rs`) |
+| scorekit binary discovery | 1 | integration tests run via PATH-located binary | `locate_missing_everywhere_is_typed_error`, `locate_env_override_must_be_executable`, `locate_settings_pin_wins_over_path_and_well_known`, `locate_settings_pin_must_be_executable` (`scorekit.rs`) |
 | scorekit error contract (`--json` stderr) | 1 | `doctor_fixture_shape_holds`, `meta_fixture_shape_holds` (recorded fixtures) | `parses_recorded_io_error`, `falls_back_on_non_json_stderr` |
 | Build param → CLI arg mapping | 1 | `build_params_render_full_arg_set` covers renderer and `--texture-profile` | n/a (pure function, no state) |
 | Project directory scan | 1 | `scan_finds_scenes_and_assets` | `scan_rejects_non_directory` |
