@@ -42,7 +42,7 @@ The current scorebench Render panel does not expose a custom-SoundFont picker, a
 
 SFZ is a text format that describes how samples are mapped into an instrument. A `.sfz` commonly references WAV or FLAC files beside it or elsewhere in the library. Copying the `.sfz` without its referenced samples cannot produce sound.
 
-ScoreKit uses a renderer profile to map protocol instruments onto local SFZ files:
+ScoreKit uses a renderer profile to map protocol instruments onto local SFZ files, and a multi-profile **orchestration** to route each scene track's logical `palette` to one of these renderer profiles:
 
 ```yaml
 name: open-orchestra
@@ -59,7 +59,7 @@ instruments:
 
 Every instrument needs a `sustain` mapping. When a dedicated articulation is absent, ScoreKit falls back to that instrument's `sustain`. This keeps machine-specific paths out of portable scene YAML, but teams still need an installation convention for the profile and its sample root.
 
-Certify a profile before use:
+Certify a renderer profile before use:
 
 ```bash
 scorekit profile check profile.yaml
@@ -67,6 +67,24 @@ scorekit --json profile check profile.yaml
 ```
 
 The check covers paths, render probes, silence, warnings, and repeat-render behavior. One successful patch does not prove that every patch in the same library is compatible with sfizz.
+
+Bind one or more certified profiles into an orchestration, then validate the whole routing (palette bindings, leaf profiles, and every referenced SFZ file):
+
+```yaml
+schema_version: 1
+name: hybrid-cinematic
+default_palette: default
+palettes:
+  default: { profile: ../renderers/scoredata-open.yaml }
+  solo: { profile: ../renderers/scoredata-chamber.yaml }
+```
+
+```bash
+scorekit orchestration check hybrid-cinematic.yaml
+scorekit build scene.yaml --renderer sfizz --orchestration hybrid-cinematic.yaml -o out/scene.ogg
+```
+
+A scene track without a `palette` uses `default_palette`; a track with `palette: solo` routes through the `scoredata-chamber` profile instead, without any DSL field naming a sound source.
 
 ## Open sources worth evaluating
 

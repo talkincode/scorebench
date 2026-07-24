@@ -42,7 +42,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
         ),
         function(
             "write_scene",
-            "Atomically write one scene YAML file inside the project. Runs `scorekit validate` plus renderer/texture-profile compatibility checks afterwards and reports the result inline; pass validate:false only when writing non-scene YAML (grammar, renderer profile, or texture profile files).",
+            "Atomically write one scene YAML file inside the project. Runs `scorekit validate` plus orchestration/texture-profile compatibility checks afterwards and reports the result inline; pass validate:false only when writing non-scene YAML (grammar, orchestration profile, renderer profile, or texture profile files).",
             json!({"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"validate":{"type":"boolean","description":"Validate the written file as a scene (default true)."}},"required":["path","content"]}),
         ),
         function(
@@ -69,7 +69,7 @@ pub fn definitions() -> Vec<ToolDefinition> {
                     "quality":{"type":"integer","minimum":0,"maximum":10},
                     "stems":{"type":"boolean"},
                     "soundfont":{"type":"string"},
-                    "profile":{"type":"string"},
+                    "orchestration":{"type":"string","description":"Project-relative scorekit orchestration profile path (--renderer sfizz only). Omit to inherit bench.json."},
                     "texture_profile":{"type":"string","description":"Project-relative scorekit texture profile path. Omit to inherit bench.json."}
                 },
                 "required":["path"]
@@ -166,7 +166,7 @@ fn execute_sync(root: &Path, call: &FunctionCall) -> Result<ToolResult, BenchErr
                 if !compat.is_compatible() {
                     summary = format!("{summary}; {}", compat.message());
                 }
-                output["render_profile"] = serde_json::to_value(&compat).map_err(BenchError::io)?;
+                output["orchestration"] = serde_json::to_value(&compat).map_err(BenchError::io)?;
             }
             if let Some(compat) = texture_profile_check(root, &path) {
                 if !compat.is_compatible() {
@@ -202,18 +202,21 @@ fn execute_sync(root: &Path, call: &FunctionCall) -> Result<ToolResult, BenchErr
             let output = project::resolve_for_write(root, &rel_output)?;
             let project_render = manifest::load(root).0.render.unwrap_or_default();
             let mut renderer = args.renderer;
-            let (inherited_profile, inherited_texture_profile) = inherit_render_config(
+            let (inherited_orchestration, inherited_texture_profile) = inherit_render_config(
                 &mut renderer,
-                &args.profile,
+                &args.orchestration,
                 &args.texture_profile,
                 &project_render,
             );
-            let profile = match (resolve_optional(root, args.profile)?, inherited_profile) {
+            let orchestration = match (
+                resolve_optional(root, args.orchestration)?,
+                inherited_orchestration,
+            ) {
                 (Some(explicit), _) => Some(explicit),
-                // The project profile may live outside the root (GUI allows
-                // it), so resolve like the GUI render path does.
+                // The project orchestration may live outside the root (GUI
+                // allows it), so resolve like the GUI render path does.
                 (None, Some(inherited)) => Some(
-                    manifest::resolve_profile_path(root, &inherited)
+                    manifest::resolve_config_path(root, &inherited)
                         .to_string_lossy()
                         .into_owned(),
                 ),
@@ -225,7 +228,7 @@ fn execute_sync(root: &Path, call: &FunctionCall) -> Result<ToolResult, BenchErr
             ) {
                 (Some(explicit), _) => Some(explicit),
                 (None, Some(inherited)) => Some(
-                    manifest::resolve_profile_path(root, &inherited)
+                    manifest::resolve_config_path(root, &inherited)
                         .to_string_lossy()
                         .into_owned(),
                 ),
@@ -238,7 +241,7 @@ fn execute_sync(root: &Path, call: &FunctionCall) -> Result<ToolResult, BenchErr
                 quality: args.quality,
                 stems: args.stems,
                 soundfont: resolve_optional(root, args.soundfont)?,
-                profile,
+                orchestration,
                 texture_profile,
             };
             let result = scorekit::build(&path, &output, &params)?;
@@ -247,7 +250,7 @@ fn execute_sync(root: &Path, call: &FunctionCall) -> Result<ToolResult, BenchErr
                     "ok":true,
                     "output":rel_output,
                     "renderer":params.renderer,
-                    "profile":params.profile,
+                    "orchestration":params.orchestration,
                     "texture_profile":params.texture_profile,
                     "meta_path":result.meta_path.strip_prefix(root).unwrap_or(&result.meta_path),
                     "meta":result.meta
@@ -370,7 +373,7 @@ fn write_scene(root: &Path, args: WriteArgs) -> Result<ToolResult, BenchError> {
             if !compat.is_compatible() {
                 summary = format!("{summary}; {}", compat.message());
             }
-            output["render_profile"] = serde_json::to_value(&compat).map_err(BenchError::io)?;
+            output["orchestration"] = serde_json::to_value(&compat).map_err(BenchError::io)?;
         }
         if let Some(compat) = texture_profile_check(root, &target) {
             if !compat.is_compatible() {
@@ -388,9 +391,9 @@ fn write_scene(root: &Path, args: WriteArgs) -> Result<ToolResult, BenchError> {
     })
 }
 
-/// Compatibility of one scene against the project's persisted render
-/// configuration (bench.json). `None` when no sfizz profile is active.
-fn profile_check(root: &Path, scene_path: &Path) -> Option<manifest::ProfileCompat> {
+/// Compatibility of one scene against the project's persisted orchestration
+/// configuration (bench.json). `None` when no sfizz orchestration is active.
+fn profile_check(root: &Path, scene_path: &Path) -> Option<manifest::OrchestrationCompat> {
     let render = manifest::load(root).0.render?;
     manifest::check_scene_profile(root, scene_path, &render)
 }
@@ -401,18 +404,19 @@ fn texture_profile_check(root: &Path, scene_path: &Path) -> Option<manifest::Tex
 }
 
 /// Fill build parameters the model omitted from the project render config.
-/// Returns inherited renderer and texture profile paths. Pure for testing.
+/// Returns inherited orchestration and texture profile paths. Pure for testing.
 fn inherit_render_config(
     renderer: &mut Option<String>,
-    explicit_profile: &Option<String>,
+    explicit_orchestration: &Option<String>,
     explicit_texture_profile: &Option<String>,
     project_render: &manifest::RenderConfig,
 ) -> (Option<String>, Option<String>) {
     if renderer.is_none() {
         renderer.clone_from(&project_render.renderer);
     }
-    let profile = if explicit_profile.is_none() && renderer.as_deref() == Some("sfizz") {
-        project_render.profile.clone()
+    let orchestration = if explicit_orchestration.is_none() && renderer.as_deref() == Some("sfizz")
+    {
+        project_render.orchestration.clone()
     } else {
         None
     };
@@ -421,7 +425,7 @@ fn inherit_render_config(
     } else {
         None
     };
-    (profile, texture_profile)
+    (orchestration, texture_profile)
 }
 
 fn require_scene_path(path: &str) -> Result<(), BenchError> {
@@ -487,7 +491,7 @@ struct BuildArgs {
     quality: Option<u8>,
     stems: Option<bool>,
     soundfont: Option<String>,
-    profile: Option<String>,
+    orchestration: Option<String>,
     texture_profile: Option<String>,
 }
 
@@ -652,12 +656,12 @@ mod tests {
             .unwrap();
         let output: serde_json::Value = serde_json::from_str(&result.output).unwrap();
         assert_eq!(output["validation"]["status"], "skipped");
-        assert!(output.get("render_profile").is_none());
+        assert!(output.get("orchestration").is_none());
         std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
-    async fn write_scene_flags_instruments_unmapped_by_active_profile() {
+    async fn write_scene_flags_instruments_unmapped_by_active_orchestration() {
         let root = temp_project();
         std::fs::create_dir_all(root.join("profiles")).unwrap();
         std::fs::write(
@@ -666,8 +670,13 @@ mod tests {
         )
         .unwrap();
         std::fs::write(
+            root.join("hybrid.yaml"),
+            "schema_version: 1\nname: hybrid-cinematic\ndefault_palette: default\npalettes:\n  default: { profile: profiles/open.yaml }\n",
+        )
+        .unwrap();
+        std::fs::write(
             root.join(manifest::MANIFEST_FILE),
-            r#"{"render":{"renderer":"sfizz","profile":"profiles/open.yaml"}}"#,
+            r#"{"render":{"renderer":"sfizz","orchestration":"hybrid.yaml"}}"#,
         )
         .unwrap();
         let belt = ToolBelt::new(root.clone()).unwrap();
@@ -678,15 +687,22 @@ mod tests {
                 name: "write_scene".into(),
                 arguments: serde_json::json!({
                     "path": "scene.yaml",
-                    "content": "title: Hymn\ntracks:\n  - instrument: choir\n    pattern: pad\n"
+                    "content": "title: Hymn\ntracks:\n  - { id: choir_pad, instrument: choir, pattern: pad }\n"
                 })
                 .to_string(),
             })
             .await
             .unwrap();
         let output: serde_json::Value = serde_json::from_str(&result.output).unwrap();
-        assert_eq!(output["render_profile"]["unmapped"][0], "choir");
-        assert!(result.summary.contains("`choir`"), "{}", result.summary);
+        assert_eq!(
+            output["orchestration"]["tracks"][0]["track_id"],
+            "choir_pad"
+        );
+        assert!(output["orchestration"]["tracks"][0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("choir"));
+        assert!(result.summary.contains("`choir_pad`"), "{}", result.summary);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -694,7 +710,7 @@ mod tests {
     fn build_inherits_project_render_config_unless_overridden() {
         let project_render = manifest::RenderConfig {
             renderer: Some("sfizz".into()),
-            profile: Some("profiles/open.yaml".into()),
+            orchestration: Some("hybrid.yaml".into()),
             texture_profile: Some("profiles/forest-textures.yaml".into()),
         };
 
@@ -702,7 +718,7 @@ mod tests {
         let (inherited, texture) =
             inherit_render_config(&mut renderer, &None, &None, &project_render);
         assert_eq!(renderer.as_deref(), Some("sfizz"));
-        assert_eq!(inherited.as_deref(), Some("profiles/open.yaml"));
+        assert_eq!(inherited.as_deref(), Some("hybrid.yaml"));
         assert_eq!(texture.as_deref(), Some("profiles/forest-textures.yaml"));
 
         // Explicit renderer wins; texture profiles are renderer-independent.
@@ -713,7 +729,7 @@ mod tests {
         assert!(inherited.is_none());
         assert_eq!(texture.as_deref(), Some("profiles/forest-textures.yaml"));
 
-        // Explicit profile wins over the project profile.
+        // Explicit orchestration wins over the project orchestration.
         let mut renderer = None;
         let explicit = Some("other.yaml".to_owned());
         let (inherited, texture) =
@@ -779,6 +795,10 @@ mod tests {
         );
         assert_eq!(
             build.parameters["properties"]["texture_profile"]["type"],
+            serde_json::json!(["string", "null"])
+        );
+        assert_eq!(
+            build.parameters["properties"]["orchestration"]["type"],
             serde_json::json!(["string", "null"])
         );
 

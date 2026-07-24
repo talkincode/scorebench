@@ -10,7 +10,7 @@ MIDI
    │
    ├── FluidSynth + SF2
    ├── TiMidity++  + SF2
-   └── sfizz_render + SFZ profile
+   └── sfizz_render + orchestration (palette → renderer profile) + SFZ
             │
             ▼
          synth audio ──┐
@@ -30,7 +30,7 @@ ScoreKit launches the tools, checks their results, and writes artifacts atomical
 | --- | --- | --- | --- |
 | `fluidsynth` | One GM-compatible SF2 | Default sketches, fast iteration, easy setup | Every instrument comes from one SoundFont; `articulation` has no effect |
 | `timidity` | One GM-compatible SF2 | An alternate SF2 path or cross-check | Mixing and controller response can differ; `articulation` has no effect |
-| `sfizz` | SFZ files plus a renderer profile | Detailed sample libraries and multiple articulations | Requires a profile and a mapping for every scene instrument |
+| `sfizz` | SFZ files plus an orchestration profile | Detailed sample libraries and multiple articulations | Requires an orchestration mapping every track's palette; single-instrument renders can use `--sfz` directly |
 
 FluidSynth is the default. Switch to sfizz only when the musical structure is stable and you are ready to manage sample libraries, file paths, compatibility, and licensing.
 
@@ -38,16 +38,16 @@ FluidSynth is the default. Switch to sfizz only when the musical structure is st
 
 | Control | Meaning | Guidance |
 | --- | --- | --- |
-| Renderer | The MIDI-to-PCM synthesis backend | Start with FluidSynth; sfizz requires a profile |
+| Renderer | The MIDI-to-PCM synthesis backend | Start with FluidSynth; sfizz requires an orchestration profile |
 | Sample rate | 44,100 or 48,000 samples per second | 44.1 kHz is common for music; 48 kHz is common in video and some game pipelines |
 | Format | `OGG` or `WAV` | OGG is compact; WAV is lossless and better for later production |
 | Gain | Overall renderer amplitude, from 0 to 2 in the UI | Start at 0.8; reduce clipping here, but do not use gain to fix arrangement balance |
 | Quality | Vorbis quality from 0 to 10 | Primarily affects OGG size and encoding quality; default 5 |
 | Stems | Render every track as aligned audio | Enable for adaptive playback or downstream mixing |
-| SFZ profile | Maps instruments and articulations to `.sfz` files | Used only by sfizz; missing mappings fail the build |
+| Orchestration profile | Routes each track's logical `palette` to a leaf renderer profile mapping instruments and articulations to `.sfz` files | Used only by sfizz; a missing palette or unmapped instrument fails the build |
 | Texture profile | Maps portable texture source names to local audio files | Renderer-independent; required only when the scene declares `textures` |
 
-The renderer, SFZ profile, and texture profile are stored in the project's `bench.json`, allowing the Agent to check instrument and texture-source compatibility while writing a scene. The other controls are immediate Render-panel choices.
+The renderer, orchestration profile, and texture profile are stored in the project's `bench.json`, allowing the Agent to check per-track palette and texture-source compatibility while writing a scene. The other controls are immediate Render-panel choices.
 
 ## Output files
 
@@ -79,5 +79,5 @@ A suite with `sections` emits separate audio assets per section. Every stem is s
 
 1. Still changing melody, harmony, or form? Use FluidSynth.
 2. Want to compare a second SF2 renderer? Try TiMidity++.
-3. Need detailed samples or multiple articulations? Prepare and certify an SFZ profile, then use sfizz.
+3. Need detailed samples or multiple articulations? Prepare and certify a renderer profile, bind it into an orchestration palette, then use sfizz.
 4. Need commercial plugins, a DAW effect chain, or mastering? Export WAV or stems and continue in an external production workflow.

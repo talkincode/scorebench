@@ -4,7 +4,7 @@ This chapter takes the shortest path through the complete loop: install the depe
 
 ## 1. Install scorebench and ScoreKit
 
-scorebench needs the ScoreKit CLI at runtime. The desktop app does not bundle the CLI. This version is tested with ScoreKit 0.3.x–0.4.x.
+scorebench needs the ScoreKit CLI at runtime. The desktop app does not bundle the CLI. This version is tested with ScoreKit 0.5.x.
 
 ### macOS (Homebrew, recommended)
 

@@ -105,10 +105,15 @@ export interface SectionDisplay {
   tempo?: number | null;
   loop_enabled?: boolean | null;
   intensity?: number | null;
-  mute: number[];
+  /** Stable track IDs silenced in this section. */
+  mute: string[];
 }
 
 export interface TrackDisplay {
+  /** Stable scene-local track ID (routing, sections, stems). */
+  id?: string | null;
+  /** Logical orchestration palette; absent uses the orchestration default. */
+  palette?: string | null;
   instrument?: string | null;
   pattern?: string | null;
   motif?: string | null;
@@ -143,7 +148,7 @@ export interface SceneInspection {
   scene?: SceneDisplay | null;
   parse_error?: string | null;
   validation: ValidationDisplay;
-  render_profile?: RenderProfileCompat | null;
+  orchestration?: OrchestrationCompat | null;
   texture_profile?: TextureProfileCompat | null;
   last_diff?: unknown;
 }
@@ -156,16 +161,26 @@ export interface ValidationDisplay {
 /** Matches the Rust `manifest::RenderConfig` serde shape. */
 export interface RenderConfig {
   renderer?: string | null;
-  profile?: string | null;
+  orchestration?: string | null;
   texture_profile?: string | null;
 }
 
-/** Matches the Rust `manifest::ProfileCompat` serde shape. */
-export interface RenderProfileCompat {
-  profile: string;
+/** Matches the Rust `manifest::TrackOrchestrationCompat` serde shape. */
+export interface TrackOrchestrationCompat {
+  track_id: string;
+  palette: string;
+  instrument?: string | null;
+  profile?: string | null;
   profile_name?: string | null;
-  mapped: string[];
-  unmapped: string[];
+  error?: string | null;
+}
+
+/** Matches the Rust `manifest::OrchestrationCompat` serde shape. */
+export interface OrchestrationCompat {
+  orchestration: string;
+  orchestration_name?: string | null;
+  default_palette?: string | null;
+  tracks: TrackOrchestrationCompat[];
   error?: string | null;
 }
 
@@ -225,7 +240,7 @@ export interface BuildParams {
   quality?: number;
   stems?: boolean;
   soundfont?: string;
-  profile?: string;
+  orchestration?: string;
   texture_profile?: string;
 }
 

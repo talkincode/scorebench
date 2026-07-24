@@ -200,7 +200,7 @@ fn require_scene_suffix(rel_path: &str) -> Result<(), BenchError> {
 }
 
 /// Starter content for a manually created scene.
-pub const SCENE_TEMPLATE: &str = "title: New Scene\ntempo: 100\nkey: C_major\ntime_signature: \"4/4\"\nbars: 8\nloop: true\ntracks:\n  - instrument: piano\n    pattern: arpeggio\n    intensity: 0.5\n";
+pub const SCENE_TEMPLATE: &str = "title: New Scene\ntempo: 100\nkey: C_major\ntime_signature: \"4/4\"\nbars: 8\nloop: true\ntracks:\n  - id: lead\n    instrument: piano\n    pattern: arpeggio\n    intensity: 0.5\n";
 
 /// Create a new scene file from the starter template. Refuses to overwrite.
 pub fn create_scene(root: &Path, rel_path: &str) -> Result<PathBuf, BenchError> {

@@ -521,7 +521,7 @@ async fn load_render_config(
 }
 
 /// Persist the render panel selection so the agent composes for the same
-/// renderer/profile the user renders with.
+/// renderer/orchestration the user renders with.
 #[tauri::command]
 async fn save_render_config(
     root: PathBuf,

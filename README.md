@@ -81,7 +81,7 @@ Install scorebench from [Releases](https://github.com/talkincode/scorebench/rele
 - Linux: use the `.deb` or `.AppImage` artifact.
 - Windows: use the `.msi` or `-setup.exe` artifact.
 
-Install ScoreKit 0.3.x–0.4.x separately (for example with Homebrew `brew install talkincode/tap/scorekit`, or from [ScoreKit Releases](https://github.com/talkincode/scorekit/releases)), then confirm:
+Install ScoreKit 0.5.x separately (for example with Homebrew `brew install talkincode/tap/scorekit`, or from [ScoreKit Releases](https://github.com/talkincode/scorekit/releases)), then confirm:
 
 ```bash
 brew trust --tap talkincode/tap   # when installing ScoreKit via Homebrew tap
@@ -97,6 +97,11 @@ If scorebench starts but cannot find ScoreKit, pin the executable's absolute pat
 npm install
 npm run tauri dev    # requires Rust toolchain + scorekit on PATH
 ```
+
+Working across the whole constellation (scorekit, samples, forge, ScoreData)?
+The committed multi-repo map is [`scorekit-workspace.json` in the scorekit
+repo](https://github.com/talkincode/scorekit/blob/main/scorekit-workspace.json);
+run `python3 scripts/workspace.py doctor` there to check/bootstrap the layout.
 
 ## Documentation
 
