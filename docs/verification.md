@@ -1,6 +1,6 @@
 # Verification record
 
-Last updated: 2026-07-23 (Asia/Shanghai)
+Last updated: 2026-07-24 (Asia/Shanghai)
 
 This record is evidence for the M0–M5 issue set. It distinguishes automated proof, native-app smoke, and release operations that require external credentials.
 
@@ -76,3 +76,13 @@ This pass adds bounded resource ownership and repeatable performance gates witho
 - Runtime instrumentation emits `scorebench:spectrum-performance` summaries with average, p95, p99, maximum, sample count, and an 8 ms CPU-side frame-work budget. This is diagnostic evidence, not a claim about GPU frame time.
 
 Native WebView GPU timing, forced WebGL context-loss recovery, repeated fullscreen recording, and long-session memory stability were not rerun in this pass. They remain manual acceptance work described in [performance.md](performance.md); the local browser smoke could not start because the execution sandbox denied binding the development server port.
+
+## Version source sync + audit follow-ups (2026-07-24)
+
+This pass closes the 2026-07-24 project-audit findings: version drift across manifests, an undeclared demo-script dependency, and two roadmap commitments left open-ended.
+
+- `scripts/set-version.mjs` now writes all five version sources in one run: `src-tauri/tauri.conf.json`, `package.json`, `package-lock.json` (both top-level and `packages[""]`), `src-tauri/Cargo.toml`, and the `scorebench` entry in `src-tauri/Cargo.lock`. Running it with `0.3.3` brought `package.json`/`Cargo.toml` (previously stuck at `0.1.0`) in line with the released version.
+- `scripts/check-tag-version.mjs` (the release workflow's tag gate) now fails on drift between any of the five sources before comparing against the tag. Verified three ways: matching tag passes, mismatched tag fails, and an injected `package.json` desync is caught as `version drift across sources`.
+- `esbuild` is a declared devDependency (`^0.25.12`); the `demo:*` scripts no longer depend on a global install (`npx --no-install esbuild --version` resolves locally).
+- Roadmap commitments made falsifiable: the legacy `personal_instructions` field's parsing is scheduled for removal in 0.5.0 (M7 + acceptance matrix), and shared weather-helper extraction is recorded as a hard prerequisite for the next M9 imagery module.
+- Gates after the change: `cargo fmt --check` clean; `cargo clippy --all-targets --all-features -- -D warnings` clean; `cargo test` passed 121 unit tests + the `tauri_boundary` integration test; `npm test` passed 12 Vitest files (141 tests); `npm run check` reported 0 errors and 0 warnings.
