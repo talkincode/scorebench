@@ -254,22 +254,48 @@ fn render_config_section(root: &Path) -> String {
     };
     let renderer = render.renderer.as_deref().unwrap_or("(default)");
     let mut section = format!("ACTIVE RENDER CONFIGURATION (bench.json):\nrenderer: {renderer}\n");
-    match (render.renderer.as_deref(), render.profile.as_deref()) {
-        (Some("sfizz"), Some(profile)) if !profile.trim().is_empty() => {
-            match manifest::profile_instruments(root, profile) {
-                Ok((name, instruments)) => {
-                    let name = name.unwrap_or_else(|| profile.to_owned());
+    match (render.renderer.as_deref(), render.orchestration.as_deref()) {
+        (Some("sfizz"), Some(orchestration)) if !orchestration.trim().is_empty() => {
+            match manifest::load_orchestration(root, orchestration) {
+                Ok(info) => {
                     section.push_str(&format!(
-                        "profile: {profile} ({name})\n\
-                         instruments mapped by this profile: {}\n\
-                         Any track instrument outside this list will FAIL the sfizz build.\n\
-                         Compose only with mapped instruments, or tell the user which mapping is missing.\n",
-                        instruments.join(", ")
+                        "orchestration: {orchestration}{}\n\
+                         default palette: {}\n",
+                        info.name
+                            .as_deref()
+                            .map(|name| format!(" ({name})"))
+                            .unwrap_or_default(),
+                        info.default_palette.as_deref().unwrap_or("(none)"),
                     ));
+                    for palette in info.palettes() {
+                        if let Some(error) = &palette.error {
+                            section.push_str(&format!(
+                                "palette `{}` -> {} : WARNING unusable ({error}); builds routed through it will fail.\n",
+                                palette.name, palette.declared_profile
+                            ));
+                        } else {
+                            let name = palette
+                                .profile_name
+                                .as_deref()
+                                .unwrap_or(&palette.declared_profile);
+                            section.push_str(&format!(
+                                "palette `{}` -> {} ({name}): instruments mapped: {}\n",
+                                palette.name,
+                                palette.declared_profile,
+                                palette.instruments.join(", ")
+                            ));
+                        }
+                    }
+                    section.push_str(
+                        "Give each track a stable `id` and, when it should use a palette other \
+                         than the default, a `palette` matching one listed above. A track \
+                         instrument outside its resolved palette's mapped list will FAIL the \
+                         sfizz build.\n",
+                    );
                 }
                 Err(error) => {
                     section.push_str(&format!(
-                        "profile: {profile}\nWARNING: the profile could not be read ({error}); builds will fail until it is fixed.\n"
+                        "orchestration: {orchestration}\nWARNING: the orchestration could not be read ({error}); builds will fail until it is fixed.\n"
                     ));
                 }
             }
@@ -963,15 +989,23 @@ mod tests {
         )
         .unwrap();
         std::fs::write(
+            root.join("hybrid.yaml"),
+            "schema_version: 1\nname: hybrid-cinematic\ndefault_palette: default\npalettes:\n  default: { profile: profiles/open.yaml }\n",
+        )
+        .unwrap();
+        std::fs::write(
             root.join("bench.json"),
-            r#"{"render":{"renderer":"sfizz","profile":"profiles/open.yaml","texture_profile":"profiles/forest-textures.yaml"}}"#,
+            r#"{"render":{"renderer":"sfizz","orchestration":"hybrid.yaml","texture_profile":"profiles/forest-textures.yaml"}}"#,
         )
         .unwrap();
         let section = render_config_section(&root);
         assert!(section.contains("ACTIVE RENDER CONFIGURATION"));
         assert!(section.contains("renderer: sfizz"));
+        assert!(section.contains("orchestration: hybrid.yaml (hybrid-cinematic)"));
+        assert!(section.contains("default palette: default"));
+        assert!(section.contains("palette `default`"));
         assert!(section.contains("piano, strings"));
-        assert!(section.contains("FAIL the sfizz build"));
+        assert!(section.contains("stable `id`"));
         assert!(section.contains("birds, river"));
         assert!(section.contains("portable source keys"));
         let prompt = system_prompt(&root, "main", None).unwrap();
@@ -979,11 +1013,11 @@ mod tests {
 
         std::fs::write(
             root.join("bench.json"),
-            r#"{"render":{"renderer":"sfizz","profile":"profiles/missing.yaml"}}"#,
+            r#"{"render":{"renderer":"sfizz","orchestration":"missing.yaml"}}"#,
         )
         .unwrap();
         let section = render_config_section(&root);
-        assert!(section.contains("WARNING: the profile could not be read"));
+        assert!(section.contains("WARNING: the orchestration could not be read"));
 
         std::fs::write(
             root.join("bench.json"),
@@ -992,7 +1026,7 @@ mod tests {
         .unwrap();
         let section = render_config_section(&root);
         assert!(section.contains("renderer: fluidsynth"));
-        assert!(!section.contains("mapped by this profile"));
+        assert!(!section.contains("mapped: "));
         std::fs::remove_dir_all(root).unwrap();
     }
 }

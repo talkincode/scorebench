@@ -37,17 +37,21 @@ motifs:
     - { degree: 0, beats: 4 }
 
 tracks:
-  - instrument: flute
+  - id: lead
+    instrument: flute
     pattern: melody
     motif: forest_call
     intensity: 0.45
-  - instrument: slow_strings
+  - id: harmony
+    instrument: slow_strings
     pattern: sustain
     intensity: 0.35
-  - instrument: harp
+  - id: motion
+    instrument: harp
     pattern: arpeggio
     intensity: 0.3
-  - instrument: bass
+  - id: foundation
+    instrument: bass
     pattern: bass
     intensity: 0.3
 ```
@@ -76,7 +80,7 @@ ScoreKit currently builds diatonic triads from the scene scale. Roman-numeral ca
 
 ## Tracks and the five patterns
 
-Every track selects an `instrument` and a `pattern`:
+Every track selects an `instrument` and a `pattern`, and carries a stable scene-local `id`:
 
 | Pattern | Generated material | Typical role |
 | --- | --- | --- |
@@ -88,6 +92,8 @@ Every track selects an `instrument` and a `pattern`:
 
 Tracks can also define:
 
+- `id`: a stable identifier matching `[a-z][a-z0-9_-]{0,63}`. Required; referenced by section `mute` lists, stems, and MIDI's `--solo` selector — never a positional index, so reordering tracks never breaks a reference.
+- `palette`: an optional logical orchestration palette name. Absent uses the active orchestration's `default_palette`; irrelevant when not building with `--renderer sfizz --orchestration ...`. Routing metadata only — it never changes compiled MIDI.
 - `intensity`: velocity scaling from 0.0 to 1.0.
 - `articulation`: `sustain`, `staccato`, `spiccato`, `pizzicato`, `tremolo`, or `mute`. It selects SFZ samples only; SF2 backends ignore it.
 - `pan`: 0.0 hard left, 0.5 center, 1.0 hard right, compiled to MIDI CC10.
@@ -158,17 +164,17 @@ performance:
 
 ```yaml
 sections:
-  - { name: intro, bars: 4, loop: false, mute: [2, 3], intensity: 0.7 }
-  - { name: explore, bars: 8, loop: true, mute: [3], intensity: 0.9 }
+  - { name: intro, bars: 4, loop: false, mute: [motion, foundation], intensity: 0.7 }
+  - { name: explore, bars: 8, loop: true, mute: [foundation], intensity: 0.9 }
   - { name: combat, bars: 8, loop: true, intensity: 1.25, tempo: 108 }
-  - { name: victory, bars: 4, loop: false, mute: [3], intensity: 1.1 }
+  - { name: victory, bars: 4, loop: false, mute: [foundation], intensity: 1.1 }
 ```
 
-A section can change `bars`, `tempo`, `loop`, and overall `intensity`, or silence tracks through the **zero-based** `mute` indexes. Sections inherit the top-level key, harmony, motifs, tracks, and performance. The current protocol cannot replace harmony or motif contents per section.
+A section can change `bars`, `tempo`, `loop`, and overall `intensity`, or silence tracks through the **stable track `id`s** listed in `mute`. Sections inherit the top-level key, harmony, motifs, tracks, and performance. The current protocol cannot replace harmony or motif contents per section.
 
 ## What does not belong in the scene protocol
 
-- SoundFont, SFZ, renderer, and recording paths. They belong in build parameters, renderer profiles, or texture profiles; scene textures use portable source keys.
+- SoundFont, SFZ, renderer, orchestration, and recording paths. They belong in build parameters, orchestration/renderer profiles, or texture profiles; scene textures use portable source keys.
 - Arbitrary `mood`, `danger`, or `avoid` fields without compile semantics. Keep them in the conversation or `story`.
 - Plugin chains, mastering, equalization, or post-processing instructions.
 - Arbitrary MIDI events, automation curves, or free-form per-note editing outside the schema.

@@ -17,9 +17,9 @@ pub struct SceneInspection {
     pub scene: Option<SceneDisplay>,
     pub parse_error: Option<String>,
     pub validation: ValidationDisplay,
-    /// Compatibility with the project's persisted render configuration;
-    /// `None` when no sfizz profile is active.
-    pub render_profile: Option<manifest::ProfileCompat>,
+    /// Compatibility with the project's persisted orchestration
+    /// configuration; `None` when no sfizz orchestration is active.
+    pub orchestration: Option<manifest::OrchestrationCompat>,
     /// Texture source compatibility; `None` when the scene has no textures.
     pub texture_profile: Option<manifest::TextureProfileCompat>,
     pub last_diff: Option<JsonValue>,
@@ -55,11 +55,16 @@ pub struct SectionDisplay {
     pub tempo: Option<f64>,
     pub loop_enabled: Option<bool>,
     pub intensity: Option<f64>,
-    pub mute: Vec<u64>,
+    /// Stable track IDs silenced in this section.
+    pub mute: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct TrackDisplay {
+    /// Stable scene-local track ID (routing, sections, stems).
+    pub id: Option<String>,
+    /// Logical orchestration palette; absent uses the orchestration default.
+    pub palette: Option<String>,
     pub instrument: Option<String>,
     pub pattern: Option<String>,
     pub motif: Option<String>,
@@ -104,13 +109,13 @@ pub fn inspect_scene(root: &Path, rel_path: &str) -> Result<SceneInspection, Ben
         },
     };
     let render = manifest::load(root).0.render.unwrap_or_default();
-    let render_profile = manifest::check_scene_profile(root, &path, &render);
+    let orchestration = manifest::check_scene_profile(root, &path, &render);
     let texture_profile = manifest::check_scene_texture_profile(root, &path, &render);
     Ok(SceneInspection {
         scene,
         parse_error,
         validation,
-        render_profile,
+        orchestration,
         texture_profile,
         last_diff: read_last_diff(root, rel_path)?,
     })
@@ -182,7 +187,7 @@ fn display(mapping: &Mapping) -> SceneDisplay {
                 intensity: number(section, "intensity"),
                 mute: sequence(section, "mute")
                     .into_iter()
-                    .filter_map(|value| value.as_u64())
+                    .filter_map(|value| value.as_str().map(ToOwned::to_owned))
                     .collect(),
             })
             .collect(),
@@ -190,6 +195,8 @@ fn display(mapping: &Mapping) -> SceneDisplay {
             .into_iter()
             .filter_map(|value| value.as_mapping())
             .map(|track| TrackDisplay {
+                id: string(track, "id"),
+                palette: string(track, "palette"),
                 instrument: string(track, "instrument"),
                 pattern: string(track, "pattern"),
                 motif: string(track, "motif"),
@@ -326,7 +333,26 @@ mod tests {
         let scene = display(value.as_mapping().unwrap());
         assert_eq!(scene.sections.len(), 4);
         assert_eq!(scene.sections[2].tempo, Some(132.0));
-        assert_eq!(scene.sections[0].mute, vec![3, 4]);
+        assert_eq!(
+            scene.sections[0].mute,
+            vec!["foundation".to_owned(), "pulse".to_owned()]
+        );
+    }
+
+    #[test]
+    fn parses_track_id_and_palette() {
+        let value: Value = serde_yaml::from_str(&fixture("forest_suite.yaml")).unwrap();
+        let scene = display(value.as_mapping().unwrap());
+        assert_eq!(scene.tracks[0].id.as_deref(), Some("lead"));
+        assert_eq!(scene.tracks[0].palette, None);
+
+        let with_palette: Value = serde_yaml::from_str(
+            "tracks:\n  - { id: solo_violin, palette: solo, instrument: strings, pattern: sustain }\n",
+        )
+        .unwrap();
+        let scene = display(with_palette.as_mapping().unwrap());
+        assert_eq!(scene.tracks[0].id.as_deref(), Some("solo_violin"));
+        assert_eq!(scene.tracks[0].palette.as_deref(), Some("solo"));
     }
 
     #[test]

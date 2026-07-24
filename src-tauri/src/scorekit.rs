@@ -1,6 +1,6 @@
 //! Subprocess boundary to the `scorekit` CLI.
 //!
-//! Contract (recorded through scorekit 0.4.0, see `tests/fixtures/`):
+//! Contract (recorded through scorekit 0.5.0, see `tests/fixtures/`):
 //! - success: exit 0; `build` writes `<output stem>.meta.json` as the machine-readable result
 //! - failure: stderr carries one JSON object `{code, exit_code, field, location, message}`
 //! - `doctor --json`: stdout JSON report
@@ -19,7 +19,11 @@ use crate::error::BenchError;
 
 /// Environment variable that pins the scorekit binary explicitly.
 pub const SCOREKIT_ENV: &str = "SCOREBENCH_SCOREKIT";
-pub const TESTED_SCOREKIT_RANGE: &str = ">=0.3.0, <0.5.0";
+/// scorekit 0.5.0 introduced the breaking `--orchestration` protocol
+/// (stable track `id`s, string `mute` selectors, multi-profile palettes)
+/// that this scorebench version requires; earlier releases cannot build
+/// scenes through the sfizz backend at all.
+pub const TESTED_SCOREKIT_RANGE: &str = ">=0.5.0, <0.6.0";
 
 /// Settings-pinned binary path, seeded by the host layer at startup and
 /// whenever settings are saved. Held here (not re-read from disk) so core
@@ -380,7 +384,9 @@ pub struct BuildParams {
     pub quality: Option<u8>,
     pub stems: Option<bool>,
     pub soundfont: Option<String>,
-    pub profile: Option<String>,
+    /// Multi-profile orchestration path (`--renderer sfizz` only): routes
+    /// scene track palettes to leaf renderer profiles.
+    pub orchestration: Option<String>,
     pub texture_profile: Option<String>,
 }
 
@@ -405,8 +411,8 @@ impl BuildParams {
         if let Some(soundfont) = &self.soundfont {
             args.extend(["--soundfont".into(), soundfont.clone()]);
         }
-        if let Some(profile) = &self.profile {
-            args.extend(["--profile".into(), profile.clone()]);
+        if let Some(orchestration) = &self.orchestration {
+            args.extend(["--orchestration".into(), orchestration.clone()]);
         }
         if let Some(profile) = &self.texture_profile {
             args.extend(["--texture-profile".into(), profile.clone()]);
@@ -606,20 +612,20 @@ mod tests {
     #[test]
     fn build_params_render_full_arg_set() {
         let params = BuildParams {
-            renderer: Some("timidity".into()),
+            renderer: Some("sfizz".into()),
             sample_rate: Some(48000),
             gain: Some(0.7),
             quality: Some(6),
             stems: Some(true),
             soundfont: None,
-            profile: None,
+            orchestration: Some("hybrid.yaml".into()),
             texture_profile: Some("profiles/forest-textures.yaml".into()),
         };
         assert_eq!(
             params.to_args(),
             vec![
                 "--renderer",
-                "timidity",
+                "sfizz",
                 "--sample-rate",
                 "48000",
                 "--gain",
@@ -627,6 +633,8 @@ mod tests {
                 "--quality",
                 "6",
                 "--stems",
+                "--orchestration",
+                "hybrid.yaml",
                 "--texture-profile",
                 "profiles/forest-textures.yaml"
             ]
@@ -649,7 +657,7 @@ mod tests {
     fn handshake_gates_machine_readable_version() {
         let report = serde_json::json!({
             "ready": true,
-            "scorekit_version": "0.4.0",
+            "scorekit_version": "0.5.0",
             "hints": ["install a renderer"]
         });
         let handshake =
@@ -657,19 +665,20 @@ mod tests {
         assert_eq!(handshake.compatible, Some(true));
         assert_eq!(handshake.hints, vec!["install a renderer"]);
         assert_eq!(handshake.source, Some(LocateSource::Path));
-
-        // 0.3.x stays inside the tested range: both recorded contracts hold.
+        // 0.5.x stays inside the tested range: the orchestration contract holds.
         let floor = handshake_from_report(
             PathBuf::from("scorekit"),
             LocateSource::Path,
-            serde_json::json!({"ready":true,"scorekit_version":"0.3.0","hints":[]}),
+            serde_json::json!({"ready":true,"scorekit_version":"0.5.2","hints":[]}),
         );
         assert_eq!(floor.compatible, Some(true));
 
+        // 0.4.x predates `--orchestration`: it cannot build sfizz scenes
+        // under this scorebench version, so it falls outside the range.
         let outdated = handshake_from_report(
             PathBuf::from("scorekit"),
             LocateSource::Settings,
-            serde_json::json!({"ready":true,"scorekit_version":"0.2.3","hints":[]}),
+            serde_json::json!({"ready":true,"scorekit_version":"0.4.0","hints":[]}),
         );
         assert_eq!(outdated.compatible, Some(false));
         assert!(outdated

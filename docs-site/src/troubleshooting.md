@@ -91,28 +91,29 @@ Ask the Agent to repair the exact `field` and `message` from the structured erro
 
 Check in this order:
 
-1. A profile is selected in the Render panel.
-2. The profile `root` and relative `.sfz` paths exist.
-3. Every instrument in the scene has a profile mapping.
-4. Every mapped instrument has at least `sustain`.
-5. `sfizz_render` is on `PATH`.
-6. `scorekit profile check profile.yaml` succeeds.
-7. Every WAV or FLAC referenced by the SFZ is present.
+1. An orchestration profile is selected in the Render panel.
+2. Every track's declared (or default) `palette` exists in the orchestration.
+3. Each palette's leaf renderer profile is readable, and its `root` and relative `.sfz` paths exist.
+4. Every instrument in the scene has a mapping in its track's resolved palette.
+5. Every mapped instrument has at least `sustain`.
+6. `sfizz_render` is on `PATH`.
+7. `scorekit orchestration check orchestration.yaml` and `scorekit profile check profile.yaml` succeed.
+8. Every WAV or FLAC referenced by the SFZ is present.
 
-A missing dedicated articulation falls back to sustain. A completely unmapped instrument fails the build.
+A missing dedicated articulation falls back to sustain. A completely unmapped instrument, or a track referencing an undefined `palette`, fails the build; the observation panel and `write_scene`/`validate_scene` tool output surface exactly which track and which problem.
 
 ## Articulation does not change the sound
 
-This is expected with FluidSynth or TiMidity++: `articulation` does not change MIDI and cannot switch SF2 programs. Only an sfizz renderer profile can map articulations to different `.sfz` files.
+This is expected with FluidSynth or TiMidity++: `articulation` does not change MIDI and cannot switch SF2 programs. Only an sfizz renderer profile (bound through an orchestration palette) can map articulations to different `.sfz` files.
 
-With sfizz, verify that the profile has a dedicated mapping for the requested articulation. Otherwise ScoreKit deliberately falls back to sustain.
+With sfizz, verify that the resolved palette's renderer profile has a dedicated mapping for the requested articulation. Otherwise ScoreKit deliberately falls back to sustain.
 
 ## The build succeeds but an instrument is wrong or silent
 
 - For SF2, confirm that the file is valid and has complete GM mappings.
 - For SFZ, verify that the patch's playable range covers the scene notes.
 - Check gain, track intensity, and section intensity for near-zero values.
-- Check whether a section's zero-based `mute` list silences the track.
+- Check whether a section's `mute` list silences the track by its stable `id`.
 - Inspect the structured ScoreKit error and matching `meta.json`, not only the process exit code.
 
 ## The loop seam sounds abrupt
@@ -151,7 +152,7 @@ Include:
 - Operating system and architecture.
 - Redacted output from `scorekit --json doctor`.
 - A minimal scene YAML that reproduces the issue.
-- Renderer, sample rate, format, and profile name.
+- Renderer, sample rate, format, and orchestration/profile name.
 - The complete structured error.
 - Whether default FluidSynth plus MuseScore General also reproduces the issue.
 
