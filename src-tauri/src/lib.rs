@@ -687,9 +687,14 @@ async fn get_settings(app: AppHandle) -> Result<settings::SettingsView, BenchErr
 #[tauri::command]
 async fn save_settings(app: AppHandle, value: settings::Settings) -> Result<(), BenchError> {
     let config_dir = app.path().app_config_dir().map_err(BenchError::io)?;
-    tauri::async_runtime::spawn_blocking(move || settings::save(&config_dir, &value))
-        .await
-        .map_err(BenchError::io)?
+    tauri::async_runtime::spawn_blocking(move || {
+        settings::save(&config_dir, &value)?;
+        // Keep the process-wide scorekit pin in sync with what was persisted.
+        scorekit::set_configured_path(value.scorekit_path.map(PathBuf::from));
+        Ok(())
+    })
+    .await
+    .map_err(BenchError::io)?
 }
 
 #[tauri::command]
@@ -722,6 +727,16 @@ pub fn run() {
         .manage(agent::AgentState::default())
         .manage(watcher::ProjectWatcher::default())
         .manage(RecordingSink::default())
+        .setup(|app| {
+            // Seed the scorekit settings pin before the first locate() call.
+            // A corrupt settings file degrades to auto-discovery; it must
+            // never block startup.
+            let config_dir = app.path().app_config_dir()?;
+            if let Ok((settings, _)) = settings::load(&config_dir) {
+                scorekit::set_configured_path(settings.scorekit_path.map(PathBuf::from));
+            }
+            Ok(())
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![

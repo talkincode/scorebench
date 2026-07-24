@@ -2,12 +2,75 @@
   "audio": "forest.ogg",
   "bars": 8,
   "crossfade_samples": 2205,
+  "instrument_resolution": {
+    "fallbacks": [],
+    "missing_instruments": [],
+    "mode": "conservative",
+    "summary": {
+      "alias": 0,
+      "exact": 4,
+      "fallback": 0,
+      "missing": 0,
+      "rejected": 0
+    },
+    "tracks": [
+      {
+        "canonical": "strings",
+        "reasons": [
+          "available"
+        ],
+        "requested": "strings",
+        "resolved": "strings",
+        "score": 1.0,
+        "status": "exact",
+        "track": 0,
+        "warnings": []
+      },
+      {
+        "canonical": "piano",
+        "reasons": [
+          "available"
+        ],
+        "requested": "piano",
+        "resolved": "piano",
+        "score": 1.0,
+        "status": "exact",
+        "track": 1,
+        "warnings": []
+      },
+      {
+        "canonical": "bass",
+        "reasons": [
+          "available"
+        ],
+        "requested": "bass",
+        "resolved": "bass",
+        "score": 1.0,
+        "status": "exact",
+        "track": 2,
+        "warnings": []
+      },
+      {
+        "canonical": "drums",
+        "reasons": [
+          "available"
+        ],
+        "requested": "drums",
+        "resolved": "drums",
+        "score": 1.0,
+        "status": "exact",
+        "track": 3,
+        "warnings": []
+      }
+    ]
+  },
   "key": "D_minor",
   "loop": true,
   "loop_samples": 920347,
   "sample_rate": 44100,
   "seconds": 20.86954648526077,
   "stems": [],
+  "story": null,
   "tempo": 92,
   "time_signature": "4/4",
   "title": "Forest Theme",

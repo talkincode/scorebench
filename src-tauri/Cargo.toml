@@ -1,6 +1,6 @@
 [package]
 name = "scorebench"
-version = "0.1.0"
+version = "0.3.3"
 description = "Agent-native workbench for scorekit: chat-driven scene authoring, rendering, and playback"
 authors = ["talkincode"]
 license = "MIT"

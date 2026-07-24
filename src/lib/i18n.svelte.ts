@@ -235,6 +235,11 @@ const en = {
   "settings.keyEnter": "Enter API key",
   "settings.insecure":
     "If the OS keychain is unavailable, store the key insecurely in app config with mode 0600.",
+  "settings.scorekitPath": "scorekit binary",
+  "settings.scorekitPathAuto": "Auto-detect (PATH and common install locations)",
+  "settings.scorekitPathHint":
+    "Pin one binary when several scorekit versions are installed. Leave blank to auto-detect.",
+  "settings.browse": "Browse…",
   "settings.language": "Language",
   "settings.versions": "Version information",
   "settings.testConnection": "Test connection",
@@ -477,6 +482,10 @@ const zh: Record<MessageKey, string> = {
   "settings.keyKeep": "留空则保留已存储的 key",
   "settings.keyEnter": "输入 API key",
   "settings.insecure": "当系统钥匙串不可用时，以 0600 权限把 key 不安全地存入应用配置。",
+  "settings.scorekitPath": "scorekit 可执行文件",
+  "settings.scorekitPathAuto": "自动探测（PATH 与常见安装目录）",
+  "settings.scorekitPathHint": "本机装有多个 scorekit 版本时可固定其中一个，留空则自动探测。",
+  "settings.browse": "浏览…",
   "settings.language": "界面语言",
   "settings.versions": "版本信息",
   "settings.testConnection": "测试连接",

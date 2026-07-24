@@ -26,6 +26,10 @@ pub struct Settings {
     pub model: String,
     pub context_budget_tokens: u64,
     pub max_turns: u32,
+    /// Absolute path pinning the scorekit binary; `None` means auto-discovery
+    /// (PATH, then well-known prefixes). Lets a machine with several scorekit
+    /// versions choose one without env-var gymnastics.
+    pub scorekit_path: Option<String>,
     pub spectrum_style: String,
     pub spectrum_bars: u16,
     /// Spectrum palette hue override in degrees; `None` follows `theme_hue`.
@@ -46,6 +50,7 @@ impl Default for Settings {
             model: "gpt-5.6".into(),
             context_budget_tokens: 128_000,
             max_turns: 16,
+            scorekit_path: None,
             spectrum_style: "bars".into(),
             spectrum_bars: 64,
             spectrum_hue: None,
@@ -84,6 +89,22 @@ impl Settings {
                 "invalid_max_turns",
                 "max turns must be between 1 and 128",
             ));
+        }
+        if let Some(path) = &self.scorekit_path {
+            // Shape-only checks: a binary deleted later must not make the
+            // settings file unloadable. Existence is verified at locate time.
+            if path.trim().is_empty() {
+                return Err(BenchError::settings(
+                    "invalid_scorekit_path",
+                    "scorekit path cannot be blank; remove it to use auto-discovery",
+                ));
+            }
+            if !Path::new(path.as_str()).is_absolute() {
+                return Err(BenchError::settings(
+                    "invalid_scorekit_path",
+                    "scorekit path must be an absolute path to the binary",
+                ));
+            }
         }
         if self.spectrum_style.trim().is_empty() {
             return Err(BenchError::settings(
@@ -600,6 +621,7 @@ mod tests {
             model: "local-model".into(),
             context_budget_tokens: 32_000,
             max_turns: 8,
+            scorekit_path: Some("/usr/local/bin/scorekit-0.3".into()),
             spectrum_style: "mood".into(),
             spectrum_bars: 96,
             spectrum_hue: Some(318),
@@ -623,6 +645,23 @@ mod tests {
         assert!(
             matches!(error, BenchError::Settings { code, .. } if code == "invalid_spectrum_hue")
         );
+        assert!(!dir.join(SETTINGS_FILE).exists());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn rejects_relative_or_blank_scorekit_path() {
+        let dir = test_dir("settings-scorekit-path");
+        for bad in ["scorekit", "   "] {
+            let value = Settings {
+                scorekit_path: Some(bad.into()),
+                ..Settings::default()
+            };
+            let error = save(&dir, &value).unwrap_err();
+            assert!(
+                matches!(error, BenchError::Settings { code, .. } if code == "invalid_scorekit_path")
+            );
+        }
         assert!(!dir.join(SETTINGS_FILE).exists());
         let _ = fs::remove_dir_all(dir);
     }

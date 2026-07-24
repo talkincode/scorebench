@@ -45,6 +45,8 @@ export interface Settings {
   model: string;
   context_budget_tokens: number;
   max_turns: number;
+  /** Absolute path pinning the scorekit binary; null = auto-discovery. */
+  scorekit_path: string | null;
   spectrum_style: string;
   spectrum_bars: number;
   /** Spectrum palette hue override in degrees; null follows `theme_hue`. */
@@ -180,6 +182,8 @@ export interface ScorekitHandshake {
   found: boolean;
   ready: boolean;
   path?: string | null;
+  /** Which discovery channel won: env pin, settings pin, PATH, or a well-known prefix. */
+  source?: "env" | "settings" | "path" | "well-known" | null;
   version?: string | null;
   tested_range: string;
   compatible?: boolean | null;
