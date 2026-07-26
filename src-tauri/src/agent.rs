@@ -18,8 +18,8 @@ use tokio_util::sync::CancellationToken;
 use crate::error::BenchError;
 use crate::llm::types::{InputItem, InputRole, MessageContent, ResponseEvent, ResponsesRequest};
 use crate::llm::{ResponseStream, ResponsesClient};
-use crate::{manifest, memory, project, scorekit, styles};
-use tools::ToolBelt;
+use crate::{arrangement, manifest, memory, project, scorekit, styles};
+use tools::{SceneGateKind, SceneGateUpdate, ToolBelt, ToolResult};
 
 const TOOL_OUTPUT_LIMIT: usize = 64 * 1024;
 
@@ -29,6 +29,16 @@ pub enum AgentEvent {
     Text {
         text: String,
     },
+    /// Accepts the current streamed draft into this in-flight run. It remains
+    /// transactional in the frontend until `TextFinalize` follows persistence.
+    TextCommit,
+    /// Drops the preceding streamed draft because a tool failed or a scene
+    /// validation gate remains active.
+    TextDiscard,
+    /// Confirms that every accepted draft from this run is now on disk.
+    TextFinalize,
+    /// Removes every accepted/provisional draft from a run that later failed.
+    TextRollback,
     Warning {
         text: String,
     },
@@ -66,6 +76,38 @@ impl AgentTransport for ResponsesClient {
         cancellation: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = Result<ResponseStream, BenchError>> + Send + 'a>> {
         Box::pin(async move { ResponsesClient::stream(self, request, cancellation).await })
+    }
+}
+
+pub trait ToolExecutor: Sync {
+    fn execute<'a>(
+        &'a self,
+        call: crate::llm::types::FunctionCall,
+    ) -> Pin<Box<dyn Future<Output = Result<ToolResult, BenchError>> + Send + 'a>>;
+
+    fn failure_gates(
+        &self,
+        call: &crate::llm::types::FunctionCall,
+        error: &BenchError,
+    ) -> Vec<SceneGateUpdate> {
+        tools::failure_gates(call, error)
+    }
+}
+
+impl ToolExecutor for ToolBelt {
+    fn execute<'a>(
+        &'a self,
+        call: crate::llm::types::FunctionCall,
+    ) -> Pin<Box<dyn Future<Output = Result<ToolResult, BenchError>> + Send + 'a>> {
+        Box::pin(async move { ToolBelt::execute(self, call).await })
+    }
+
+    fn failure_gates(
+        &self,
+        call: &crate::llm::types::FunctionCall,
+        error: &BenchError,
+    ) -> Vec<SceneGateUpdate> {
+        ToolBelt::failure_gates(self, call, error)
     }
 }
 
@@ -233,16 +275,52 @@ pub fn system_prompt(
     };
     let style_section = style.map(styles::prompt_section).unwrap_or_default();
     let render_section = render_config_section(root);
+    let arrangement_section = arrangement::prompt_section();
+    let capability_section = scorekit_capability_section();
     Ok(format!(
         "You are scorebench, the composing agent for one scorekit project.\n\
          You are the only writer of scene YAML. Never invent an editing UI or render audio yourself.\n\
          Use the provided tools; scorekit validation errors are authoritative.\n\
          Keep paths project-relative. write_scene validates automatically and reports the result;\n\
-         fix any reported problem before building and explain musical decisions concisely.\n\n\
+         fix any reported problem before building and explain musical decisions concisely.\n\
+         Authority order: live ScoreKit schema and machine failures are mandatory; explicit user \
+         constraints govern the musical result; the Arrangement Canon supplies cross-style craft \
+         and audit rules; the active StylePack narrows stylistic choices. Disclose and justify any \
+         user-requested exception to a non-machine Canon rule.\n\
+         For textures, inspect exact catalog matches before writing source keys; no_match never authorizes invention.\n\
+         For world instruments and non-default palettes, inspect instrument resolution before promising or building.\n\n\
+         {capability_section}{arrangement_section}\n\
          CURRENT PROJECT SNAPSHOT:\n{snapshot}\n\n{render_section}{style_section}\
          ROLLING PROJECT MEMORY:\n{project_memory}\n\n\
          SCOREKIT SCENE JSON SCHEMA:\n{schema}"
     ))
+}
+
+fn scorekit_capability_section() -> String {
+    let handshake = scorekit::handshake();
+    let live_version = handshake.version.as_deref().unwrap_or("(unavailable)");
+    let compatibility = match handshake.compatible {
+        Some(true) => "compatible",
+        Some(false) => "outside-tested-range",
+        None => "unverified",
+    };
+    let warning = handshake
+        .warning
+        .as_deref()
+        .map(|warning| format!("\nwarning: {warning}"))
+        .unwrap_or_default();
+    format!(
+        "LIVE SCOREKIT CAPABILITY:\n\
+         version: {live_version}\n\
+         tested range: {}\n\
+         toolchain ready: {}\n\
+         compatibility: {compatibility}{warning}\n\
+         deterministic read-only preflights: inspect_instruments, inspect_textures, check_texture_profile\n\
+         General MIDI exact world identities: shakuhachi, shamisen, sitar.\n\
+         erhu, pipa, guzheng, dizi, tabla, oud, ney, and duduk require an exact active source; never rely on fallback.\n\n",
+        scorekit::TESTED_SCOREKIT_RANGE,
+        handshake.ready
+    )
 }
 
 /// Prompt block describing the render configuration persisted in bench.json,
@@ -310,11 +388,21 @@ fn render_config_section(root: &Path) -> String {
         match manifest::texture_profile_sources(root, profile) {
             Ok((name, sources)) => {
                 let name = name.unwrap_or_else(|| profile.to_owned());
+                let catalog = if sources.len() <= 12 {
+                    sources.join(", ")
+                } else {
+                    format!(
+                        "{} source keys (omitted from the prompt; query them with inspect_textures)",
+                        sources.len()
+                    )
+                };
                 section.push_str(&format!(
                     "texture profile: {profile} ({name})\n\
                      texture sources mapped by this profile: {}\n\
-                     Use only these portable source keys in scene textures; any other key will FAIL the build.\n",
-                    sources.join(", ")
+                     Names alone are not selection evidence: call inspect_textures with exact filters \
+                     before writing a source, and honor its declared playback modes. Any unmapped key \
+                     or unsupported mode will FAIL the build.\n",
+                    catalog
                 ));
             }
             Err(error) => {
@@ -332,6 +420,14 @@ fn render_config_section(root: &Path) -> String {
 pub struct RunOutcome {
     pub history: Vec<InputItem>,
     pub prompt_tokens: Option<u64>,
+    pub status: RunStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunStatus {
+    Complete,
+    MaxTurns,
+    Blocked,
 }
 
 pub async fn run_project<T: AgentTransport>(
@@ -356,9 +452,9 @@ pub async fn run_project<T: AgentTransport>(
     .await
 }
 
-pub async fn run_loop<T: AgentTransport>(
+pub async fn run_loop<T: AgentTransport, E: ToolExecutor>(
     transport: &T,
-    tool_belt: &ToolBelt,
+    tool_belt: &E,
     instructions: String,
     mut input: Vec<InputItem>,
     max_turns: u32,
@@ -366,14 +462,23 @@ pub async fn run_loop<T: AgentTransport>(
     mut emit: impl FnMut(AgentEvent),
 ) -> Result<RunOutcome, BenchError> {
     let mut prompt_tokens = None;
+    let mut scene_gate = HashMap::<String, String>::new();
     for _ in 0..max_turns {
         if cancellation.is_cancelled() {
             return Err(BenchError::cancelled());
         }
+        let gate_was_active = !scene_gate.is_empty();
+        let mut request_input = input.clone();
+        if gate_was_active {
+            request_input.push(InputItem::Message {
+                role: InputRole::User,
+                content: validation_gate_message(&scene_gate).into(),
+            });
+        }
         let request = ResponsesRequest {
             model: String::new(),
             instructions: Some(instructions.clone()),
-            input: input.clone(),
+            input: request_input,
             tools: tools::definitions(),
             max_output_tokens: None,
             stream: true,
@@ -385,7 +490,16 @@ pub async fn run_loop<T: AgentTransport>(
         let mut terminal = false;
 
         while let Some(event) = stream.next().await {
-            match event? {
+            let event = match event {
+                Ok(event) => event,
+                Err(error) => {
+                    if !text.is_empty() {
+                        emit(AgentEvent::TextDiscard);
+                    }
+                    return Err(error);
+                }
+            };
+            match event {
                 ResponseEvent::OutputTextDelta { delta, .. } => {
                     text.push_str(&delta);
                     emit(AgentEvent::Text { text: delta });
@@ -401,16 +515,22 @@ pub async fn run_loop<T: AgentTransport>(
                     }
                 }
                 ResponseEvent::Incomplete { reason, .. } => {
-                    terminal = true;
-                    emit(AgentEvent::Warning {
-                        text: format!(
-                            "response truncated ({})",
+                    if !text.is_empty() {
+                        emit(AgentEvent::TextDiscard);
+                    }
+                    return Err(BenchError::agent(
+                        "response_incomplete",
+                        format!(
+                            "response was incomplete ({})",
                             reason.as_deref().unwrap_or("unknown reason")
                         ),
-                    });
+                    ));
                 }
                 ResponseEvent::Failed { code, message, .. }
                 | ResponseEvent::Error { code, message } => {
+                    if !text.is_empty() {
+                        emit(AgentEvent::TextDiscard);
+                    }
                     return Err(BenchError::Llm {
                         message,
                         status: None,
@@ -422,26 +542,52 @@ pub async fn run_loop<T: AgentTransport>(
             }
         }
         if !terminal {
+            if !text.is_empty() {
+                emit(AgentEvent::TextDiscard);
+            }
             return Err(BenchError::llm(
                 "Responses stream ended before a terminal event",
             ));
         }
 
-        if !text.is_empty() {
-            input.push(InputItem::Message {
-                role: InputRole::Assistant,
-                content: text.into(),
-            });
-        }
         if calls.is_empty() {
+            if !scene_gate.is_empty() {
+                if !text.is_empty() {
+                    emit(AgentEvent::TextDiscard);
+                }
+                emit(AgentEvent::Warning {
+                    text: format!(
+                        "Agent completion withheld: {}. Repair and revalidate every listed scene before finishing.",
+                        gate_summary(&scene_gate)
+                    ),
+                });
+                continue;
+            }
+            if !text.is_empty() {
+                emit(AgentEvent::TextCommit);
+                input.push(InputItem::Message {
+                    role: InputRole::Assistant,
+                    content: text.into(),
+                });
+            }
             return Ok(RunOutcome {
                 history: input,
                 prompt_tokens,
+                status: RunStatus::Complete,
             });
         }
 
+        // A model may emit a success claim and a tool call in the same
+        // response. Deltas remain an explicitly unverified UI draft until
+        // every tool result is known; otherwise an invalid write or failed
+        // repair could be committed before it opens (or preserves) the gate.
+        let assistant_text_index = input.len();
+        let mut all_tools_succeeded = true;
         for call in calls {
             if cancellation.is_cancelled() {
+                if !text.is_empty() {
+                    emit(AgentEvent::TextDiscard);
+                }
                 return Err(BenchError::cancelled());
             }
             input.push(InputItem::FunctionCall {
@@ -455,6 +601,9 @@ pub async fn run_loop<T: AgentTransport>(
             });
             match tool_belt.execute(call.clone()).await {
                 Ok(result) => {
+                    for update in result.scene_gates {
+                        apply_gate_update(&mut scene_gate, update);
+                    }
                     emit(AgentEvent::ToolOk {
                         name: call.name,
                         summary: result.summary,
@@ -466,6 +615,10 @@ pub async fn run_loop<T: AgentTransport>(
                     });
                 }
                 Err(error) => {
+                    all_tools_succeeded = false;
+                    for update in tool_belt.failure_gates(&call, &error) {
+                        apply_gate_update(&mut scene_gate, update);
+                    }
                     emit(AgentEvent::ToolErr {
                         name: call.name,
                         error: error.clone(),
@@ -478,8 +631,37 @@ pub async fn run_loop<T: AgentTransport>(
                 }
             }
         }
+        if cancellation.is_cancelled() {
+            if !text.is_empty() {
+                emit(AgentEvent::TextDiscard);
+            }
+            return Err(BenchError::cancelled());
+        }
+        if !text.is_empty() && all_tools_succeeded && scene_gate.is_empty() {
+            emit(AgentEvent::TextCommit);
+            input.insert(
+                assistant_text_index,
+                InputItem::Message {
+                    role: InputRole::Assistant,
+                    content: text.into(),
+                },
+            );
+        } else if !text.is_empty() {
+            emit(AgentEvent::TextDiscard);
+        }
     }
 
+    let status = if scene_gate.is_empty() {
+        RunStatus::MaxTurns
+    } else {
+        emit(AgentEvent::Warning {
+            text: format!(
+                "Validation gate remains blocked after {max_turns} model turns: {}.",
+                gate_summary(&scene_gate)
+            ),
+        });
+        RunStatus::Blocked
+    };
     emit(AgentEvent::Warning {
         text: format!(
             "Agent stopped after the configured {max_turns} model turns. Increase the limit in Settings or continue with a new message."
@@ -488,7 +670,61 @@ pub async fn run_loop<T: AgentTransport>(
     Ok(RunOutcome {
         history: input,
         prompt_tokens,
+        status,
     })
+}
+
+fn apply_gate_update(scene_gate: &mut HashMap<String, String>, update: SceneGateUpdate) {
+    let path = scene_gate_key(&update.path);
+    let (key, label) = match update.kind {
+        SceneGateKind::Readiness => (format!("readiness:{path}"), format!("`{path}` readiness")),
+        SceneGateKind::Build => (format!("build:{path}"), format!("`{path}` build")),
+        SceneGateKind::InstrumentResolution => (
+            format!("instrument-resolution:{path}"),
+            format!("`{path}` instrument resolution"),
+        ),
+        SceneGateKind::Grammar { grammar } => {
+            let grammar = scene_gate_key(&grammar);
+            (
+                format!("grammar:{grammar}:{path}"),
+                format!("`{path}` grammar `{grammar}`"),
+            )
+        }
+    };
+    if update.ready {
+        scene_gate.remove(&key);
+    } else {
+        scene_gate.insert(key, format!("{label} ({})", update.reason));
+    }
+}
+
+fn validation_gate_message(scene_gate: &HashMap<String, String>) -> String {
+    format!(
+        "[SCOREBENCH VALIDATION GATE]\nNormal completion is blocked for: {}.\n\
+         Repair the scene or configuration, then re-run each named check. Do not claim success while any blocker remains.",
+        gate_summary(scene_gate)
+    )
+}
+
+fn gate_summary(scene_gate: &HashMap<String, String>) -> String {
+    let mut entries = scene_gate.values().cloned().collect::<Vec<_>>();
+    entries.sort_unstable();
+    entries.join("; ")
+}
+
+fn scene_gate_key(path: &str) -> String {
+    let mut normalized = PathBuf::new();
+    for component in Path::new(path).components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::Normal(part) => normalized.push(part),
+            // Tool results originate from the project-confined ToolBelt. Keep
+            // unexpected components visible rather than silently resolving a
+            // path outside that trust boundary.
+            _ => return path.to_owned(),
+        }
+    }
+    normalized.to_string_lossy().into_owned()
 }
 
 pub async fn compact_project<T: AgentTransport>(
@@ -623,23 +859,30 @@ mod tests {
 
     struct ScriptedTransport {
         turns: Mutex<VecDeque<Result<Vec<ResponseEvent>, BenchError>>>,
+        requests: Mutex<Vec<ResponsesRequest>>,
     }
 
     impl ScriptedTransport {
         fn new(turns: Vec<Result<Vec<ResponseEvent>, BenchError>>) -> Self {
             Self {
                 turns: Mutex::new(turns.into()),
+                requests: Mutex::new(Vec::new()),
             }
+        }
+
+        fn requests(&self) -> Vec<ResponsesRequest> {
+            self.requests.lock().unwrap().clone()
         }
     }
 
     impl AgentTransport for ScriptedTransport {
         fn stream<'a>(
             &'a self,
-            _request: ResponsesRequest,
+            request: ResponsesRequest,
             _cancellation: CancellationToken,
         ) -> Pin<Box<dyn Future<Output = Result<ResponseStream, BenchError>> + Send + 'a>> {
             Box::pin(async move {
+                self.requests.lock().unwrap().push(request);
                 match self.turns.lock().unwrap().pop_front().unwrap() {
                     Ok(events) => {
                         Ok(Box::pin(stream::iter(events.into_iter().map(Ok))) as ResponseStream)
@@ -647,6 +890,55 @@ mod tests {
                     Err(error) => Err(error),
                 }
             })
+        }
+    }
+
+    struct ScriptedTools {
+        results: Mutex<VecDeque<Result<ToolResult, BenchError>>>,
+    }
+
+    impl ScriptedTools {
+        fn new(results: Vec<Result<ToolResult, BenchError>>) -> Self {
+            Self {
+                results: Mutex::new(results.into()),
+            }
+        }
+    }
+
+    impl ToolExecutor for ScriptedTools {
+        fn execute<'a>(
+            &'a self,
+            _call: FunctionCall,
+        ) -> Pin<Box<dyn Future<Output = Result<ToolResult, BenchError>> + Send + 'a>> {
+            Box::pin(async move { self.results.lock().unwrap().pop_front().unwrap() })
+        }
+    }
+
+    fn scripted_tool_result(path: &str, ready: bool, reason: &str) -> ToolResult {
+        ToolResult {
+            output: serde_json::json!({
+                "ok": true,
+                "path": path,
+                "validation": {"status": if ready { "valid" } else { "invalid" }}
+            })
+            .to_string(),
+            summary: reason.into(),
+            detail: None,
+            scene_gates: vec![tools::SceneGateUpdate {
+                kind: tools::SceneGateKind::Readiness,
+                path: path.into(),
+                ready,
+                reason: reason.into(),
+            }],
+        }
+    }
+
+    fn scripted_plain_tool_result(reason: &str) -> ToolResult {
+        ToolResult {
+            output: serde_json::json!({"ok": true}).to_string(),
+            summary: reason.into(),
+            detail: None,
+            scene_gates: Vec::new(),
         }
     }
 
@@ -687,10 +979,163 @@ mod tests {
         root
     }
 
+    #[test]
+    #[cfg(unix)]
+    fn scene_gate_keys_preserve_distinct_unix_backslash_filenames() {
+        assert_ne!(
+            scene_gate_key(r"dir\scene.yaml"),
+            scene_gate_key("dir/scene.yaml")
+        );
+        assert_eq!(scene_gate_key("./scene.yaml"), scene_gate_key("scene.yaml"));
+    }
+
     #[tokio::test]
-    async fn scripted_loop_writes_scene_then_finishes() {
+    async fn plain_text_remains_streamed_as_individual_deltas() {
+        let transport = ScriptedTransport::new(vec![Ok(vec![
+            ResponseEvent::OutputTextDelta {
+                item_id: None,
+                output_index: Some(0),
+                delta: "First".into(),
+            },
+            ResponseEvent::OutputTextDelta {
+                item_id: None,
+                output_index: Some(0),
+                delta: " second".into(),
+            },
+            completed(),
+        ])]);
+        let tools = ScriptedTools::new(vec![]);
+        let mut events = Vec::new();
+        let outcome = run_loop(
+            &transport,
+            &tools,
+            "fixture prompt".into(),
+            vec![],
+            1,
+            CancellationToken::new(),
+            |event| events.push(event),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome.status, RunStatus::Complete);
+        let deltas = events
+            .iter()
+            .filter_map(|event| match event {
+                AgentEvent::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(deltas, vec!["First", " second"]);
+        assert!(matches!(events.last(), Some(AgentEvent::TextCommit)));
+        assert!(matches!(
+            outcome.history.last(),
+            Some(InputItem::Message {
+                role: InputRole::Assistant,
+                content,
+            }) if content.display_text() == "First second"
+        ));
+    }
+
+    #[tokio::test]
+    async fn incomplete_response_discards_streamed_text_and_fails() {
+        let transport = ScriptedTransport::new(vec![Ok(vec![
+            ResponseEvent::OutputTextDelta {
+                item_id: None,
+                output_index: Some(0),
+                delta: "Cut off mid-sentence".into(),
+            },
+            ResponseEvent::Incomplete {
+                response_id: Some("response_fixture".into()),
+                reason: Some("max_output_tokens".into()),
+            },
+        ])]);
+        let tools = ScriptedTools::new(vec![]);
+        let mut events = Vec::new();
+        let error = run_loop(
+            &transport,
+            &tools,
+            "fixture prompt".into(),
+            vec![],
+            1,
+            CancellationToken::new(),
+            |event| events.push(event),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            BenchError::Agent { ref code, .. } if code == "response_incomplete"
+        ));
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::TextDiscard)));
+        assert!(!events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::TextCommit)));
+    }
+
+    #[tokio::test]
+    async fn failed_scene_preflight_blocks_a_later_text_only_completion() {
         let transport = ScriptedTransport::new(vec![
             Ok(vec![
+                call("validate_scene", r#"{"path":"broken.yaml"}"#),
+                completed(),
+            ]),
+            Ok(vec![
+                ResponseEvent::OutputTextDelta {
+                    item_id: None,
+                    output_index: Some(0),
+                    delta: "Everything is complete.".into(),
+                },
+                completed(),
+            ]),
+        ]);
+        let tools = ScriptedTools::new(vec![Err(BenchError::agent(
+            "fixture_validation",
+            "scene is invalid",
+        ))]);
+        let mut events = Vec::new();
+        let outcome = run_loop(
+            &transport,
+            &tools,
+            "fixture prompt".into(),
+            vec![],
+            2,
+            CancellationToken::new(),
+            |event| events.push(event),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome.status, RunStatus::Blocked);
+        let requests = transport.requests();
+        assert!(requests[1].input.iter().any(|item| matches!(
+            item,
+            InputItem::Message {
+                role: InputRole::User,
+                content,
+            } if content.display_text().contains("SCOREBENCH VALIDATION GATE")
+                && content.display_text().contains("broken.yaml")
+        )));
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::TextDiscard)));
+        assert!(!events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::TextCommit)));
+    }
+
+    #[tokio::test]
+    async fn invalid_scene_cannot_finish_as_a_successful_turn() {
+        let transport = ScriptedTransport::new(vec![
+            Ok(vec![
+                ResponseEvent::OutputTextDelta {
+                    item_id: None,
+                    output_index: Some(0),
+                    delta: "Scene written.".into(),
+                },
                 call(
                     "write_scene",
                     r#"{"path":"forest.yaml","content":"title: Forest\nbars: 8\n"}"#,
@@ -717,26 +1162,198 @@ mod tests {
                 role: InputRole::User,
                 content: "write a scene".into(),
             }],
-            4,
+            2,
             CancellationToken::new(),
             |event| events.push(event),
         )
         .await
         .unwrap();
+        assert_eq!(outcome.status, RunStatus::Blocked);
         assert!(std::fs::read_to_string(root.join("forest.yaml"))
             .unwrap()
             .contains("Forest"));
         assert!(events.iter().any(
             |event| matches!(event, AgentEvent::ToolOk { name, .. } if name == "write_scene")
         ));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                AgentEvent::Warning { text }
+                    if text.contains("completion withheld")
+                        && text.contains("forest.yaml")
+            )
+        }));
+        assert!(
+            outcome.history.iter().all(|item| {
+                !matches!(
+                    item,
+                    InputItem::Message {
+                        role: InputRole::User,
+                        content,
+                    } if content.display_text().contains("SCOREBENCH VALIDATION GATE")
+                )
+            }),
+            "the internal gate reminder must be ephemeral, not transcript history"
+        );
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::Text { text } if text == "Scene written.")));
+        assert!(!events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::TextCommit)));
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, AgentEvent::TextDiscard))
+                .count(),
+            2,
+            "both the invalid tool-turn draft and blocked completion draft are discarded"
+        );
+        assert!(
+            outcome.history.iter().all(|item| !matches!(
+                item,
+                InputItem::Message { content, .. }
+                    if content.display_text() == "Scene written."
+            )),
+            "a blocked completion claim must not enter persistent history"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn gate_remains_ephemeral_until_the_same_scene_is_repaired() {
+        let transport = ScriptedTransport::new(vec![
+            Ok(vec![
+                call("write_scene", r#"{"path":"forest.yaml","content":"bad"}"#),
+                completed(),
+            ]),
+            Ok(vec![
+                ResponseEvent::OutputTextDelta {
+                    item_id: None,
+                    output_index: Some(0),
+                    delta: "Fixed too early.".into(),
+                },
+                call(
+                    "write_scene",
+                    r#"{"path":"./forest.yaml","content":"still bad"}"#,
+                ),
+                completed(),
+            ]),
+            Ok(vec![
+                ResponseEvent::OutputTextDelta {
+                    item_id: None,
+                    output_index: Some(0),
+                    delta: "Finished too early.".into(),
+                },
+                completed(),
+            ]),
+            Ok(vec![
+                call(
+                    "write_scene",
+                    r#"{"path":"./forest.yaml","content":"repaired"}"#,
+                ),
+                completed(),
+            ]),
+            Ok(vec![
+                ResponseEvent::OutputTextDelta {
+                    item_id: None,
+                    output_index: Some(0),
+                    delta: "Validated and finished.".into(),
+                },
+                completed(),
+            ]),
+        ]);
+        let tools = ScriptedTools::new(vec![
+            Ok(scripted_tool_result("forest.yaml", false, "scene invalid")),
+            Ok(scripted_tool_result(
+                "./forest.yaml",
+                false,
+                "scene still invalid",
+            )),
+            Ok(scripted_tool_result("./forest.yaml", true, "scene valid")),
+        ]);
+        let mut events = Vec::new();
+        let outcome = run_loop(
+            &transport,
+            &tools,
+            "fixture prompt".into(),
+            vec![],
+            5,
+            CancellationToken::new(),
+            |event| events.push(event),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome.status, RunStatus::Complete);
+        let requests = transport.requests();
+        assert_eq!(requests.len(), 5);
+        let has_gate = |request: &ResponsesRequest| {
+            request.input.iter().any(|item| {
+                matches!(
+                    item,
+                    InputItem::Message {
+                        role: InputRole::User,
+                        content,
+                    } if content.display_text().contains("SCOREBENCH VALIDATION GATE")
+                )
+            })
+        };
+        assert!(!has_gate(&requests[0]));
+        assert!(has_gate(&requests[1]));
+        assert!(has_gate(&requests[2]));
+        assert!(has_gate(&requests[3]));
+        assert!(!has_gate(&requests[4]), "repair must clear the path gate");
+        assert!(events.iter().any(
+            |event| matches!(event, AgentEvent::Warning { text } if text.contains("completion withheld"))
+        ));
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::Text { text } if text == "Fixed too early.")));
+        assert!(events.iter().any(
+            |event| matches!(event, AgentEvent::Text { text } if text == "Finished too early.")
+        ));
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, AgentEvent::TextDiscard))
+                .count(),
+            2
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, AgentEvent::TextCommit))
+                .count(),
+            1
+        );
+        assert!(
+            outcome.history.iter().all(|item| {
+                !matches!(
+                    item,
+                    InputItem::Message { content, .. }
+                        if content.display_text().contains("SCOREBENCH VALIDATION GATE")
+                )
+            }),
+            "internal gate reminders are request-local"
+        );
+        assert!(outcome.history.iter().all(|item| !matches!(
+            item,
+            InputItem::Message { content, .. }
+                if content.display_text() == "Fixed too early."
+        )));
+        assert!(outcome.history.iter().all(|item| !matches!(
+            item,
+            InputItem::Message { content, .. }
+                if content.display_text() == "Finished too early."
+        )));
         assert!(matches!(
             outcome.history.last(),
             Some(InputItem::Message {
                 role: InputRole::Assistant,
-                ..
-            })
+                content,
+            }) if content.display_text() == "Validated and finished."
         ));
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
@@ -755,7 +1372,7 @@ mod tests {
         let root = temp_project("unknown");
         let belt = ToolBelt::new(root.clone()).unwrap();
         let mut events = Vec::new();
-        run_loop(
+        let outcome = run_loop(
             &transport,
             &belt,
             "fixture".into(),
@@ -766,6 +1383,7 @@ mod tests {
         )
         .await
         .unwrap();
+        assert_eq!(outcome.status, RunStatus::Complete);
         assert!(events
             .iter()
             .any(|event| matches!(event, AgentEvent::ToolErr { .. })));
@@ -782,7 +1400,7 @@ mod tests {
         let root = temp_project("max-turns");
         let belt = ToolBelt::new(root.clone()).unwrap();
         let mut events = Vec::new();
-        run_loop(
+        let outcome = run_loop(
             &transport,
             &belt,
             "fixture".into(),
@@ -793,10 +1411,51 @@ mod tests {
         )
         .await
         .unwrap();
+        assert_eq!(outcome.status, RunStatus::MaxTurns);
         assert!(events
             .iter()
             .any(|event| matches!(event, AgentEvent::Warning { .. })));
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn early_committed_text_is_not_a_complete_outcome_after_max_turns() {
+        let transport = ScriptedTransport::new(vec![
+            Ok(vec![
+                ResponseEvent::OutputTextDelta {
+                    item_id: None,
+                    output_index: Some(0),
+                    delta: "I will inspect first.".into(),
+                },
+                call("doctor", "{}"),
+                completed(),
+            ]),
+            Ok(vec![call("doctor", "{}"), completed()]),
+        ]);
+        let tools = ScriptedTools::new(vec![
+            Ok(scripted_plain_tool_result("doctor ready")),
+            Ok(scripted_plain_tool_result("doctor ready")),
+        ]);
+        let mut events = Vec::new();
+        let outcome = run_loop(
+            &transport,
+            &tools,
+            "fixture".into(),
+            vec![],
+            2,
+            CancellationToken::new(),
+            |event| events.push(event),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome.status, RunStatus::MaxTurns);
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::TextCommit)));
+        assert!(events.iter().any(
+            |event| matches!(event, AgentEvent::Warning { text } if text.contains("2 model turns"))
+        ));
     }
 
     #[tokio::test]
@@ -973,6 +1632,28 @@ mod tests {
     }
 
     #[test]
+    fn system_prompt_separates_arrangement_canon_style_and_live_capability() {
+        let root = temp_project("arrangement-canon");
+        let pack = styles::builtins().into_iter().next().unwrap();
+        let prompt = system_prompt(&root, "main", Some(&pack)).unwrap();
+
+        assert!(prompt.contains("ARRANGEMENT CANON `scorekit-arrangement-canon` v1.0.0"));
+        assert!(prompt.contains("before_write"));
+        assert!(prompt.contains("name_the_inertia_answer"));
+        assert!(prompt.contains("Never guess textures[].source"));
+        assert!(prompt.contains("LIVE SCOREKIT CAPABILITY"));
+        assert!(prompt.contains(scorekit::TESTED_SCOREKIT_RANGE));
+        assert!(prompt.contains("erhu, pipa, guzheng, dizi, tabla, oud, ney, and duduk"));
+        assert!(prompt.contains("Authority order: live ScoreKit schema"));
+        assert!(prompt.contains("ACTIVE STYLE PACK"));
+        assert!(
+            prompt.find("ARRANGEMENT CANON").unwrap() < prompt.find("ACTIVE STYLE PACK").unwrap(),
+            "the global canon must remain a separate authority above the selected style"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn render_config_is_injected_with_mapped_instruments() {
         let root = temp_project("render-config");
         assert_eq!(render_config_section(&root), "");
@@ -1007,7 +1688,8 @@ mod tests {
         assert!(section.contains("piano, strings"));
         assert!(section.contains("stable `id`"));
         assert!(section.contains("birds, river"));
-        assert!(section.contains("portable source keys"));
+        assert!(section.contains("inspect_textures"));
+        assert!(section.contains("playback modes"));
         let prompt = system_prompt(&root, "main", None).unwrap();
         assert!(prompt.contains("ACTIVE RENDER CONFIGURATION"));
 

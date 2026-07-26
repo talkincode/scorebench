@@ -7,10 +7,12 @@
 //! renders with. Reads are tolerant: a missing or corrupt manifest never
 //! blocks chat or scene writes.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use serde::de::{self, MapAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
 use crate::error::BenchError;
@@ -189,13 +191,27 @@ pub struct TextureProfileCompat {
     pub available: Vec<String>,
     /// Source keys used by the scene but absent from the profile.
     pub missing: Vec<String>,
+    /// Structured v0.6 sources declare the scheduling modes they support.
+    /// Legacy path-only bindings have no declaration and therefore do not
+    /// participate in this local preflight.
+    pub mode_mismatches: Vec<TextureModeMismatch>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct TextureModeMismatch {
+    pub source: String,
+    pub requested: String,
+    pub available: Vec<String>,
+}
+
 impl TextureProfileCompat {
     pub fn is_compatible(&self) -> bool {
-        self.profile.is_some() && self.missing.is_empty() && self.error.is_none()
+        self.profile.is_some()
+            && self.missing.is_empty()
+            && self.mode_mismatches.is_empty()
+            && self.error.is_none()
     }
 
     pub fn message(&self) -> String {
@@ -206,17 +222,34 @@ impl TextureProfileCompat {
         if let Some(error) = &self.error {
             return format!("texture profile `{name}` is unusable: {error}");
         }
-        if self.missing.is_empty() {
-            format!("all texture sources are mapped by texture profile `{name}`")
-        } else {
-            format!(
-                "texture profile `{name}` has no mapping for source(s) {}; the scorekit build will fail",
+        let mut problems = Vec::new();
+        if !self.missing.is_empty() {
+            problems.push(format!(
+                "texture profile `{name}` has no mapping for source(s) {}",
                 self.missing
                     .iter()
                     .map(|key| format!("`{key}`"))
                     .collect::<Vec<_>>()
                     .join(", ")
-            )
+            ));
+        }
+        for mismatch in &self.mode_mismatches {
+            problems.push(format!(
+                "source `{}` only declares mode(s) {}; requested `{}`",
+                mismatch.source,
+                mismatch
+                    .available
+                    .iter()
+                    .map(|mode| format!("`{mode}`"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                mismatch.requested
+            ));
+        }
+        if problems.is_empty() {
+            format!("all texture sources and playback modes are mapped by texture profile `{name}`")
+        } else {
+            format!("{}; the scorekit build will fail", problems.join("; "))
         }
     }
 }
@@ -349,23 +382,267 @@ impl OrchestrationInfo {
     }
 }
 
-/// Load the portable source keys a scorekit texture profile exposes.
+#[derive(Debug, Clone)]
+enum TextureSourceBinding {
+    LegacyPath(String),
+    Discoverable(TextureSource),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TextureSource {
+    path: String,
+    description: String,
+    category: String,
+    tags: Vec<String>,
+    playback: TexturePlayback,
+    use_cases: Vec<String>,
+    provenance: TextureProvenance,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TexturePlayback {
+    modes: Vec<String>,
+    default_mode: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TextureProvenance {
+    library: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TextureProfile {
+    #[serde(default = "default_texture_profile_schema_version")]
+    schema_version: u16,
+    name: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    root: Option<String>,
+    sources: BTreeMap<String, TextureSourceBinding>,
+}
+
+fn default_texture_profile_schema_version() -> u16 {
+    1
+}
+
+impl<'de> Deserialize<'de> for TextureSourceBinding {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct BindingVisitor;
+
+        impl<'de> Visitor<'de> for BindingVisitor {
+            type Value = TextureSourceBinding;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("an audio path string or a structured texture source")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(TextureSourceBinding::LegacyPath(value.to_owned()))
+            }
+
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(TextureSourceBinding::LegacyPath(value))
+            }
+
+            fn visit_map<M>(self, map: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                TextureSource::deserialize(de::value::MapAccessDeserializer::new(map))
+                    .map(TextureSourceBinding::Discoverable)
+            }
+        }
+
+        deserializer.deserialize_any(BindingVisitor)
+    }
+}
+
+impl TextureSourceBinding {
+    fn declared_modes(&self) -> Option<&[String]> {
+        match self {
+            Self::LegacyPath(_) => None,
+            Self::Discoverable(source) => Some(source.playback.modes.as_slice()),
+        }
+    }
+
+    fn validate(&self, field: &str) -> Result<(), String> {
+        match self {
+            Self::LegacyPath(path) if path.trim().is_empty() => {
+                Err(format!("{field} audio path must not be empty"))
+            }
+            Self::LegacyPath(_) => Ok(()),
+            Self::Discoverable(source) => source.validate(field),
+        }
+    }
+}
+
+impl TextureSource {
+    fn validate(&self, field: &str) -> Result<(), String> {
+        if self.path.trim().is_empty() {
+            return Err(format!("{field}.path must not be empty"));
+        }
+        if self.description.trim().is_empty() {
+            return Err(format!("{field}.description must not be empty"));
+        }
+        if !matches!(
+            self.category.as_str(),
+            "ambience"
+                | "foley"
+                | "impact"
+                | "transition"
+                | "tonal"
+                | "industrial"
+                | "organic"
+                | "sound_design"
+        ) {
+            return Err(format!(
+                "{field}.category `{}` is not a ScoreKit category",
+                self.category
+            ));
+        }
+        validate_texture_tokens(&format!("{field}.tags"), &self.tags)?;
+        validate_texture_tokens(&format!("{field}.use_cases"), &self.use_cases)?;
+        if !valid_texture_library_identity(&self.provenance.library) {
+            return Err(format!(
+                "{field}.provenance.library `{}` must match <library>@<version>",
+                self.provenance.library
+            ));
+        }
+        if self.playback.modes.is_empty() {
+            return Err(format!("{field}.playback.modes must not be empty"));
+        }
+        let mut modes = BTreeSet::new();
+        for mode in &self.playback.modes {
+            if !matches!(mode.as_str(), "loop" | "one_shot") {
+                return Err(format!(
+                    "{field}.playback.modes contains unsupported mode `{mode}`"
+                ));
+            }
+            if !modes.insert(mode) {
+                return Err(format!(
+                    "{field}.playback.modes contains duplicate mode `{mode}`"
+                ));
+            }
+        }
+        if !self.playback.modes.contains(&self.playback.default_mode) {
+            return Err(format!(
+                "{field}.playback.default_mode `{}` is not listed in modes",
+                self.playback.default_mode
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl TextureProfile {
+    fn validate(&self) -> Result<(), String> {
+        if self.schema_version != 1 {
+            return Err(format!(
+                "schema_version {} is unsupported; expected 1",
+                self.schema_version
+            ));
+        }
+        if self.name.trim().is_empty() {
+            return Err("name must not be empty".into());
+        }
+        if self.sources.is_empty() {
+            return Err("sources must not be empty".into());
+        }
+        // These fields are optional and intentionally unconstrained by
+        // ScoreKit v0.6; reading them keeps this mirror explicit.
+        let _ = (&self.description, &self.root);
+        for (name, source) in &self.sources {
+            if !valid_texture_token(name, 64) {
+                return Err(format!("sources.{name} must match [a-z][a-z0-9_-]{{0,63}}"));
+            }
+            source.validate(&format!("sources.{name}"))?;
+        }
+        Ok(())
+    }
+}
+
+fn valid_texture_token(value: &str, maximum: usize) -> bool {
+    !value.is_empty()
+        && value.len() <= maximum
+        && value.bytes().enumerate().all(|(index, byte)| {
+            byte.is_ascii_lowercase()
+                || (index > 0 && (byte.is_ascii_digit() || matches!(byte, b'_' | b'-')))
+        })
+}
+
+fn validate_texture_tokens(field: &str, values: &[String]) -> Result<(), String> {
+    if values.is_empty() {
+        return Err(format!("{field} must list at least one entry"));
+    }
+    if values.len() > 16 {
+        return Err(format!("{field} exceeds the maximum of 16 entries"));
+    }
+    let mut unique = BTreeSet::new();
+    for value in values {
+        if !valid_texture_token(value, 32) {
+            return Err(format!(
+                "{field} entry `{value}` must match [a-z][a-z0-9_-]{{0,31}}"
+            ));
+        }
+        if !unique.insert(value) {
+            return Err(format!("{field} contains duplicate entry `{value}`"));
+        }
+    }
+    Ok(())
+}
+
+fn valid_texture_library_identity(identity: &str) -> bool {
+    let Some((library, version)) = identity.split_once('@') else {
+        return false;
+    };
+    !library.is_empty()
+        && !version.is_empty()
+        && !version.contains('@')
+        && library.bytes().enumerate().all(|(index, byte)| {
+            byte.is_ascii_alphanumeric() || (index > 0 && matches!(byte, b'.' | b'_' | b'-' | b'/'))
+        })
+        && version
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'+' | b'-'))
+}
+
+fn load_texture_profile(root: &Path, profile: &str) -> Result<TextureProfile, String> {
+    let path = resolve_config_path(root, profile);
+    let raw = std::fs::read_to_string(&path)
+        .map_err(|error| format!("cannot read `{}`: {error}", path.display()))?;
+    let wire: TextureProfile = serde_yaml::from_str(&raw)
+        .map_err(|error| format!("`{}` is not a texture profile: {error}", path.display()))?;
+    wire.validate().map_err(|error| {
+        format!(
+            "`{}` is not a valid texture profile: {error}",
+            path.display()
+        )
+    })?;
+    Ok(wire)
+}
+
+/// Load the portable source keys a scorekit texture profile exposes. Both the
+/// v0.5 path-only form and v0.6 discoverable object form remain readable.
 pub fn texture_profile_sources(
     root: &Path,
     profile: &str,
 ) -> Result<(Option<String>, Vec<String>), String> {
-    #[derive(Deserialize)]
-    struct ProfileWire {
-        #[serde(default)]
-        name: Option<String>,
-        sources: BTreeMap<String, String>,
-    }
-    let path = resolve_config_path(root, profile);
-    let raw = std::fs::read_to_string(&path)
-        .map_err(|error| format!("cannot read `{}`: {error}", path.display()))?;
-    let wire: ProfileWire = serde_yaml::from_str(&raw)
-        .map_err(|error| format!("`{}` is not a texture profile: {error}", path.display()))?;
-    Ok((wire.name, wire.sources.into_keys().collect()))
+    let wire = load_texture_profile(root, profile)?;
+    Ok((Some(wire.name), wire.sources.into_keys().collect()))
 }
 
 /// Cross-check a scene's tracks against the manifest's active orchestration:
@@ -456,7 +733,7 @@ pub fn check_scene_texture_profile(
     scene: &Path,
     render: &RenderConfig,
 ) -> Option<TextureProfileCompat> {
-    let used = scene_texture_sources(scene)?;
+    let used = scene_texture_uses(scene)?;
     if used.is_empty() {
         return None;
     }
@@ -469,11 +746,12 @@ pub fn check_scene_texture_profile(
             profile: None,
             profile_name: None,
             available: Vec::new(),
-            missing: used,
+            missing: used.into_iter().map(|texture| texture.source).collect(),
+            mode_mismatches: Vec::new(),
             error: None,
         });
     };
-    let (profile_name, available) = match texture_profile_sources(root, profile) {
+    let loaded = match load_texture_profile(root, profile) {
         Ok(loaded) => loaded,
         Err(error) => {
             return Some(TextureProfileCompat {
@@ -481,21 +759,38 @@ pub fn check_scene_texture_profile(
                 profile_name: None,
                 available: Vec::new(),
                 missing: Vec::new(),
+                mode_mismatches: Vec::new(),
                 error: Some(error),
             });
         }
     };
+    let profile_name = loaded.name;
+    let available = loaded.sources.keys().cloned().collect::<Vec<_>>();
     let mut missing = used
-        .into_iter()
-        .filter(|source| !available.contains(source))
+        .iter()
+        .filter(|texture| !loaded.sources.contains_key(&texture.source))
+        .map(|texture| texture.source.clone())
         .collect::<Vec<_>>();
     missing.sort_unstable();
     missing.dedup();
+    let mode_mismatches = used
+        .into_iter()
+        .filter_map(|texture| {
+            let requested = texture.mode?;
+            let available = loaded.sources.get(&texture.source)?.declared_modes()?;
+            (!available.iter().any(|mode| mode == &requested)).then(|| TextureModeMismatch {
+                source: texture.source,
+                requested,
+                available: available.to_vec(),
+            })
+        })
+        .collect();
     Some(TextureProfileCompat {
         profile: Some(profile.to_owned()),
-        profile_name,
+        profile_name: Some(profile_name),
         available,
         missing,
+        mode_mismatches,
         error: None,
     })
 }
@@ -536,7 +831,12 @@ fn scene_tracks(scene: &Path) -> Option<Vec<SceneTrack>> {
     )
 }
 
-fn scene_texture_sources(scene: &Path) -> Option<Vec<String>> {
+struct SceneTextureUse {
+    source: String,
+    mode: Option<String>,
+}
+
+fn scene_texture_uses(scene: &Path) -> Option<Vec<SceneTextureUse>> {
     let raw = std::fs::read_to_string(scene).ok()?;
     let value: serde_yaml::Value = serde_yaml::from_str(&raw).ok()?;
     let Some(textures) = value.get("textures") else {
@@ -546,23 +846,38 @@ fn scene_texture_sources(scene: &Path) -> Option<Vec<String>> {
     Some(
         textures
             .iter()
-            .filter_map(|texture| texture.get("source")?.as_str().map(ToOwned::to_owned))
+            .filter_map(|texture| {
+                let source = texture.get("source")?.as_str()?.to_owned();
+                let mode = texture
+                    .get("mode")
+                    .and_then(serde_yaml::Value::as_str)
+                    .map(ToOwned::to_owned);
+                Some(SceneTextureUse { source, mode })
+            })
             .collect(),
     )
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
     use super::*;
 
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+
+    /// The wall clock is too coarse to separate two roots created in the same
+    /// instant, so parallel tests would share a directory and delete each
+    /// other's files; the counter makes each root unique by construction.
     fn temp_project() -> PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "scorebench-manifest-{}-{}",
+            "scorebench-manifest-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&root).unwrap();
         root
@@ -752,6 +1067,51 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// The sound library scorekit documents lives outside the project, with
+    /// `profiles/orchestrations/<name>.yaml` binding palettes to sibling
+    /// `../renderers/<name>.yaml` files. Leaf paths must therefore resolve
+    /// against the orchestration file's own directory — resolving them against
+    /// the project root would report every palette as unusable.
+    #[test]
+    fn leaf_profiles_resolve_against_the_orchestration_directory() {
+        let root = temp_project();
+        let library = root.join("library");
+        std::fs::create_dir_all(library.join("profiles/orchestrations")).unwrap();
+        std::fs::create_dir_all(library.join("profiles/renderers")).unwrap();
+        std::fs::write(
+            library.join("profiles/renderers/scoredata-chamber.yaml"),
+            "name: scoredata-chamber\ninstruments:\n  cello:\n    sustain: cello.sfz\n",
+        )
+        .unwrap();
+        std::fs::write(
+            library.join("profiles/orchestrations/hybrid-cinematic.yaml"),
+            "schema_version: 1\nname: hybrid-cinematic\ndefault_palette: solo\npalettes:\n  solo: { profile: ../renderers/scoredata-chamber.yaml }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("scene.yaml"),
+            "tracks:\n  - { id: solo_line, instrument: cello }\n",
+        )
+        .unwrap();
+        let render = RenderConfig {
+            renderer: Some("sfizz".into()),
+            // Absolute, the way the GUI file picker stores an out-of-project library.
+            orchestration: Some(
+                library
+                    .join("profiles/orchestrations/hybrid-cinematic.yaml")
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            texture_profile: None,
+        };
+        let compat = check_scene_profile(&root, &root.join("scene.yaml"), &render).unwrap();
+        assert!(compat.is_compatible(), "{}", compat.message());
+        let track = &compat.tracks[0];
+        assert_eq!(track.palette, "solo");
+        assert_eq!(track.profile_name.as_deref(), Some("scoredata-chamber"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn non_sfizz_or_missing_orchestration_skips_check() {
         let root = temp_project();
@@ -840,6 +1200,77 @@ mod tests {
         assert_eq!(compat.missing, vec!["wind"]);
         assert_eq!(compat.profile_name.as_deref(), Some("forest"));
         assert!(compat.message().contains("`wind`"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn scorekit_06_structured_texture_sources_are_loaded_and_modes_are_enforced() {
+        let root = temp_project();
+        std::fs::create_dir_all(root.join("profiles")).unwrap();
+        std::fs::write(
+            root.join("profiles/forest-textures.yaml"),
+            "schema_version: 1\nname: forest\nsources:\n  birds:\n    path: audio/birds.wav\n    description: A short flock call\n    category: organic\n    tags: [wildlife, chirping]\n    playback:\n      modes: [one_shot]\n      default_mode: one_shot\n    use_cases: [forest]\n    provenance:\n      library: field-recordings@1.0.0\n",
+        )
+        .unwrap();
+        let (_, sources) = texture_profile_sources(&root, "profiles/forest-textures.yaml").unwrap();
+        assert_eq!(sources, vec!["birds"]);
+
+        std::fs::write(
+            root.join("scene.yaml"),
+            "textures:\n  - { source: birds, mode: loop }\n",
+        )
+        .unwrap();
+        let compat =
+            check_scene_texture_profile(&root, &root.join("scene.yaml"), &textured_render())
+                .unwrap();
+        assert!(!compat.is_compatible());
+        let serialized = serde_json::to_value(&compat).unwrap();
+        assert_eq!(
+            serialized["mode_mismatches"][0]["source"],
+            serde_json::json!("birds")
+        );
+        assert_eq!(
+            serialized["mode_mismatches"][0]["requested"],
+            serde_json::json!("loop")
+        );
+        assert_eq!(
+            serialized["mode_mismatches"][0]["available"],
+            serde_json::json!(["one_shot"])
+        );
+        assert!(compat.message().contains("one_shot"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn malformed_scorekit_06_texture_metadata_blocks_compatibility() {
+        let root = temp_project();
+        std::fs::create_dir_all(root.join("profiles")).unwrap();
+        std::fs::write(
+            root.join("profiles/forest-textures.yaml"),
+            "schema_version: 1\nname: forest\nsources:\n  birds:\n    path: audio/birds.wav\n    description: A short flock call\n    category: organic\n    tags: [wildlife]\n    use_cases: [forest]\n    provenance:\n      library: field-recordings@1.0.0\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("scene.yaml"),
+            "textures:\n  - { source: birds, mode: loop }\n",
+        )
+        .unwrap();
+
+        let error = texture_profile_sources(&root, "profiles/forest-textures.yaml").unwrap_err();
+        assert!(error.contains("playback"), "{error}");
+        let compat =
+            check_scene_texture_profile(&root, &root.join("scene.yaml"), &textured_render())
+                .unwrap();
+        assert!(!compat.is_compatible());
+        assert!(
+            compat
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("playback"),
+            "{}",
+            compat.message()
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

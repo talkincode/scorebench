@@ -1,5 +1,7 @@
 mod agent;
+mod arrangement;
 mod attachments;
+pub mod capability;
 mod error;
 mod llm;
 mod manifest;
@@ -13,7 +15,7 @@ mod settings;
 mod styles;
 mod watcher;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, Manager, State};
@@ -103,6 +105,29 @@ fn active_style(
             ),
         },
         None => (None, None),
+    }
+}
+
+fn persist_agent_outcome(
+    state: &agent::AgentState,
+    root: &Path,
+    session: &str,
+    outcome: &agent::RunOutcome,
+    mut emit: impl FnMut(agent::AgentEvent),
+) -> Result<bool, BenchError> {
+    if outcome.status != agent::RunStatus::Complete {
+        emit(agent::AgentEvent::TextRollback);
+        return Ok(false);
+    }
+    match state.complete(root, session, outcome.history.clone()) {
+        Ok(()) => {
+            emit(agent::AgentEvent::TextFinalize);
+            Ok(true)
+        }
+        Err(error) => {
+            emit(agent::AgentEvent::TextRollback);
+            Err(error)
+        }
     }
 }
 
@@ -211,38 +236,53 @@ async fn send_chat(
             let prompt_tokens = outcome
                 .prompt_tokens
                 .unwrap_or_else(|| memory::estimate_tokens(&outcome.history));
-            state.complete(&root, &session, outcome.history.clone())?;
-            if prompt_tokens > context_budget_tokens {
-                match agent::compact_project(
-                    &client,
-                    &root,
-                    &session,
-                    outcome.history,
-                    cancellation,
-                    |event| {
-                        let _ = events.send(event);
-                    },
-                )
-                .await
-                {
-                    Ok(kept) => state.replace_history(&root, &session, kept)?,
-                    Err(error) => {
-                        let _ = events.send(agent::AgentEvent::Warning {
-                            text: format!(
-                                "Automatic compaction failed; continuing with the full transcript: {error}"
-                            ),
-                        });
+            match persist_agent_outcome(&state, &root, &session, &outcome, |event| {
+                let _ = events.send(event);
+            }) {
+                Ok(true) => {
+                    if prompt_tokens > context_budget_tokens {
+                        match agent::compact_project(
+                            &client,
+                            &root,
+                            &session,
+                            outcome.history,
+                            cancellation,
+                            |event| {
+                                let _ = events.send(event);
+                            },
+                        )
+                        .await
+                        {
+                            Ok(kept) => state.replace_history(&root, &session, kept)?,
+                            Err(error) => {
+                                let _ = events.send(agent::AgentEvent::Warning {
+                                    text: format!(
+                                        "Automatic compaction failed; continuing with the full transcript: {error}"
+                                    ),
+                                });
+                            }
+                        }
                     }
+                    state.clear_active(&root, &session)?;
+                    Ok(())
+                }
+                Ok(false) => {
+                    state.clear_active(&root, &session)?;
+                    Ok(())
+                }
+                Err(error) => {
+                    let _ = state.clear_active(&root, &session);
+                    Err(error)
                 }
             }
-            state.clear_active(&root, &session)?;
-            Ok(())
         }
         Err(BenchError::Cancelled { .. }) => {
+            let _ = events.send(agent::AgentEvent::TextRollback);
             state.clear_active(&root, &session)?;
             Ok(())
         }
         Err(error) => {
+            let _ = events.send(agent::AgentEvent::TextRollback);
             state.clear_active(&root, &session)?;
             Err(error)
         }
@@ -784,6 +824,104 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp_project(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "scorebench-lib-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn streamed_text_finalizes_only_after_history_persists() {
+        let root = temp_project("agent-persistence");
+        let state = agent::AgentState::default();
+        let (root, mut history, _, _) = state.begin(&root, "main", "request".into()).unwrap();
+        history.push(llm::types::InputItem::Message {
+            role: llm::types::InputRole::Assistant,
+            content: "durable answer".into(),
+        });
+        let outcome = agent::RunOutcome {
+            history,
+            prompt_tokens: Some(7),
+            status: agent::RunStatus::Complete,
+        };
+        let mut events = Vec::new();
+        assert!(
+            persist_agent_outcome(&state, &root, "main", &outcome, |event| events.push(event))
+                .unwrap()
+        );
+        assert!(matches!(
+            events.as_slice(),
+            [agent::AgentEvent::TextFinalize]
+        ));
+        assert!(memory::load_transcript(&root, "main")
+            .unwrap()
+            .items
+            .iter()
+            .any(|item| matches!(
+                item,
+                llm::types::InputItem::Message {
+                    role: llm::types::InputRole::Assistant,
+                    content,
+                } if content.display_text() == "durable answer"
+            )));
+
+        let divergent = agent::RunOutcome {
+            history: Vec::new(),
+            prompt_tokens: None,
+            status: agent::RunStatus::Complete,
+        };
+        let mut failed_events = Vec::new();
+        assert!(
+            persist_agent_outcome(&state, &root, "main", &divergent, |event| {
+                failed_events.push(event)
+            })
+            .is_err()
+        );
+        assert!(matches!(
+            failed_events.as_slice(),
+            [agent::AgentEvent::TextRollback]
+        ));
+
+        let rolled_back = agent::RunOutcome {
+            history: vec![llm::types::InputItem::Message {
+                role: llm::types::InputRole::Assistant,
+                content: "must not persist".into(),
+            }],
+            prompt_tokens: Some(9),
+            status: agent::RunStatus::MaxTurns,
+        };
+        let mut rollback_events = Vec::new();
+        assert!(
+            !persist_agent_outcome(&state, &root, "main", &rolled_back, |event| {
+                rollback_events.push(event)
+            })
+            .unwrap()
+        );
+        assert!(matches!(
+            rollback_events.as_slice(),
+            [agent::AgentEvent::TextRollback]
+        ));
+        assert!(!memory::load_transcript(&root, "main")
+            .unwrap()
+            .items
+            .iter()
+            .any(|item| matches!(
+                item,
+                llm::types::InputItem::Message {
+                    role: llm::types::InputRole::Assistant,
+                    content,
+                } if content.display_text() == "must not persist"
+            )));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn recording_filter_follows_suggested_extension() {

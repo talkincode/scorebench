@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, errorText, type SceneInspection } from "../api";
+  import { api, errorText, resolvedPaletteForTrack, type SceneInspection } from "../api";
   import { t } from "../i18n.svelte";
   import { bench } from "../state.svelte";
 
@@ -83,6 +83,9 @@
               <div class="segment" style={`--w: ${Math.max(1, section.bars ?? 4)}`}>
                 <strong>{section.name ?? "—"}</strong>
                 <span>{section.bars ?? "?"} bars{section.tempo ? ` · ${section.tempo}` : ""}</span>
+                {#if section.mute.length}
+                  <span class="muted" title={`${t("preview.muted")}: ${section.mute.join(", ")}`}>{t("preview.muted")}: {section.mute.join(", ")}</span>
+                {/if}
                 {#if section.intensity != null}
                   <i class="meter"><b style={`width: ${intensityWidth(section.intensity)}`}></b></i>
                 {/if}
@@ -101,7 +104,9 @@
             <thead>
               <tr>
                 <th>#</th>
+                <th>{t("preview.track")}</th>
                 <th>{t("preview.instrument")}</th>
+                <th>{t("preview.palette")}</th>
                 <th>{t("preview.pattern")}</th>
                 <th>{t("preview.motif")}</th>
                 <th>{t("preview.articulation")}</th>
@@ -112,7 +117,9 @@
               {#each scene.tracks as track, index}
                 <tr>
                   <td class="idx">{index + 1}</td>
+                  <td class="track-id">{track.id ?? "—"}</td>
                   <td class="instrument">{track.instrument ?? "—"}</td>
+                  <td class="palette">{resolvedPaletteForTrack(track, inspection.orchestration) ?? t("preview.defaultPalette")}</td>
                   <td>{track.pattern ?? "—"}</td>
                   <td>{track.motif ?? "—"}</td>
                   <td>{track.articulation ?? "—"}</td>
@@ -319,6 +326,12 @@
     color: var(--fg-dim);
     font: 9.5px var(--mono);
   }
+  .segment span.muted {
+    overflow: hidden;
+    color: var(--fg-label);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .meter {
     display: block;
     width: 100%;
@@ -362,6 +375,14 @@
     background: color-mix(in srgb, var(--accent-soft) 55%, transparent);
   }
   td.idx {
+    color: var(--fg-dim);
+    font: 10px var(--mono);
+  }
+  td.track-id {
+    color: var(--fg);
+    font: 10px var(--mono);
+  }
+  td.palette {
     color: var(--fg-dim);
     font: 10px var(--mono);
   }

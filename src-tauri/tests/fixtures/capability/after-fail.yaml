@@ -1,0 +1,16 @@
+title: After Fail
+tempo: 120
+key: C_major
+time_signature: "4/4"
+bars: 8
+loop: false
+motifs:
+  theme:
+    - { degree: 5, beats: 1 }
+    - { degree: 3, beats: 1 }
+    - { degree: 1, beats: 1 }
+tracks:
+  - { id: lead, instrument: piano, pattern: melody, motif: theme }
+  - { id: answer, instrument: flute, pattern: melody, motif: theme }
+  - { id: harmony, instrument: strings, pattern: sustain }
+  - { id: foundation, instrument: bass, pattern: bass }

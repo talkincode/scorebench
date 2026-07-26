@@ -78,7 +78,7 @@ tracks:
 
 ScoreKit currently builds diatonic triads from the scene scale. Roman-numeral case is conventional: `VI` and `vi` select the same scale degree in the current protocol. This field is not a complete classical-harmony notation system.
 
-## Tracks and the five patterns
+## Tracks and the six patterns
 
 Every track selects an `instrument` and a `pattern`, and carries a stable scene-local `id`:
 
@@ -89,6 +89,7 @@ Every track selects an `instrument` and a `pattern`, and carries a stable scene-
 | `arpeggio` | Eighth notes in root–third–fifth–third order | Motion, piano or harp figures |
 | `bass` | Low roots derived from the current chord | Low-frequency foundation |
 | `drums` | A fixed kick, snare, and hi-hat groove | Basic pulse; must use `instrument: drums` |
+| `tabla` | A deterministic tabla groove | World-percussion pulse; must use `instrument: tabla` and still obey the single-percussion-track rule |
 
 Tracks can also define:
 
@@ -114,7 +115,7 @@ A melody repeats or truncates its motif to fill the scene or section exactly. Sp
 
 ## Sound textures
 
-ScoreKit 0.3 adds deterministic non-instrument layers:
+ScoreKit provides deterministic non-instrument layers:
 
 ```yaml
 textures:
@@ -133,12 +134,22 @@ textures:
 ```yaml
 name: forest-recordings
 root: recordings
+schema_version: 1
 sources:
-  river: river.flac
-  birds: birds.wav
+  river:
+    path: river.flac
+    description: Steady close river
+    category: organic
+    tags: [water, flowing]
+    playback:
+      modes: [loop]
+      default_mode: loop
+    use_cases: [forest]
+    provenance:
+      library: field-recordings@1.0.0
 ```
 
-The Agent receives the active profile's source keys and the observation panel reports missing mappings before build. ScoreKit still performs the authoritative validation and mixing. Enabling stems produces aligned texture stems alongside instrument stems.
+ScoreKit 0.6 also accepts the old path-only binding for build compatibility, but discovery and certification require the structured form. The Agent queries the active profile with exact `inspect_textures` filters before choosing a source; `no_match` means it must change the plan, not invent a key. The observation panel reports missing mappings and a `loop`/`one_shot` mode not declared by the source before build. ScoreKit still performs authoritative validation and mixing. Enabling stems produces aligned texture stems alongside instrument stems.
 
 ## Performance
 

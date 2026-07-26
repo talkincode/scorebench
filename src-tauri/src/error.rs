@@ -14,6 +14,11 @@ pub enum BenchError {
         exit_code: i32,
         field: Option<String>,
         location: Option<String>,
+        /// Structured diagnosis some failures carry (for example the
+        /// instrument-resolution report or v0.6 texture certification report).
+        /// Passed through untouched, and boxed so this rare payload does not
+        /// widen every `Result` in the app.
+        report: Option<Box<serde_json::Value>>,
     },
     /// Local I/O failure (project scan, asset read, ...).
     Io { message: String },

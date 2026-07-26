@@ -1,0 +1,15 @@
+title: After Pass
+tempo: 80
+key: D_minor
+time_signature: "4/4"
+bars: 8
+loop: true
+motifs:
+  theme:
+    - { degree: 2, beats: 1 }
+    - { degree: 4, beats: 1 }
+    - { degree: 6, beats: 1 }
+    - { degree: 0, beats: 3 }
+tracks:
+  - { id: lead, instrument: piano, pattern: melody, motif: theme }
+  - { id: harmony, instrument: strings, pattern: sustain }

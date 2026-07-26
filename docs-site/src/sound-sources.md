@@ -36,6 +36,8 @@ Before adopting a custom SF2, remember:
 - `articulation` does not switch an SF2 to pizzicato, spiccato, or another sample set. Only SFZ profiles use that field.
 - A license may permit music made with a library while forbidding redistribution of the original samples or instrument file.
 
+ScoreKit 0.6's scene vocabulary includes world identities such as `erhu`, `pipa`, `guzheng`, `dizi`, `tabla`, `oud`, `ney`, and `duduk`. They validate as musical identities but do not have an exact General MIDI program, so an SF2 fallback is intentionally rejected. `shakuhachi`, `shamisen`, and `sitar` do have exact GM programs. Run `scorekit inspect-instruments scene.yaml --json` before promising any world identity; use an orchestration with an exact source when the default SF2 cannot provide one.
+
 The current scorebench Render panel does not expose a custom-SoundFont picker, although the Agent/backend build interface supports a `soundfont` parameter. For a fixed project source, configure the ScoreKit sound directory or make the build workflow pass an explicit path rather than copying a large library into the repository.
 
 ## SFZ files and samples

@@ -354,6 +354,14 @@
               profile: inspection.texture_profile.profile_name ?? inspection.texture_profile.profile,
               sources: inspection.texture_profile.missing.join(", "),
             })}</p>
+          {:else}
+            {#each inspection.texture_profile.mode_mismatches ?? [] as mismatch}
+              <p class="status failed">{t("panel.textureModeMismatch", {
+                source: mismatch.source,
+                requested: mismatch.requested,
+                available: mismatch.available.join(", "),
+              })}</p>
+            {/each}
           {/if}
         {/if}
         {#if inspection.validation.error}<p class="status failed">{errorText(inspection.validation.error)}</p>{/if}
@@ -432,6 +440,14 @@
             profile: inspection.texture_profile.profile_name ?? inspection.texture_profile.profile ?? "—",
             sources: inspection.texture_profile.missing.join(", "),
           })}</p>
+        {:else}
+          {#each inspection.texture_profile.mode_mismatches ?? [] as mismatch}
+            <p class="status failed">{t("panel.textureModeMismatch", {
+              source: mismatch.source,
+              requested: mismatch.requested,
+              available: mismatch.available.join(", "),
+            })}</p>
+          {/each}
         {/if}
       {/if}
       <button class="render-btn" onclick={render} disabled={!bench.project || !bench.selectedScene || bench.building || needsOrchestration || needsTextureProfile}>

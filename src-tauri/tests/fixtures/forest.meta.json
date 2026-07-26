@@ -17,49 +17,53 @@
       {
         "canonical": "strings",
         "reasons": [
-          "available"
+          "general_midi_exact"
         ],
         "requested": "strings",
         "resolved": "strings",
         "score": 1.0,
         "status": "exact",
         "track": 0,
+        "track_id": "harmony",
         "warnings": []
       },
       {
         "canonical": "piano",
         "reasons": [
-          "available"
+          "general_midi_exact"
         ],
         "requested": "piano",
         "resolved": "piano",
         "score": 1.0,
         "status": "exact",
         "track": 1,
+        "track_id": "motion",
         "warnings": []
       },
       {
         "canonical": "bass",
         "reasons": [
-          "available"
+          "general_midi_exact"
         ],
         "requested": "bass",
         "resolved": "bass",
         "score": 1.0,
         "status": "exact",
         "track": 2,
+        "track_id": "foundation",
         "warnings": []
       },
       {
         "canonical": "drums",
         "reasons": [
-          "available"
+          "general_midi_exact"
         ],
         "requested": "drums",
         "resolved": "drums",
         "score": 1.0,
         "status": "exact",
         "track": 3,
+        "track_id": "pulse",
         "warnings": []
       }
     ]
@@ -77,23 +81,35 @@
   "total_samples": 920347,
   "tracks": [
     {
+      "articulation": "sustain",
+      "id": "harmony",
       "instrument": "strings",
       "intensity": 0.4000000059604645,
+      "palette": null,
       "pattern": "sustain"
     },
     {
+      "articulation": "sustain",
+      "id": "motion",
       "instrument": "piano",
       "intensity": 0.550000011920929,
+      "palette": null,
       "pattern": "arpeggio"
     },
     {
+      "articulation": "sustain",
+      "id": "foundation",
       "instrument": "bass",
       "intensity": 0.44999998807907104,
+      "palette": null,
       "pattern": "bass"
     },
     {
+      "articulation": "sustain",
+      "id": "pulse",
       "instrument": "drums",
       "intensity": 0.30000001192092896,
+      "palette": null,
       "pattern": "drums"
     }
   ]

@@ -1,7 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { api, errorText, type SceneInspection } from "./api";
+import {
+  advanceAgentDraft,
+  api,
+  errorText,
+  isCurrentAgentRun,
+  resolvedPaletteForTrack,
+  type SceneInspection,
+} from "./api";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
@@ -40,6 +47,108 @@ describe("errorText", () => {
     ).toBe(
       'LLM endpoint returned HTTP 400\n{"error":{"message":"tools[0].strict is unsupported"}}',
     );
+  });
+
+  it("names the track, palette and leaf profile behind an unresolved orchestration", () => {
+    expect(
+      errorText({
+        kind: "scorekit",
+        code: "resolution",
+        exit_code: 2,
+        message: "1 unresolved instrument(s) in `forest.yaml`",
+        report: {
+          tracks: [
+            {
+              track_id: "harmony",
+              palette: "default",
+              profile: "scoredata-open",
+              requested: "strings",
+              resolved: "strings",
+              status: "exact",
+            },
+            {
+              track_id: "pad",
+              palette: "solo",
+              profile: "scoredata-chamber",
+              requested: "choir",
+              resolved: null,
+              status: "missing",
+              best_candidate: {
+                instrument: "cello",
+                rejected: "strings_fallback_requires_explicit_allowance",
+              },
+            },
+          ],
+        },
+      }),
+    ).toBe(
+      "resolution: 1 unresolved instrument(s) in `forest.yaml`\n" +
+        "track `pad` (palette `solo`, profile `scoredata-chamber`): `choir` unavailable" +
+        " — closest `cello` rejected (strings_fallback_requires_explicit_allowance)",
+    );
+  });
+
+  it("leaves errors without a report untouched", () => {
+    expect(
+      errorText({ kind: "scorekit", code: "validation", message: "bad scene" }),
+    ).toBe("validation: bad scene");
+  });
+});
+
+describe("resolvedPaletteForTrack", () => {
+  const orchestration = {
+    orchestration: "hybrid.yaml",
+    default_palette: "solo",
+    tracks: [
+      {
+        track_id: "lead",
+        palette: "solo",
+        instrument: "cello",
+        profile: "chamber.yaml",
+      },
+    ],
+  };
+
+  it("uses scorekit's resolved palette for a palette-less track", () => {
+    expect(resolvedPaletteForTrack({ id: "lead", palette: null }, orchestration)).toBe("solo");
+  });
+
+  it("falls back to the authored palette when compatibility data is unavailable", () => {
+    expect(resolvedPaletteForTrack({ id: "lead", palette: "ensemble" }, null)).toBe("ensemble");
+  });
+});
+
+describe("advanceAgentDraft", () => {
+  it("streams deltas provisionally and commits only on an explicit boundary", () => {
+    let state = advanceAgentDraft("", { type: "text", text: "First" });
+    state = advanceAgentDraft(state.pending, { type: "text", text: " second" });
+    expect(state).toEqual({ pending: "First second" });
+
+    state = advanceAgentDraft(state.pending, { type: "text_commit" });
+    expect(state).toEqual({ pending: "", committed: "First second" });
+  });
+
+  it("drops an unverified success claim when the backend rejects the turn", () => {
+    const streamed = advanceAgentDraft("", { type: "text", text: "Done." });
+    expect(advanceAgentDraft(streamed.pending, { type: "text_discard" })).toEqual({
+      pending: "",
+    });
+  });
+});
+
+describe("isCurrentAgentRun", () => {
+  const run = { id: 7, root: "/projects/a", session: "main" };
+
+  it("accepts events only for the exact active run, project and session", () => {
+    expect(isCurrentAgentRun(run, run, "/projects/a", "main")).toBe(true);
+  });
+
+  it("rejects late events after a project, session or run switch", () => {
+    expect(isCurrentAgentRun(run, run, "/projects/b", "main")).toBe(false);
+    expect(isCurrentAgentRun(run, run, "/projects/a", "other")).toBe(false);
+    expect(
+      isCurrentAgentRun(run, { id: 8, root: "/projects/a", session: "main" }, "/projects/a", "main"),
+    ).toBe(false);
   });
 });
 

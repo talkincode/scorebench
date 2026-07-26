@@ -1,6 +1,12 @@
 <script lang="ts">
   import { open } from "@tauri-apps/plugin-dialog";
-  import { api, errorText, type AgentEvent } from "../api";
+  import {
+    advanceAgentDraft,
+    api,
+    errorText,
+    isCurrentAgentRun,
+    type AgentEvent,
+  } from "../api";
   import { t } from "../i18n.svelte";
   import { bench } from "../state.svelte";
   import BrandMark from "./BrandMark.svelte";
@@ -9,6 +15,7 @@
   let input = $state("");
   let scroller: HTMLDivElement | undefined = $state();
   let pendingAttachments = $state<string[]>([]);
+  let nextAgentRunId = 0;
   let newOpen = $state(false);
   let newTitle = $state("");
   let newLinkScene = $state(true);
@@ -23,6 +30,7 @@
 
   $effect(() => {
     void bench.messages.length;
+    void bench.messages.at(-1)?.text;
     if (scroller) scroller.scrollTop = scroller.scrollHeight;
   });
 
@@ -166,8 +174,37 @@
   function onAgentEvent(event: AgentEvent) {
     switch (event.type) {
       case "text":
-        if (bench.messages.at(-1)?.role === "agent") bench.messages[bench.messages.length - 1].text += event.text;
-        else bench.messages.push({ role: "agent", text: event.text });
+      case "text_commit":
+      case "text_discard": {
+        const index = bench.messages.findIndex(
+          (message) => message.role === "agent" && message.provisional,
+        );
+        const pending = index >= 0 ? bench.messages[index].text : "";
+        const transition = advanceAgentDraft(pending, event);
+        if (event.type === "text") {
+          if (index >= 0) bench.messages[index].text = transition.pending;
+          else bench.messages.push({ role: "agent", text: transition.pending, provisional: true });
+        } else if (index >= 0 && transition.committed) {
+          bench.messages[index] = {
+            ...bench.messages[index],
+            text: transition.committed,
+            provisional: false,
+            transactional: true,
+          };
+        } else if (index >= 0) {
+          bench.messages.splice(index, 1);
+        }
+        break;
+      }
+      case "text_finalize":
+        bench.messages = bench.messages.map((message) =>
+          message.transactional ? { ...message, transactional: false } : message,
+        );
+        break;
+      case "text_rollback":
+        bench.messages = bench.messages.filter(
+          (message) => !message.provisional && !message.transactional,
+        );
         break;
       case "warning":
         bench.messages.push({ role: "tool", tone: "err", text: event.text });
@@ -185,7 +222,9 @@
         bench.messages.push({ role: "tool", tone: "err", text: `${event.name} ✗ ${errorText(event.error)}` });
         break;
       case "done":
-        bench.agentBusy = false;
+        bench.messages = bench.messages.filter(
+          (message) => !message.provisional && !message.transactional,
+        );
         break;
     }
   }
@@ -194,6 +233,8 @@
     const message = input.trim();
     const session = bench.activeSession;
     if (!message || !bench.project || !session || !ready || bench.agentBusy) return;
+    const root = bench.project.root;
+    const run = { id: ++nextAgentRunId, root, session };
     const attachments = pendingAttachments;
     input = "";
     pendingAttachments = [];
@@ -202,12 +243,39 @@
       text: message,
       attachments: attachments.length ? attachments.map(fileName) : undefined,
     });
+    bench.messages = bench.messages.filter(
+      (entry) => !entry.provisional && !entry.transactional,
+    );
+    bench.agentRun = run;
     bench.agentBusy = true;
     try {
-      await api.sendChat(bench.project.root, session, message, attachments, onAgentEvent);
+      await api.sendChat(root, session, message, attachments, (event) => {
+        if (
+          isCurrentAgentRun(
+            run,
+            bench.agentRun,
+            bench.project?.root,
+            bench.activeSession,
+          )
+        ) {
+          onAgentEvent(event);
+        }
+      });
     } catch (error) {
-      bench.messages.push({ role: "tool", tone: "err", text: errorText(error) });
-      bench.agentBusy = false;
+      if (isCurrentAgentRun(run, bench.agentRun, bench.project?.root, bench.activeSession)) {
+        bench.messages = bench.messages.filter(
+          (entry) => !entry.provisional && !entry.transactional,
+        );
+        bench.messages.push({ role: "tool", tone: "err", text: errorText(error) });
+      }
+    } finally {
+      if (bench.agentRun?.id === run.id) {
+        bench.messages = bench.messages.filter(
+          (entry) => !entry.provisional && !entry.transactional,
+        );
+        bench.agentBusy = false;
+        bench.agentRun = null;
+      }
     }
   }
 
@@ -219,8 +287,9 @@
   }
 
   async function stop() {
-    if (!bench.project || !bench.activeSession || !bench.agentBusy) return;
-    await api.cancelAgent(bench.project.root, bench.activeSession).catch(() => {});
+    const run = bench.agentRun;
+    if (!run || !bench.agentBusy) return;
+    await api.cancelAgent(run.root, run.session).catch(() => {});
   }
 </script>
 
@@ -288,13 +357,14 @@
     {:else}
       <div class="message-stream">
         {#each bench.messages as message}
-          <div class="msg {message.role} {message.tone ?? ''}">
+          <div class="msg {message.role} {message.tone ?? ''}" class:provisional={message.provisional}>
             {#if message.role === "tool"}
               <span class="dot" aria-hidden="true"></span>
               <span class="tool-line">{message.text}</span>
               {#if message.detail}<details><summary>{t("chat.output")}</summary><pre>{message.detail}</pre></details>{/if}
             {:else}
               {message.text}
+              {#if message.provisional}<small>{t("chat.pendingVerification")}</small>{/if}
               {#if message.attachments?.length}
                 <span class="msg-files">
                   {#each message.attachments as name}<em>⎘ {name}</em>{/each}
@@ -303,7 +373,9 @@
             {/if}
           </div>
         {/each}
-        {#if bench.agentBusy}<div class="msg agent thinking"><i></i><i></i><i></i></div>{/if}
+        {#if bench.agentBusy && !bench.messages.some((message) => message.provisional)}
+          <div class="msg agent thinking"><i></i><i></i><i></i></div>
+        {/if}
       </div>
     {/if}
   </div>
@@ -406,6 +478,8 @@
   .msg { max-width: 82%; padding: 9px 12px; border-radius: 9px; font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
   .msg.user { align-self: flex-end; background: var(--accent-soft); border: 1px solid var(--accent-line); }
   .msg.agent { align-self: flex-start; background: var(--panel-raised); border: 1px solid var(--line); }
+  .msg.agent.provisional { display: flex; flex-direction: column; gap: 6px; border-style: dashed; }
+  .msg.agent.provisional small { color: var(--fg-dim); font: 9px var(--mono); letter-spacing: .04em; text-transform: uppercase; }
   .msg.tool { align-self: stretch; max-width: 100%; color: var(--fg-dim); background: var(--control-bg); border: 1px solid var(--line); border-radius: 5px; font: 11px var(--mono); }
   .msg.tool .dot { display: inline-block; width: 5px; height: 5px; margin-right: 7px; border-radius: 50%; background: var(--fg-muted); vertical-align: 1px; }
   .msg.tool.run .dot { background: var(--warning); box-shadow: 0 0 7px var(--warning); }

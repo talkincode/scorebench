@@ -1,4 +1,12 @@
-import type { ProjectInfo, ReviewReport, SessionMeta, Settings, StylePack, VersionInfo } from "./api";
+import type {
+  AgentRunIdentity,
+  ProjectInfo,
+  ReviewReport,
+  SessionMeta,
+  Settings,
+  StylePack,
+  VersionInfo,
+} from "./api";
 
 export interface ChatMessage {
   role: "user" | "agent" | "tool";
@@ -6,6 +14,9 @@ export interface ChatMessage {
   tone?: "ok" | "err" | "run";
   detail?: string;
   attachments?: string[];
+  provisional?: boolean;
+  /** Accepted by one model/tool turn, but not durable until the run persists. */
+  transactional?: boolean;
 }
 
 export type WorkspaceTab = "agent" | "scene" | "preview" | "review" | "styles";
@@ -31,6 +42,7 @@ class BenchState {
 
   messages = $state<ChatMessage[]>([]);
   agentBusy = $state(false);
+  agentRun = $state<AgentRunIdentity | null>(null);
 
   building = $state(false);
   buildStatus = $state<string | null>(null);
