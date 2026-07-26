@@ -19,7 +19,7 @@
   let quality = $state(5);
   let stems = $state(false);
   let format = $state<"ogg" | "wav">("ogg");
-  let profilePath = $state<string | null>(null);
+  let orchestrationPath = $state<string | null>(null);
   let textureProfilePath = $state<string | null>(null);
   let renderConfigRoot: string | null = null;
   let inspection = $state<SceneInspection | null>(null);
@@ -79,7 +79,7 @@
       ([config]) => {
         if (renderConfigRoot !== root) return;
         renderer = config?.renderer ?? "fluidsynth";
-        profilePath = absoluteConfigPath(root, config?.profile);
+        orchestrationPath = absoluteConfigPath(root, config?.orchestration);
         textureProfilePath = absoluteConfigPath(root, config?.texture_profile);
       },
       (error) => {
@@ -93,9 +93,9 @@
   function persistRenderConfig() {
     const root = bench.project?.root;
     if (!root) return;
-    const profile = manifestConfigPath(root, profilePath);
+    const orchestration = manifestConfigPath(root, orchestrationPath);
     const texture_profile = manifestConfigPath(root, textureProfilePath);
-    void api.saveRenderConfig(root, { renderer, profile, texture_profile }).then(
+    void api.saveRenderConfig(root, { renderer, orchestration, texture_profile }).then(
       () => bench.projectRevision++,
       (error) => {
         bench.buildFailed = true;
@@ -172,20 +172,20 @@
     }
   }
 
-  const needsProfile = $derived(renderer === "sfizz" && !profilePath);
+  const needsOrchestration = $derived(renderer === "sfizz" && !orchestrationPath);
   const needsTextureProfile = $derived(
     (inspection?.scene?.textures.length ?? 0) > 0 && !textureProfilePath,
   );
 
-  async function pickProfile() {
+  async function pickOrchestration() {
     const picked = await open({
       multiple: false,
       directory: false,
       defaultPath: bench.project?.root,
-      filters: [{ name: "Render profile", extensions: ["yaml", "yml"] }],
+      filters: [{ name: "Orchestration profile", extensions: ["yaml", "yml"] }],
     });
     if (typeof picked === "string") {
-      profilePath = picked;
+      orchestrationPath = picked;
       persistRenderConfig();
     }
   }
@@ -208,7 +208,7 @@
       !bench.project ||
       !bench.selectedScene ||
       bench.building ||
-      needsProfile ||
+      needsOrchestration ||
       needsTextureProfile
     )
       return;
@@ -216,9 +216,9 @@
     bench.buildFailed = false;
     bench.buildStatus = "starting…";
     const params: BuildParams = { renderer, sample_rate: sampleRate, gain, quality, stems };
-    if (renderer === "sfizz" && profilePath) {
+    if (renderer === "sfizz" && orchestrationPath) {
       // Absolute path: the scorekit subprocess does not run from the project root.
-      params.profile = profilePath;
+      params.orchestration = orchestrationPath;
     }
     if (textureProfilePath) params.texture_profile = textureProfilePath;
     try {
@@ -335,14 +335,13 @@
             <pre>{JSON.stringify(inspection.last_diff, null, 2)}</pre>
           </details>
         {/if}
-        {#if inspection.render_profile}
-          {#if inspection.render_profile.error}
-            <p class="status failed">{t("panel.profileUnusable", { error: inspection.render_profile.error })}</p>
-          {:else if inspection.render_profile.unmapped.length}
-            <p class="status failed">{t("panel.profileUnmapped", {
-              profile: inspection.render_profile.profile_name ?? inspection.render_profile.profile,
-              instruments: inspection.render_profile.unmapped.join(", "),
-            })}</p>
+        {#if inspection.orchestration}
+          {#if inspection.orchestration.error}
+            <p class="status failed">{t("panel.orchestrationUnusable", { error: inspection.orchestration.error })}</p>
+          {:else}
+            {#each inspection.orchestration.tracks.filter((track) => track.error) as track}
+              <p class="status failed">{t("panel.orchestrationTrackProblem", { track: track.track_id, error: track.error ?? "" })}</p>
+            {/each}
           {/if}
         {/if}
         {#if inspection.texture_profile}
@@ -355,6 +354,14 @@
               profile: inspection.texture_profile.profile_name ?? inspection.texture_profile.profile,
               sources: inspection.texture_profile.missing.join(", "),
             })}</p>
+          {:else}
+            {#each inspection.texture_profile.mode_mismatches ?? [] as mismatch}
+              <p class="status failed">{t("panel.textureModeMismatch", {
+                source: mismatch.source,
+                requested: mismatch.requested,
+                available: mismatch.available.join(", "),
+              })}</p>
+            {/each}
           {/if}
         {/if}
         {#if inspection.validation.error}<p class="status failed">{errorText(inspection.validation.error)}</p>{/if}
@@ -378,22 +385,22 @@
       </div>
       {#if renderer === "sfizz"}
         <div class="profile-field">
-          <span class="profile-label">{t("panel.sfzProfile")}</span>
+          <span class="profile-label">{t("panel.orchestrationProfile")}</span>
           <div class="profile-row">
-            <button class="profile-pick" onclick={pickProfile} disabled={bench.building}>
-              {#if profilePath}
-                <strong title={profilePath}>{profilePath.split(/[\\/]/).at(-1)}</strong>
+            <button class="profile-pick" onclick={pickOrchestration} disabled={bench.building}>
+              {#if orchestrationPath}
+                <strong title={orchestrationPath}>{orchestrationPath.split(/[\\/]/).at(-1)}</strong>
               {:else}
                 <span>{t("panel.chooseProfile")}</span>
               {/if}
             </button>
-            {#if profilePath}
-              <button class="profile-clear" onclick={() => { profilePath = null; persistRenderConfig(); }} disabled={bench.building} aria-label="Clear profile">×</button>
+            {#if orchestrationPath}
+              <button class="profile-clear" onclick={() => { orchestrationPath = null; persistRenderConfig(); }} disabled={bench.building} aria-label="Clear orchestration profile">×</button>
             {/if}
           </div>
         </div>
-        {#if needsProfile}
-          <p class="profile-hint">{t("panel.profileHint")}</p>
+        {#if needsOrchestration}
+          <p class="profile-hint">{t("panel.orchestrationHint")}</p>
         {/if}
       {/if}
       <div class="profile-field">
@@ -414,14 +421,13 @@
       {#if needsTextureProfile}
         <p class="profile-hint">{t("panel.textureProfileHint")}</p>
       {/if}
-      {#if renderer === "sfizz" && inspection?.render_profile}
-        {#if inspection.render_profile.error}
-          <p class="status failed">{t("panel.profileUnusable", { error: inspection.render_profile.error })}</p>
-        {:else if inspection.render_profile.unmapped.length}
-          <p class="status failed">{t("panel.profileUnmapped", {
-            profile: inspection.render_profile.profile_name ?? inspection.render_profile.profile,
-            instruments: inspection.render_profile.unmapped.join(", "),
-          })}</p>
+      {#if renderer === "sfizz" && inspection?.orchestration}
+        {#if inspection.orchestration.error}
+          <p class="status failed">{t("panel.orchestrationUnusable", { error: inspection.orchestration.error })}</p>
+        {:else}
+          {#each inspection.orchestration.tracks.filter((track) => track.error) as track}
+            <p class="status failed">{t("panel.orchestrationTrackProblem", { track: track.track_id, error: track.error ?? "" })}</p>
+          {/each}
         {/if}
       {/if}
       {#if inspection?.texture_profile}
@@ -434,9 +440,17 @@
             profile: inspection.texture_profile.profile_name ?? inspection.texture_profile.profile ?? "—",
             sources: inspection.texture_profile.missing.join(", "),
           })}</p>
+        {:else}
+          {#each inspection.texture_profile.mode_mismatches ?? [] as mismatch}
+            <p class="status failed">{t("panel.textureModeMismatch", {
+              source: mismatch.source,
+              requested: mismatch.requested,
+              available: mismatch.available.join(", "),
+            })}</p>
+          {/each}
         {/if}
       {/if}
-      <button class="render-btn" onclick={render} disabled={!bench.project || !bench.selectedScene || bench.building || needsProfile || needsTextureProfile}>
+      <button class="render-btn" onclick={render} disabled={!bench.project || !bench.selectedScene || bench.building || needsOrchestration || needsTextureProfile}>
         <span class="render-glyph">▮▮▮</span>{bench.building ? t("panel.rendering") : t("panel.renderBtn")}
       </button>
       {#if bench.building}<div class="progress" role="progressbar" aria-label="rendering"><div></div></div>{/if}

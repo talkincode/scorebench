@@ -1,0 +1,16 @@
+schema_version: 1
+id: lonelier
+intent: Make it lonelier without losing the motif or loop.
+before: before.yaml
+after_samples:
+  - id: pass
+    path: after-pass.yaml
+  - id: fail
+    path: after-fail.yaml
+assertions:
+  tempo: decrease
+  track_count: decrease
+  melody_rest_ratio: increase
+  mode: to_minor
+  loop: preserve
+  motif_contour: preserve

@@ -1,0 +1,130 @@
+schema_version: 1
+id: scorekit-arrangement-canon
+version: 1.0.0
+source_scorekit_range: ">=0.6.0, <0.7.0"
+provenance:
+  repository: talkincode/scorekit
+  commit: c2e0b0c
+  references:
+    - skills/scorekit/SKILL.md
+    - skills/scorekit/audit.md
+    - skills/scorekit/palettes.md
+
+authority:
+  live_schema:
+    scene: "scorekit schema --json"
+    grammar: "scorekit schema --grammar --json"
+    texture_profile: "scorekit schema --texture-profile --json"
+    renderer_profile: "scorekit schema --profile --json"
+    orchestration: "scorekit schema --orchestration --json"
+  rule: "Treat the live command output as the complete writable vocabulary."
+  prohibition: "Use only live-schema fields and values; never invent a scene field, instrument, palette, articulation, or texture source."
+  narrative_boundary: "story is informational; translate narrative into schema-legal musical decisions."
+
+intent_contract:
+  before_write:
+    state: "One concise, falsifiable translation of the user intent."
+    expected_changes:
+      - "Name the scene fields expected to change and their direction or target."
+      - "Name what must remain invariant: motif identity, loop function, style, or requested source."
+      - "Call out any requested result the live schema cannot express before editing."
+  after_write:
+    compare:
+      - "Report whether validation and semantic diff match the expected changes."
+      - "Report source-resolution and build evidence without claiming unmeasured musical quality."
+      - "Repair or explicitly explain every mismatch before declaring completion."
+
+palette_inertia:
+  timing: "Complete this decision before writing tracks."
+  name_the_inertia_answer: "State the habitual palette, key/mode, tempo, and meter that first came to mind."
+  candidates:
+    candidate_count: "2..=3"
+    compare_by: [setting, era, technology, culture, character, function]
+    mood_only_is_not_a_reason: true
+  selection: "Pick one candidate and cite brief evidence; name why the rejected candidates fit less well."
+  orchestral_rule: "Orchestral strings must win this comparison; they never inherit by default."
+  consecutive_deliverables:
+    minimum_changed_axes: 3
+    axes: [palette_family, key_mode, tempo_class, meter, lead_timbre, pulse, harmony_color, density]
+    exception: "A user-pinned matching or series style; state that override."
+
+craft:
+  motif_economy:
+    core_identity_count: 1
+    total_motifs_max: 2
+    core_cell_notes: "4..=6"
+    valid_variations: [octave, rhythm, answering_instrument]
+    rule: "Restate and develop the identity instead of piling up unrelated tunes."
+  voice_discipline:
+    simultaneous_non_rest_melody_voices_max: 2
+    exception: "One brief-justified tutti corner; disclose it in the audit."
+  breathing:
+    rest_ratio_per_melody_min: 0.30
+    rest_degree: 0
+    long_rest_note_beats_max: 16
+    rule: "Split longer silence into multiple legal rest notes; silence is arrangement material."
+  role_coverage:
+    roles: [lead, harmony, foundation, pulse]
+    rule: "No unintended gap and no duplicate role without registral or rhythmic contrast."
+  entrances_and_exits:
+    whole_span_patterns: [sustain, arpeggio, bass, drums, tabla]
+    rule: "For a mid-span entrance or exit, use a melody track with explicit rests or a section mute by stable track id."
+  emotional_curve:
+    measure: "intensity x register x active non-rest voice count over time"
+    shape: "rise -> peak -> cut_or_contrast -> return"
+    reject: "A flat plateau or a peak that never releases."
+  register_spacing:
+    rule: "Keep one clear low anchor, at most two concurrent voices per band, and the lead clear of the harmonic bed."
+  loop_and_ending:
+    loop:
+      rule: "The dynamics end returns to its start, and the last harmony must pull toward the first."
+      evidence: "meta.json loop_samples and total_samples are sane; listen across repeated seams."
+    one_shot:
+      rule: "The final cadence and tail match the declared intent."
+  determinism:
+    rule: "If performance.humanize is present, set its seed; identical decisions must remain reproducible."
+
+world_identity:
+  identities: [erhu, pipa, guzheng, dizi, shakuhachi, shamisen, sitar, tabla, oud, ney, duduk]
+  fallback_policy: exact_only
+  rule: "Never substitute into, out of, or within this family."
+  gm_exact_melodic: [shakuhachi, shamisen, sitar]
+  renderer_profile_required_melodic: [erhu, pipa, guzheng, dizi, oud, ney, duduk]
+  percussion_exception: "tabla requires pattern tabla; keep the identity exact and verify the active render path."
+  promise_gate: "Do not promise a world identity until inspect-instruments proves an exact usable source, or visibly re-orchestrate."
+
+textures:
+  source_honesty: "Never guess textures[].source; scene values are portable profile keys, never file paths."
+  discover:
+    enumerate: "scorekit --json texture inspect <texture-profile>"
+    filter: "Use exact category/tag/use-case filters; repeated tags are conjunctive."
+    per_source: "scorekit --json texture inspect <texture-profile> --source <name>"
+    no_match: "no_match means re-orchestrate or add a real source; never choose a nearest-looking name."
+  certify: "scorekit --json texture check <texture-profile>"
+  schedule_rule: "The scene mode must be declared in the selected source's playback.modes."
+  runtime_boundary: "Distance, weather, RPM, and other world-reactive behavior belongs in the game engine."
+
+delivery_gates:
+  preflight:
+    doctor: "scorekit --json doctor must report a ready toolchain."
+    orchestration: "When configured, scorekit orchestration check <orchestration> must pass."
+  ordered:
+    G1_validate:
+      command: "scorekit --json validate <scene>"
+      pass: "exit 0; repair every live-schema error."
+    G2_lint:
+      command: "scorekit --json lint <scene> --grammar <grammar>"
+      pass: "exit 0 for every declared project grammar; n/a only when none exists."
+    G3_inspect_instruments:
+      command: "scorekit --json inspect-instruments <scene> [--orchestration <orchestration>]"
+      pass: "No missing or rejected source. A fallback requires a visible musical review, mapping fix, or re-orchestration; never weaken resolver policy to silence it."
+    G4_textures:
+      command: "Run texture inspect for every declared source, then texture check for the active profile."
+      pass: "Every source exists, permits the requested mode, decodes, and certifies audible; n/a only when the scene has no textures."
+    G5_build_evidence:
+      command: "scorekit build <scene> -o <output> with the active orchestration, texture profile, and requested stems."
+      pass: "Build exits 0; meta.json resolution is clean or reviewed, loop metadata is sane, requested stems are listed, and story is echoed when declared."
+  completion:
+    failed_blocking_gate: do_not_report_completion
+    craft_findings: "Fix each finding or give one concise, brief-grounded justification."
+    verdicts: [BLOCKED, SHIP_WITH_NOTES, CLEAN]

@@ -31,7 +31,7 @@
 | Arrangement | Assigning melody, harmony, bass, rhythm, color, and form to instruments. |
 | Texture | How simultaneous voices are organized, from sparse solo writing to dense layers. |
 | Register | Whether material sits in a low, middle, or high pitch range. |
-| Section | A named suite cue that can change length, tempo, looping, overall intensity, and muted tracks. |
+| Section | A named suite cue that can change length, tempo, looping, overall intensity, and tracks muted by stable `id`. |
 
 ## Performance and space
 
@@ -55,7 +55,9 @@
 | Renderer | Software that converts MIDI plus a sound source into PCM audio, such as FluidSynth, TiMidity++, or sfizz. |
 | SoundFont / SF2 | A file that packages samples and mappings for multiple, often GM-compatible, instruments. |
 | SFZ | A text instrument format that maps external WAV or FLAC samples. |
-| Renderer profile | YAML that maps ScoreKit instruments and articulations to local SFZ files. |
+| Renderer profile | YAML that maps ScoreKit instruments and articulations to local SFZ files; a leaf bound into an orchestration's palettes. |
+| Orchestration profile | YAML routing each scene track's logical `palette` (or the orchestration's `default_palette`) to a renderer profile; only meaningful for `--renderer sfizz`. |
+| Palette | A named logical role (for example `default`, `solo`) an orchestration binds to one renderer profile; scene tracks select one via `palette`. |
 | General MIDI / GM | Standard program and drum-channel conventions used to map scene instruments into compatible SoundFonts. |
 | Sample | A digital recording used by a sampled instrument. |
 | Sample rate | Audio samples per second, commonly 44,100 or 48,000 Hz. |

@@ -7,8 +7,9 @@
   import BrandMark from "./BrandMark.svelte";
 
   async function openProject() {
+    if (bench.agentBusy || bench.agentRun) return;
     const dir = await open({ directory: true, title: t("topbar.openProjectDialog") });
-    if (typeof dir !== "string") return;
+    if (typeof dir !== "string" || bench.agentBusy || bench.agentRun) return;
     try {
       bench.project = await api.openProject(dir);
       bench.selectedScene = bench.project.scenes[0]?.rel_path ?? null;
@@ -49,7 +50,7 @@
     {/if}
     {#if bench.project}<button class="toolbar-btn" onclick={revealOut}><span>□</span> {t("topbar.openFolder")}</button>{/if}
     <button class="toolbar-btn" onclick={() => (bench.settingsOpen = true)}><span>⚙</span> {t("topbar.settings")}</button>
-    <button class="open-project" onclick={openProject}><span>□</span> {t("topbar.openProject")}</button>
+    <button class="open-project" onclick={openProject} disabled={bench.agentBusy || Boolean(bench.agentRun)}><span>□</span> {t("topbar.openProject")}</button>
   </div>
 </header>
 
@@ -74,5 +75,6 @@
   .toolbar-btn span { color: var(--accent); }
   .open-project { color: var(--warning); border: 1px solid color-mix(in srgb, var(--warning) 60%, transparent); background: linear-gradient(135deg, color-mix(in srgb, var(--warning) 12%, transparent), transparent); box-shadow: inset 0 0 12px color-mix(in srgb, var(--warning) 6%, transparent), 0 0 12px color-mix(in srgb, var(--warning) 8%, transparent); }
   .open-project:hover { color: #151005; background: var(--warning); box-shadow: 0 0 18px color-mix(in srgb, var(--warning) 25%, transparent); }
+  .open-project:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
   @media (max-width: 1040px) { .project-name { display: none; } .toolbar-btn, .open-project { padding: 0 9px; } }
 </style>

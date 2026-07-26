@@ -11,11 +11,34 @@ pub struct ToolBelt {
     root: PathBuf,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ToolResult {
     pub output: String,
     pub summary: String,
     pub detail: Option<String>,
+    pub scene_gates: Vec<SceneGateUpdate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SceneGateKind {
+    /// Schema validation plus compatibility with the active bench.json render
+    /// configuration.
+    Readiness,
+    /// A requested build must be retried successfully; validation alone cannot
+    /// erase a renderer/export failure.
+    Build,
+    /// ScoreKit instrument resolution, including exact-only world identities.
+    InstrumentResolution,
+    /// One concrete scene/grammar pair.
+    Grammar { grammar: String },
+}
+
+#[derive(Debug, Clone)]
+pub struct SceneGateUpdate {
+    pub kind: SceneGateKind,
+    pub path: String,
+    pub ready: bool,
+    pub reason: String,
 }
 
 impl ToolBelt {
@@ -31,6 +54,61 @@ impl ToolBelt {
             .await
             .map_err(BenchError::io)?
     }
+
+    pub fn failure_gates(&self, call: &FunctionCall, error: &BenchError) -> Vec<SceneGateUpdate> {
+        failure_gates(call, error)
+            .into_iter()
+            .map(|mut update| {
+                if let Ok(path) = scene(&self.root, &update.path) {
+                    if let Ok(relative) = scene_gate_path(&self.root, &path) {
+                        update.path = relative;
+                    }
+                }
+                update
+            })
+            .collect()
+    }
+}
+
+/// Convert a failed scene-scoped tool call into a durable request-local gate.
+/// The tool error remains the authoritative payload; this only prevents a
+/// later text-only response from pretending the failed check never happened.
+pub fn failure_gates(call: &FunctionCall, error: &BenchError) -> Vec<SceneGateUpdate> {
+    let reason = format!("{} failed: {error}", call.name);
+    let update = match call.name.as_str() {
+        "write_scene" => serde_json::from_str::<WriteArgs>(&call.arguments)
+            .ok()
+            .map(|args| (SceneGateKind::Readiness, args.path)),
+        "validate_scene" => serde_json::from_str::<PathArgs>(&call.arguments)
+            .ok()
+            .map(|args| (SceneGateKind::Readiness, args.path)),
+        "build_scene" => serde_json::from_str::<BuildArgs>(&call.arguments)
+            .ok()
+            .map(|args| (SceneGateKind::Build, args.path)),
+        "inspect_instruments" => serde_json::from_str::<InspectInstrumentsArgs>(&call.arguments)
+            .ok()
+            .map(|args| (SceneGateKind::InstrumentResolution, args.path)),
+        "lint_scene" => serde_json::from_str::<LintArgs>(&call.arguments)
+            .ok()
+            .map(|args| {
+                (
+                    SceneGateKind::Grammar {
+                        grammar: args.grammar,
+                    },
+                    args.path,
+                )
+            }),
+        _ => None,
+    };
+    update
+        .map(|(kind, path)| SceneGateUpdate {
+            kind,
+            path,
+            ready: false,
+            reason,
+        })
+        .into_iter()
+        .collect()
 }
 
 pub fn definitions() -> Vec<ToolDefinition> {
@@ -42,8 +120,8 @@ pub fn definitions() -> Vec<ToolDefinition> {
         ),
         function(
             "write_scene",
-            "Atomically write one scene YAML file inside the project. Runs `scorekit validate` plus renderer/texture-profile compatibility checks afterwards and reports the result inline; pass validate:false only when writing non-scene YAML (grammar, renderer profile, or texture profile files).",
-            json!({"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"validate":{"type":"boolean","description":"Validate the written file as a scene (default true)."}},"required":["path","content"]}),
+            "Atomically write one scene YAML file inside the project. Validation and active orchestration/texture-profile compatibility checks are mandatory. If any check fails, repair the scene with another write_scene call before finishing.",
+            json!({"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}),
         ),
         function(
             "validate_scene",
@@ -64,12 +142,12 @@ pub fn definitions() -> Vec<ToolDefinition> {
                     "path":{"type":"string"},
                     "format":{"type":"string","enum":["ogg","wav"]},
                     "renderer":{"type":"string"},
-                    "sample_rate":{"type":"integer","minimum":8000,"maximum":192000},
+                    "sample_rate":{"type":"integer","minimum":8000,"maximum":384000},
                     "gain":{"type":"number","minimum":0},
                     "quality":{"type":"integer","minimum":0,"maximum":10},
                     "stems":{"type":"boolean"},
                     "soundfont":{"type":"string"},
-                    "profile":{"type":"string"},
+                    "orchestration":{"type":"string","description":"Project-relative scorekit orchestration profile path (--renderer sfizz only). Omit to inherit bench.json."},
                     "texture_profile":{"type":"string","description":"Project-relative scorekit texture profile path. Omit to inherit bench.json."}
                 },
                 "required":["path"]
@@ -79,6 +157,49 @@ pub fn definitions() -> Vec<ToolDefinition> {
             "diff_scenes",
             "Return scorekit's semantic JSON diff for two project scenes.",
             json!({"type":"object","properties":{"old":{"type":"string"},"new":{"type":"string"}},"required":["old","new"]}),
+        ),
+        function(
+            "inspect_instruments",
+            "Resolve every scene track through scorekit before building. Use this for palette selection and all world instruments; some schema-valid instruments require an exact external profile and cannot fall back to General MIDI.",
+            json!({
+                "type":"object",
+                "properties":{
+                    "path":{"type":"string"},
+                    "orchestration":{"type":"string","description":"Project-relative orchestration profile. Omit to inherit bench.json."},
+                    "resolver":{"type":"string","description":"Optional project-relative scorekit resolver policy."},
+                    "fallback_mode":{"type":"string","enum":["strict","conservative","flexible"]},
+                    "verbose":{"type":"boolean"}
+                },
+                "required":["path"]
+            }),
+        ),
+        function(
+            "inspect_textures",
+            "Query scorekit's structured texture catalog with exact conjunctive filters. A `no_match` result is authoritative: change the musical plan or filters, never invent a source key.",
+            json!({
+                "type":"object",
+                "properties":{
+                    "profile":{"type":"string","description":"Project-relative texture profile. Omit to inherit bench.json."},
+                    "source":{"type":"string"},
+                    "category":{"type":"string","enum":["ambience","foley","impact","transition","tonal","industrial","organic","sound_design"]},
+                    "tags":{"type":"array","items":{"type":"string"}},
+                    "mode":{"type":"string","enum":["loop","one_shot"]},
+                    "use_case":{"type":"string"}
+                },
+                "required":[]
+            }),
+        ),
+        function(
+            "check_texture_profile",
+            "Ask scorekit to decode and certify every structured texture source. Use before relying on a new or changed profile.",
+            json!({
+                "type":"object",
+                "properties":{
+                    "profile":{"type":"string","description":"Project-relative texture profile. Omit to inherit bench.json."},
+                    "sample_rate":{"type":"integer","minimum":8000,"maximum":384000}
+                },
+                "required":[]
+            }),
         ),
         function(
             "doctor",
@@ -162,27 +283,44 @@ fn execute_sync(root: &Path, call: &FunctionCall) -> Result<ToolResult, BenchErr
             scorekit::validate(&path)?;
             let mut output = json!({"ok":true,"path":args.path});
             let mut summary = String::from("scene valid");
+            let mut ready = true;
             if let Some(compat) = profile_check(root, &path) {
                 if !compat.is_compatible() {
+                    ready = false;
                     summary = format!("{summary}; {}", compat.message());
                 }
-                output["render_profile"] = serde_json::to_value(&compat).map_err(BenchError::io)?;
+                output["orchestration"] = serde_json::to_value(&compat).map_err(BenchError::io)?;
             }
             if let Some(compat) = texture_profile_check(root, &path) {
                 if !compat.is_compatible() {
+                    ready = false;
                     summary = format!("{summary}; {}", compat.message());
                 }
                 output["texture_profile"] =
                     serde_json::to_value(&compat).map_err(BenchError::io)?;
             }
-            success(output, summary)
+            success_with_gate(
+                output,
+                summary,
+                SceneGateKind::Readiness,
+                scene_gate_path(root, &path)?,
+                ready,
+            )
         }
         "lint_scene" => {
             let args: LintArgs = args(call)?;
             let path = scene(root, &args.path)?;
             let grammar = project::resolve_inside(root, &args.grammar)?;
             scorekit::lint(&path, &grammar)?;
-            success(json!({"ok":true,"path":args.path}), "scene passes grammar")
+            success_with_gate(
+                json!({"ok":true,"path":args.path}),
+                "scene passes grammar",
+                SceneGateKind::Grammar {
+                    grammar: args.grammar,
+                },
+                scene_gate_path(root, &path)?,
+                true,
+            )
         }
         "build_scene" => {
             let args: BuildArgs = args(call)?;
@@ -202,18 +340,21 @@ fn execute_sync(root: &Path, call: &FunctionCall) -> Result<ToolResult, BenchErr
             let output = project::resolve_for_write(root, &rel_output)?;
             let project_render = manifest::load(root).0.render.unwrap_or_default();
             let mut renderer = args.renderer;
-            let (inherited_profile, inherited_texture_profile) = inherit_render_config(
+            let (inherited_orchestration, inherited_texture_profile) = inherit_render_config(
                 &mut renderer,
-                &args.profile,
+                &args.orchestration,
                 &args.texture_profile,
                 &project_render,
             );
-            let profile = match (resolve_optional(root, args.profile)?, inherited_profile) {
+            let orchestration = match (
+                resolve_optional(root, args.orchestration)?,
+                inherited_orchestration,
+            ) {
                 (Some(explicit), _) => Some(explicit),
-                // The project profile may live outside the root (GUI allows
-                // it), so resolve like the GUI render path does.
+                // The project orchestration may live outside the root (GUI
+                // allows it), so resolve like the GUI render path does.
                 (None, Some(inherited)) => Some(
-                    manifest::resolve_profile_path(root, &inherited)
+                    manifest::resolve_config_path(root, &inherited)
                         .to_string_lossy()
                         .into_owned(),
                 ),
@@ -225,7 +366,7 @@ fn execute_sync(root: &Path, call: &FunctionCall) -> Result<ToolResult, BenchErr
             ) {
                 (Some(explicit), _) => Some(explicit),
                 (None, Some(inherited)) => Some(
-                    manifest::resolve_profile_path(root, &inherited)
+                    manifest::resolve_config_path(root, &inherited)
                         .to_string_lossy()
                         .into_owned(),
                 ),
@@ -238,22 +379,42 @@ fn execute_sync(root: &Path, call: &FunctionCall) -> Result<ToolResult, BenchErr
                 quality: args.quality,
                 stems: args.stems,
                 soundfont: resolve_optional(root, args.soundfont)?,
-                profile,
+                orchestration,
                 texture_profile,
             };
             let result = scorekit::build(&path, &output, &params)?;
-            success(
-                json!({
+            let gate_path = scene_gate_path(root, &path)?;
+            let mut summary = format!("built {rel_output}");
+            let mut result_output = json!({
                     "ok":true,
                     "output":rel_output,
                     "renderer":params.renderer,
-                    "profile":params.profile,
+                    "orchestration":params.orchestration,
                     "texture_profile":params.texture_profile,
                     "meta_path":result.meta_path.strip_prefix(root).unwrap_or(&result.meta_path),
                     "meta":result.meta
-                }),
-                format!("built {rel_output}"),
-            )
+            });
+            let active_ready =
+                append_active_compatibility(root, &path, &mut result_output, &mut summary)?;
+            Ok(ToolResult {
+                output: result_output.to_string(),
+                summary: summary.clone(),
+                detail: None,
+                scene_gates: vec![
+                    SceneGateUpdate {
+                        kind: SceneGateKind::Build,
+                        path: gate_path.clone(),
+                        ready: true,
+                        reason: format!("built {rel_output}"),
+                    },
+                    SceneGateUpdate {
+                        kind: SceneGateKind::Readiness,
+                        path: gate_path,
+                        ready: active_ready,
+                        reason: summary,
+                    },
+                ],
+            })
         }
         "diff_scenes" => {
             let args: DiffArgs = args(call)?;
@@ -261,6 +422,60 @@ fn execute_sync(root: &Path, call: &FunctionCall) -> Result<ToolResult, BenchErr
             let new = scene(root, &args.new)?;
             let diff = scorekit::diff(&old, &new)?;
             success(json!({"ok":true,"diff":diff}), "semantic diff ready")
+        }
+        "inspect_instruments" => {
+            let args: InspectInstrumentsArgs = args(call)?;
+            let path = scene(root, &args.path)?;
+            let render = manifest::load(root).0.render.unwrap_or_default();
+            let orchestration = resolve_explicit_or_config(
+                root,
+                args.orchestration,
+                render.orchestration.as_deref(),
+            )?;
+            let resolver = resolve_optional_path(root, args.resolver)?;
+            let report = scorekit::inspect_instruments(
+                &path,
+                orchestration.as_deref(),
+                resolver.as_deref(),
+                args.fallback_mode.as_deref(),
+                args.verbose.unwrap_or(false),
+            )?;
+            success_with_gate(
+                json!({"ok":true,"path":args.path,"report":report}),
+                "instrument resolution inspected",
+                SceneGateKind::InstrumentResolution,
+                scene_gate_path(root, &path)?,
+                true,
+            )
+        }
+        "inspect_textures" => {
+            let args: InspectTexturesArgs = args(call)?;
+            let profile = active_texture_profile(root, args.profile)?;
+            let params = scorekit::TextureInspectParams {
+                source: args.source,
+                category: args.category,
+                tags: args.tags.unwrap_or_default(),
+                mode: args.mode,
+                use_case: args.use_case,
+            };
+            let report = scorekit::inspect_textures(&profile, &params)?;
+            let status = report
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            success(
+                json!({"ok":true,"profile":profile,"report":report}),
+                format!("texture inspection: {status}"),
+            )
+        }
+        "check_texture_profile" => {
+            let args: CheckTextureProfileArgs = args(call)?;
+            let profile = active_texture_profile(root, args.profile)?;
+            let report = scorekit::check_texture_profile(&profile, args.sample_rate)?;
+            success(
+                json!({"ok":true,"profile":profile,"report":report}),
+                "texture profile certified",
+            )
         }
         "doctor" => success(
             json!({"ok":true,"report":scorekit::doctor()?}),
@@ -291,6 +506,28 @@ fn success(output: Value, summary: impl Into<String>) -> Result<ToolResult, Benc
         output: output.to_string(),
         summary: summary.into(),
         detail: None,
+        scene_gates: Vec::new(),
+    })
+}
+
+fn success_with_gate(
+    output: Value,
+    summary: impl Into<String>,
+    kind: SceneGateKind,
+    path: String,
+    ready: bool,
+) -> Result<ToolResult, BenchError> {
+    let summary = summary.into();
+    Ok(ToolResult {
+        output: output.to_string(),
+        summary: summary.clone(),
+        detail: None,
+        scene_gates: vec![SceneGateUpdate {
+            kind,
+            path,
+            ready,
+            reason: summary,
+        }],
     })
 }
 
@@ -337,7 +574,6 @@ fn write_scene(root: &Path, args: WriteArgs) -> Result<ToolResult, BenchError> {
         (None, false) => Some(warnings.join("\n")),
         (None, true) => None,
     };
-    let mut summary = String::from("scene written atomically");
     let mut output = json!({
         "ok": true,
         "path": args.path,
@@ -345,52 +581,60 @@ fn write_scene(root: &Path, args: WriteArgs) -> Result<ToolResult, BenchError> {
         "diff": diff,
         "warnings": warnings
     });
-    if args.validate.unwrap_or(true) {
-        let validation = match scorekit::validate(&target) {
-            Ok(()) => {
-                summary = "scene written and validated".into();
-                json!({"status": "valid"})
-            }
-            Err(error @ BenchError::Scorekit { .. }) => {
-                summary = format!("scene written but INVALID: {error}");
-                json!({
-                    "status": "invalid",
-                    "error": error,
-                    "hint": "fix the scene with write_scene until validation passes"
-                })
-            }
-            // scorekit missing or not runnable: the write itself stands.
-            Err(error) => {
-                summary = "scene written (validation unavailable)".into();
-                json!({"status": "unavailable", "message": error.to_string()})
-            }
-        };
-        output["validation"] = validation;
-        if let Some(compat) = profile_check(root, &target) {
-            if !compat.is_compatible() {
-                summary = format!("{summary}; {}", compat.message());
-            }
-            output["render_profile"] = serde_json::to_value(&compat).map_err(BenchError::io)?;
+    let (mut summary, mut ready, validation) = match scorekit::validate(&target) {
+        Ok(()) => (
+            String::from("scene written and validated"),
+            true,
+            json!({"status": "valid"}),
+        ),
+        Err(error @ BenchError::Scorekit { .. }) => (
+            format!("scene written but INVALID: {error}"),
+            false,
+            json!({
+                "status": "invalid",
+                "error": error,
+                "hint": "fix the scene with write_scene until validation passes"
+            }),
+        ),
+        // scorekit missing or not runnable: the write itself stands, but the
+        // agent may not claim completion without an authoritative result.
+        Err(error) => (
+            String::from("scene written (validation unavailable)"),
+            false,
+            json!({"status": "unavailable", "message": error.to_string()}),
+        ),
+    };
+    output["validation"] = validation;
+    if let Some(compat) = profile_check(root, &target) {
+        if !compat.is_compatible() {
+            ready = false;
+            summary = format!("{summary}; {}", compat.message());
         }
-        if let Some(compat) = texture_profile_check(root, &target) {
-            if !compat.is_compatible() {
-                summary = format!("{summary}; {}", compat.message());
-            }
-            output["texture_profile"] = serde_json::to_value(&compat).map_err(BenchError::io)?;
+        output["orchestration"] = serde_json::to_value(&compat).map_err(BenchError::io)?;
+    }
+    if let Some(compat) = texture_profile_check(root, &target) {
+        if !compat.is_compatible() {
+            ready = false;
+            summary = format!("{summary}; {}", compat.message());
         }
-    } else {
-        output["validation"] = json!({"status": "skipped"});
+        output["texture_profile"] = serde_json::to_value(&compat).map_err(BenchError::io)?;
     }
     Ok(ToolResult {
         output: output.to_string(),
-        summary,
+        summary: summary.clone(),
         detail,
+        scene_gates: vec![SceneGateUpdate {
+            kind: SceneGateKind::Readiness,
+            path: scene_gate_path(root, &target)?,
+            ready,
+            reason: summary,
+        }],
     })
 }
 
-/// Compatibility of one scene against the project's persisted render
-/// configuration (bench.json). `None` when no sfizz profile is active.
-fn profile_check(root: &Path, scene_path: &Path) -> Option<manifest::ProfileCompat> {
+/// Compatibility of one scene against the project's persisted orchestration
+/// configuration (bench.json). `None` when no sfizz orchestration is active.
+fn profile_check(root: &Path, scene_path: &Path) -> Option<manifest::OrchestrationCompat> {
     let render = manifest::load(root).0.render?;
     manifest::check_scene_profile(root, scene_path, &render)
 }
@@ -400,19 +644,62 @@ fn texture_profile_check(root: &Path, scene_path: &Path) -> Option<manifest::Tex
     manifest::check_scene_texture_profile(root, scene_path, &render)
 }
 
+/// A build may use one-shot explicit overrides, but clearing the terminal
+/// readiness gate must always reflect the project's persisted bench.json
+/// configuration — the configuration the next GUI/default Agent build uses.
+fn append_active_compatibility(
+    root: &Path,
+    scene_path: &Path,
+    output: &mut Value,
+    summary: &mut String,
+) -> Result<bool, BenchError> {
+    let mut ready = true;
+    if let Some(compat) = profile_check(root, scene_path) {
+        if !compat.is_compatible() {
+            ready = false;
+            *summary = format!("{summary}; active {}", compat.message());
+        }
+        output["active_orchestration_compat"] =
+            serde_json::to_value(&compat).map_err(BenchError::io)?;
+    }
+    if let Some(compat) = texture_profile_check(root, scene_path) {
+        if !compat.is_compatible() {
+            ready = false;
+            *summary = format!("{summary}; active {}", compat.message());
+        }
+        output["active_texture_profile_compat"] =
+            serde_json::to_value(&compat).map_err(BenchError::io)?;
+    }
+    Ok(ready)
+}
+
+fn scene_gate_path(root: &Path, scene_path: &Path) -> Result<String, BenchError> {
+    let root = root.canonicalize().map_err(BenchError::io)?;
+    let scene = scene_path.canonicalize().map_err(BenchError::io)?;
+    let relative = scene.strip_prefix(&root).map_err(|_| {
+        BenchError::invalid(format!(
+            "`{}` is outside project `{}`",
+            scene.display(),
+            root.display()
+        ))
+    })?;
+    Ok(relative.to_string_lossy().into_owned())
+}
+
 /// Fill build parameters the model omitted from the project render config.
-/// Returns inherited renderer and texture profile paths. Pure for testing.
+/// Returns inherited orchestration and texture profile paths. Pure for testing.
 fn inherit_render_config(
     renderer: &mut Option<String>,
-    explicit_profile: &Option<String>,
+    explicit_orchestration: &Option<String>,
     explicit_texture_profile: &Option<String>,
     project_render: &manifest::RenderConfig,
 ) -> (Option<String>, Option<String>) {
     if renderer.is_none() {
         renderer.clone_from(&project_render.renderer);
     }
-    let profile = if explicit_profile.is_none() && renderer.as_deref() == Some("sfizz") {
-        project_render.profile.clone()
+    let orchestration = if explicit_orchestration.is_none() && renderer.as_deref() == Some("sfizz")
+    {
+        project_render.orchestration.clone()
     } else {
         None
     };
@@ -421,7 +708,7 @@ fn inherit_render_config(
     } else {
         None
     };
-    (profile, texture_profile)
+    (orchestration, texture_profile)
 }
 
 fn require_scene_path(path: &str) -> Result<(), BenchError> {
@@ -447,6 +734,42 @@ fn resolve_optional(root: &Path, rel: Option<String>) -> Result<Option<String>, 
     .transpose()
 }
 
+fn resolve_optional_path(root: &Path, rel: Option<String>) -> Result<Option<PathBuf>, BenchError> {
+    rel.map(|value| project::resolve_inside(root, &value))
+        .transpose()
+}
+
+fn resolve_explicit_or_config(
+    root: &Path,
+    explicit: Option<String>,
+    configured: Option<&str>,
+) -> Result<Option<PathBuf>, BenchError> {
+    match explicit {
+        Some(path) => project::resolve_inside(root, &path).map(Some),
+        None => Ok(configured
+            .filter(|path| !path.trim().is_empty())
+            .map(|path| manifest::resolve_config_path(root, path))),
+    }
+}
+
+fn active_texture_profile(root: &Path, explicit: Option<String>) -> Result<PathBuf, BenchError> {
+    if let Some(path) = explicit {
+        return project::resolve_inside(root, &path);
+    }
+    let configured = manifest::load(root)
+        .0
+        .render
+        .and_then(|render| render.texture_profile)
+        .filter(|path| !path.trim().is_empty())
+        .ok_or_else(|| {
+            BenchError::agent(
+                "invalid_tool_args",
+                "no texture profile supplied and bench.json has no active texture_profile",
+            )
+        })?;
+    Ok(manifest::resolve_config_path(root, &configured))
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PathArgs {
@@ -458,8 +781,6 @@ struct PathArgs {
 struct WriteArgs {
     path: String,
     content: String,
-    #[serde(default)]
-    validate: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -487,8 +808,36 @@ struct BuildArgs {
     quality: Option<u8>,
     stems: Option<bool>,
     soundfont: Option<String>,
-    profile: Option<String>,
+    orchestration: Option<String>,
     texture_profile: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InspectInstrumentsArgs {
+    path: String,
+    orchestration: Option<String>,
+    resolver: Option<String>,
+    fallback_mode: Option<String>,
+    verbose: Option<bool>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InspectTexturesArgs {
+    profile: Option<String>,
+    source: Option<String>,
+    category: Option<String>,
+    tags: Option<Vec<String>>,
+    mode: Option<String>,
+    use_case: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CheckTextureProfileArgs {
+    profile: Option<String>,
+    sample_rate: Option<u32>,
 }
 
 #[cfg(test)]
@@ -511,6 +860,90 @@ mod tests {
         ));
         std::fs::create_dir_all(&root).unwrap();
         root
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn scene_gate_paths_do_not_collapse_backslash_filenames() {
+        let root = temp_project();
+        std::fs::create_dir_all(root.join("dir")).unwrap();
+        let backslash = root.join(r"dir\scene.yaml");
+        let nested = root.join("dir/scene.yaml");
+        std::fs::write(&backslash, "tracks: []\n").unwrap();
+        std::fs::write(&nested, "tracks: []\n").unwrap();
+
+        assert_ne!(
+            scene_gate_path(&root, &backslash).unwrap(),
+            scene_gate_path(&root, &nested).unwrap()
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn failed_tool_gate_uses_the_canonical_project_relative_scene_identity() {
+        use std::os::unix::fs::symlink;
+
+        let root = temp_project();
+        std::fs::write(root.join("scene.yaml"), "tracks: []\n").unwrap();
+        symlink("scene.yaml", root.join("alias.yaml")).unwrap();
+        let belt = ToolBelt::new(root.clone()).unwrap();
+        let call = FunctionCall {
+            id: None,
+            call_id: "validate".into(),
+            name: "validate_scene".into(),
+            arguments: r#"{"path":"alias.yaml"}"#.into(),
+        };
+        let gates = belt.failure_gates(&call, &BenchError::agent("fixture", "invalid"));
+
+        assert_eq!(gates.len(), 1);
+        assert_eq!(gates[0].path, "scene.yaml");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn require_scorekit_06_contract() -> bool {
+        let handshake = scorekit::handshake();
+        if handshake.compatible == Some(true) {
+            return true;
+        }
+        if std::env::var("SCOREBENCH_REQUIRE_SCOREKIT_CONTRACT").as_deref() == Ok("1") {
+            panic!(
+                "ScoreKit contract test was required, but the active CLI is not compatible: {:?}",
+                handshake.warning
+            );
+        }
+        false
+    }
+
+    fn write_tiny_wav(path: &Path) {
+        let sample_rate = 8_000_u32;
+        let samples = (0..800_i16)
+            .map(|index| {
+                if index % 20 < 10 {
+                    2_000_i16
+                } else {
+                    -2_000_i16
+                }
+            })
+            .collect::<Vec<_>>();
+        let data_size = (samples.len() * 2) as u32;
+        let mut bytes = Vec::with_capacity(44 + data_size as usize);
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + data_size).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16_u32.to_le_bytes());
+        bytes.extend_from_slice(&1_u16.to_le_bytes());
+        bytes.extend_from_slice(&1_u16.to_le_bytes());
+        bytes.extend_from_slice(&sample_rate.to_le_bytes());
+        bytes.extend_from_slice(&(sample_rate * 2).to_le_bytes());
+        bytes.extend_from_slice(&2_u16.to_le_bytes());
+        bytes.extend_from_slice(&16_u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data_size.to_le_bytes());
+        for sample in samples {
+            bytes.extend_from_slice(&sample.to_le_bytes());
+        }
+        std::fs::write(path, bytes).unwrap();
     }
 
     #[tokio::test]
@@ -633,10 +1066,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn write_scene_validate_false_skips_validation() {
+    async fn write_scene_rejects_the_removed_validation_bypass() {
         let root = temp_project();
         let belt = ToolBelt::new(root.clone()).unwrap();
-        let result = belt
+        let error = belt
             .execute(FunctionCall {
                 id: None,
                 call_id: "call".into(),
@@ -649,15 +1082,17 @@ mod tests {
                 .to_string(),
             })
             .await
-            .unwrap();
-        let output: serde_json::Value = serde_json::from_str(&result.output).unwrap();
-        assert_eq!(output["validation"]["status"], "skipped");
-        assert!(output.get("render_profile").is_none());
+            .unwrap_err();
+        assert!(matches!(error, BenchError::Agent { ref code, .. } if code == "invalid_tool_args"));
+        assert!(
+            !root.join("profiles/open.yaml").exists(),
+            "rejected arguments must not write a non-scene YAML file"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
-    async fn write_scene_flags_instruments_unmapped_by_active_profile() {
+    async fn write_scene_flags_instruments_unmapped_by_active_orchestration() {
         let root = temp_project();
         std::fs::create_dir_all(root.join("profiles")).unwrap();
         std::fs::write(
@@ -666,8 +1101,13 @@ mod tests {
         )
         .unwrap();
         std::fs::write(
+            root.join("hybrid.yaml"),
+            "schema_version: 1\nname: hybrid-cinematic\ndefault_palette: default\npalettes:\n  default: { profile: profiles/open.yaml }\n",
+        )
+        .unwrap();
+        std::fs::write(
             root.join(manifest::MANIFEST_FILE),
-            r#"{"render":{"renderer":"sfizz","profile":"profiles/open.yaml"}}"#,
+            r#"{"render":{"renderer":"sfizz","orchestration":"hybrid.yaml"}}"#,
         )
         .unwrap();
         let belt = ToolBelt::new(root.clone()).unwrap();
@@ -678,15 +1118,231 @@ mod tests {
                 name: "write_scene".into(),
                 arguments: serde_json::json!({
                     "path": "scene.yaml",
-                    "content": "title: Hymn\ntracks:\n  - instrument: choir\n    pattern: pad\n"
+                    "content": "title: Hymn\ntracks:\n  - { id: choir_pad, instrument: choir, pattern: pad }\n"
                 })
                 .to_string(),
             })
             .await
             .unwrap();
         let output: serde_json::Value = serde_json::from_str(&result.output).unwrap();
-        assert_eq!(output["render_profile"]["unmapped"][0], "choir");
-        assert!(result.summary.contains("`choir`"), "{}", result.summary);
+        assert_eq!(
+            output["orchestration"]["tracks"][0]["track_id"],
+            "choir_pad"
+        );
+        assert!(output["orchestration"]["tracks"][0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("choir"));
+        assert!(result.summary.contains("`choir_pad`"), "{}", result.summary);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn failed_scene_tools_create_independent_retry_gates() {
+        let error = BenchError::agent("fixture", "failed");
+        let cases = [
+            (
+                FunctionCall {
+                    id: None,
+                    call_id: "validate".into(),
+                    name: "validate_scene".into(),
+                    arguments: r#"{"path":"scene.yaml"}"#.into(),
+                },
+                SceneGateKind::Readiness,
+            ),
+            (
+                FunctionCall {
+                    id: None,
+                    call_id: "build".into(),
+                    name: "build_scene".into(),
+                    arguments: r#"{"path":"scene.yaml"}"#.into(),
+                },
+                SceneGateKind::Build,
+            ),
+            (
+                FunctionCall {
+                    id: None,
+                    call_id: "instruments".into(),
+                    name: "inspect_instruments".into(),
+                    arguments: r#"{"path":"scene.yaml"}"#.into(),
+                },
+                SceneGateKind::InstrumentResolution,
+            ),
+        ];
+
+        for (call, expected) in cases {
+            let updates = failure_gates(&call, &error);
+            assert_eq!(updates.len(), 1);
+            assert_eq!(updates[0].kind, expected);
+            assert_eq!(updates[0].path, "scene.yaml");
+            assert!(!updates[0].ready);
+        }
+    }
+
+    #[test]
+    fn explicit_build_override_cannot_clear_incompatible_active_texture_profile() {
+        let root = temp_project();
+        std::fs::create_dir_all(root.join("profiles")).unwrap();
+        std::fs::write(
+            root.join("scene.yaml"),
+            "textures:\n  - { source: birds, mode: loop }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("profiles/active.yaml"),
+            "schema_version: 1\nname: active\nsources:\n  birds:\n    path: birds.wav\n    description: One bird call\n    category: organic\n    tags: [bird]\n    playback:\n      modes: [one_shot]\n      default_mode: one_shot\n    use_cases: [forest]\n    provenance:\n      library: fixture@1.0.0\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(manifest::MANIFEST_FILE),
+            r#"{"render":{"texture_profile":"profiles/active.yaml"}}"#,
+        )
+        .unwrap();
+
+        let mut output = json!({"ok": true, "texture_profile": "profiles/override.yaml"});
+        let mut summary = "built out/scene.ogg".to_owned();
+        let ready =
+            append_active_compatibility(&root, &root.join("scene.yaml"), &mut output, &mut summary)
+                .unwrap();
+
+        assert!(!ready);
+        assert_eq!(
+            output["active_texture_profile_compat"]["mode_mismatches"][0]["requested"],
+            "loop"
+        );
+        assert!(summary.contains("active"));
+        assert!(summary.contains("one_shot"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn scorekit_06_contract_tools_query_live_capabilities() {
+        if !require_scorekit_06_contract() {
+            return;
+        }
+        let root = temp_project();
+        std::fs::create_dir_all(root.join("profiles")).unwrap();
+        std::fs::write(
+            root.join("forest.yaml"),
+            include_str!("../../tests/fixtures/scenes/forest.yaml"),
+        )
+        .unwrap();
+        write_tiny_wav(&root.join("profiles/tone.wav"));
+        std::fs::write(
+            root.join("profiles/textures.yaml"),
+            "schema_version: 1\nname: contract-textures\nsources:\n  tone:\n    path: tone.wav\n    description: Deterministic contract tone\n    category: tonal\n    tags: [tone, test]\n    playback:\n      modes: [loop]\n      default_mode: loop\n    use_cases: [test]\n    provenance:\n      library: scorebench-contract@1.0.0\n",
+        )
+        .unwrap();
+        let belt = ToolBelt::new(root.clone()).unwrap();
+
+        let instruments = belt
+            .execute(FunctionCall {
+                id: None,
+                call_id: "instruments".into(),
+                name: "inspect_instruments".into(),
+                arguments: serde_json::json!({
+                    "path":"forest.yaml",
+                    "orchestration":null,
+                    "resolver":null,
+                    "fallback_mode":"conservative",
+                    "verbose":false
+                })
+                .to_string(),
+            })
+            .await
+            .unwrap();
+        let instruments: Value = serde_json::from_str(&instruments.output).unwrap();
+        assert_eq!(instruments["report"]["summary"]["missing"], 0);
+        assert_eq!(instruments["report"]["tracks"][0]["status"], "exact");
+
+        std::fs::write(
+            root.join("world.yaml"),
+            "tempo: 80\nbars: 2\ntracks:\n  - { id: lead, instrument: erhu, pattern: sustain }\n",
+        )
+        .unwrap();
+        let world_error = belt
+            .execute(FunctionCall {
+                id: None,
+                call_id: "world".into(),
+                name: "inspect_instruments".into(),
+                arguments: serde_json::json!({
+                    "path":"world.yaml",
+                    "orchestration":null,
+                    "resolver":null,
+                    "fallback_mode":"flexible",
+                    "verbose":false
+                })
+                .to_string(),
+            })
+            .await
+            .unwrap_err();
+        let BenchError::Scorekit { code, report, .. } = world_error else {
+            panic!("world-instrument resolution must be a structured scorekit error");
+        };
+        assert_eq!(code, "resolution");
+        assert_eq!(
+            report.unwrap()["tracks"][0]["best_candidate"]["rejected"],
+            "world_instrument_requires_exact_source"
+        );
+
+        let textures = belt
+            .execute(FunctionCall {
+                id: None,
+                call_id: "textures".into(),
+                name: "inspect_textures".into(),
+                arguments: serde_json::json!({
+                    "profile":"profiles/textures.yaml",
+                    "source":null,
+                    "category":"tonal",
+                    "tags":["tone"],
+                    "mode":"loop",
+                    "use_case":"test"
+                })
+                .to_string(),
+            })
+            .await
+            .unwrap();
+        let textures: Value = serde_json::from_str(&textures.output).unwrap();
+        assert_eq!(textures["report"]["status"], "match");
+        assert_eq!(textures["report"]["sources"][0]["source"], "tone");
+
+        let no_match = belt
+            .execute(FunctionCall {
+                id: None,
+                call_id: "no-match".into(),
+                name: "inspect_textures".into(),
+                arguments: serde_json::json!({
+                    "profile":"profiles/textures.yaml",
+                    "source":null,
+                    "category":null,
+                    "tags":["absent"],
+                    "mode":null,
+                    "use_case":null
+                })
+                .to_string(),
+            })
+            .await
+            .unwrap();
+        let no_match: Value = serde_json::from_str(&no_match.output).unwrap();
+        assert_eq!(no_match["report"]["status"], "no_match");
+        assert_eq!(no_match["report"]["matched"], 0);
+
+        let check = belt
+            .execute(FunctionCall {
+                id: None,
+                call_id: "check".into(),
+                name: "check_texture_profile".into(),
+                arguments: serde_json::json!({
+                    "profile":"profiles/textures.yaml",
+                    "sample_rate":8000
+                })
+                .to_string(),
+            })
+            .await
+            .unwrap();
+        let check: Value = serde_json::from_str(&check.output).unwrap();
+        assert_eq!(check["report"]["passed"], 1);
+        assert_eq!(check["report"]["failed"], 0);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -694,7 +1350,7 @@ mod tests {
     fn build_inherits_project_render_config_unless_overridden() {
         let project_render = manifest::RenderConfig {
             renderer: Some("sfizz".into()),
-            profile: Some("profiles/open.yaml".into()),
+            orchestration: Some("hybrid.yaml".into()),
             texture_profile: Some("profiles/forest-textures.yaml".into()),
         };
 
@@ -702,7 +1358,7 @@ mod tests {
         let (inherited, texture) =
             inherit_render_config(&mut renderer, &None, &None, &project_render);
         assert_eq!(renderer.as_deref(), Some("sfizz"));
-        assert_eq!(inherited.as_deref(), Some("profiles/open.yaml"));
+        assert_eq!(inherited.as_deref(), Some("hybrid.yaml"));
         assert_eq!(texture.as_deref(), Some("profiles/forest-textures.yaml"));
 
         // Explicit renderer wins; texture profiles are renderer-independent.
@@ -713,7 +1369,7 @@ mod tests {
         assert!(inherited.is_none());
         assert_eq!(texture.as_deref(), Some("profiles/forest-textures.yaml"));
 
-        // Explicit profile wins over the project profile.
+        // Explicit orchestration wins over the project orchestration.
         let mut renderer = None;
         let explicit = Some("other.yaml".to_owned());
         let (inherited, texture) =
@@ -743,7 +1399,14 @@ mod tests {
             .collect::<Vec<_>>();
         names.sort_unstable();
         names.dedup();
-        assert_eq!(names.len(), 8);
+        assert_eq!(names.len(), 11);
+        for expected in [
+            "inspect_instruments",
+            "inspect_textures",
+            "check_texture_profile",
+        ] {
+            assert!(names.contains(&expected), "missing tool `{expected}`");
+        }
     }
 
     #[test]
@@ -781,14 +1444,31 @@ mod tests {
             build.parameters["properties"]["texture_profile"]["type"],
             serde_json::json!(["string", "null"])
         );
+        assert_eq!(
+            build.parameters["properties"]["orchestration"]["type"],
+            serde_json::json!(["string", "null"])
+        );
+        assert_eq!(
+            build.parameters["properties"]["sample_rate"]["maximum"],
+            serde_json::json!(384_000)
+        );
 
         let write = definitions()
             .into_iter()
             .find(|definition| definition.name == "write_scene")
             .unwrap();
+        assert!(
+            write.parameters["properties"].get("validate").is_none(),
+            "scene validation must not be model-optional"
+        );
+
+        let texture_check = definitions()
+            .into_iter()
+            .find(|definition| definition.name == "check_texture_profile")
+            .unwrap();
         assert_eq!(
-            write.parameters["properties"]["validate"]["type"],
-            serde_json::json!(["boolean", "null"])
+            texture_check.parameters["properties"]["sample_rate"]["maximum"],
+            serde_json::json!(384_000)
         );
     }
 }

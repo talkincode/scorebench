@@ -1,6 +1,6 @@
 //! Subprocess boundary to the `scorekit` CLI.
 //!
-//! Contract (recorded through scorekit 0.4.0, see `tests/fixtures/`):
+//! Contract (recorded through scorekit 0.6.0, see `tests/fixtures/`):
 //! - success: exit 0; `build` writes `<output stem>.meta.json` as the machine-readable result
 //! - failure: stderr carries one JSON object `{code, exit_code, field, location, message}`
 //! - `doctor --json`: stdout JSON report
@@ -19,7 +19,11 @@ use crate::error::BenchError;
 
 /// Environment variable that pins the scorekit binary explicitly.
 pub const SCOREKIT_ENV: &str = "SCOREBENCH_SCOREKIT";
-pub const TESTED_SCOREKIT_RANGE: &str = ">=0.3.0, <0.5.0";
+/// scorekit 0.6.0 adds the discoverable texture source protocol and the
+/// `texture inspect` / `texture check` machine commands used by the agent.
+/// Keeping a single v0.6 floor avoids advertising tools an older CLI cannot
+/// execute; the next minor line must be re-recorded before admission.
+pub const TESTED_SCOREKIT_RANGE: &str = ">=0.6.0, <0.7.0";
 
 /// Settings-pinned binary path, seeded by the host layer at startup and
 /// whenever settings are saved. Held here (not re-read from disk) so core
@@ -270,6 +274,10 @@ pub fn parse_error_output(stderr: &str, fallback_exit: i32) -> BenchError {
         field: Option<String>,
         location: Option<Value>,
         message: String,
+        /// Present on `code: "resolution"` failures from scorekit ≥0.5: the
+        /// per-track instrument resolution, including the palette and leaf
+        /// renderer profile each track routed through.
+        report: Option<Box<Value>>,
     }
     for line in stderr.lines().rev() {
         let line = line.trim();
@@ -283,6 +291,7 @@ pub fn parse_error_output(stderr: &str, fallback_exit: i32) -> BenchError {
                 exit_code: wire.exit_code,
                 field: wire.field,
                 location: wire.location.map(|v| v.to_string()),
+                report: wire.report,
             };
         }
     }
@@ -296,6 +305,7 @@ pub fn parse_error_output(stderr: &str, fallback_exit: i32) -> BenchError {
         exit_code: fallback_exit,
         field: None,
         location: None,
+        report: None,
     }
 }
 
@@ -369,6 +379,116 @@ pub fn diff(old: &Path, new: &Path) -> Result<Value, BenchError> {
     })
 }
 
+/// Ask scorekit's resolver which exact/fallback instrument bindings a scene
+/// would use. This is the deterministic preflight for world instruments and
+/// multi-profile palettes; scorebench does not reproduce the resolver.
+pub fn inspect_instruments(
+    scene: &Path,
+    orchestration: Option<&Path>,
+    resolver: Option<&Path>,
+    fallback_mode: Option<&str>,
+    verbose: bool,
+) -> Result<Value, BenchError> {
+    let mut args = vec![
+        "inspect-instruments".into(),
+        scene.to_string_lossy().into_owned(),
+    ];
+    if let Some(orchestration) = orchestration {
+        args.extend([
+            "--orchestration".into(),
+            orchestration.to_string_lossy().into_owned(),
+        ]);
+    }
+    if let Some(resolver) = resolver {
+        args.extend(["--resolver".into(), resolver.to_string_lossy().into_owned()]);
+    }
+    if let Some(mode) = fallback_mode {
+        args.extend(["--fallback-mode".into(), mode.into()]);
+    }
+    if verbose {
+        args.push("--verbose".into());
+    }
+    args.push("--json".into());
+    let stdout = run(&args)?;
+    serde_json::from_str(&stdout).map_err(|err| BenchError::Io {
+        message: format!("inspect-instruments output was not valid JSON: {err}"),
+    })
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TextureInspectParams {
+    pub source: Option<String>,
+    pub category: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub mode: Option<String>,
+    pub use_case: Option<String>,
+}
+
+impl TextureInspectParams {
+    fn to_args(&self) -> Vec<String> {
+        let mut args = Vec::new();
+        if let Some(source) = &self.source {
+            args.extend(["--source".into(), source.clone()]);
+        }
+        if let Some(category) = &self.category {
+            args.extend(["--category".into(), category.clone()]);
+        }
+        for tag in &self.tags {
+            args.extend(["--tag".into(), tag.clone()]);
+        }
+        if let Some(mode) = &self.mode {
+            args.extend(["--mode".into(), mode.clone()]);
+        }
+        if let Some(use_case) = &self.use_case {
+            args.extend(["--use-case".into(), use_case.clone()]);
+        }
+        args
+    }
+}
+
+/// Exact, conjunctive discovery over a v0.6 structured texture profile.
+/// `status: "no_match"` is a successful and truthful answer.
+pub fn inspect_textures(
+    profile: &Path,
+    params: &TextureInspectParams,
+) -> Result<Value, BenchError> {
+    let mut args = vec![
+        "texture".into(),
+        "inspect".into(),
+        profile.to_string_lossy().into_owned(),
+    ];
+    args.extend(params.to_args());
+    args.push("--json".into());
+    let stdout = run(&args)?;
+    serde_json::from_str(&stdout).map_err(|err| BenchError::Io {
+        message: format!("texture inspect output was not valid JSON: {err}"),
+    })
+}
+
+/// Decode and certify every source in a v0.6 structured texture profile.
+/// scorekit owns audio inspection and returns a structured `texture_check`
+/// failure report when any entry is missing, silent, or undecodable.
+pub fn check_texture_profile(
+    profile: &Path,
+    sample_rate: Option<u32>,
+) -> Result<Value, BenchError> {
+    let mut args = vec![
+        "texture".into(),
+        "check".into(),
+        profile.to_string_lossy().into_owned(),
+    ];
+    if let Some(sample_rate) = sample_rate {
+        args.extend(["--sample-rate".into(), sample_rate.to_string()]);
+    }
+    args.push("--json".into());
+    let stdout = run(&args)?;
+    serde_json::from_str(&stdout).map_err(|err| BenchError::Io {
+        message: format!("texture check output was not valid JSON: {err}"),
+    })
+}
+
 /// Render parameters exposed by the observation panel. Everything optional;
 /// omitted fields keep scorekit's own defaults.
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -380,7 +500,9 @@ pub struct BuildParams {
     pub quality: Option<u8>,
     pub stems: Option<bool>,
     pub soundfont: Option<String>,
-    pub profile: Option<String>,
+    /// Multi-profile orchestration path (`--renderer sfizz` only): routes
+    /// scene track palettes to leaf renderer profiles.
+    pub orchestration: Option<String>,
     pub texture_profile: Option<String>,
 }
 
@@ -405,8 +527,8 @@ impl BuildParams {
         if let Some(soundfont) = &self.soundfont {
             args.extend(["--soundfont".into(), soundfont.clone()]);
         }
-        if let Some(profile) = &self.profile {
-            args.extend(["--profile".into(), profile.clone()]);
+        if let Some(orchestration) = &self.orchestration {
+            args.extend(["--orchestration".into(), orchestration.clone()]);
         }
         if let Some(profile) = &self.texture_profile {
             args.extend(["--texture-profile".into(), profile.clone()]);
@@ -483,6 +605,32 @@ mod tests {
         }
     }
 
+    /// scorekit 0.5 diagnoses an unbuildable scene per track: which palette it
+    /// routed through, which leaf profile that palette binds to, and why the
+    /// closest available substitute was rejected. Dropping the report would
+    /// leave the agent with a bare count of unresolved instruments.
+    #[test]
+    fn keeps_resolution_report_from_orchestration_failure() {
+        let err = parse_error_output(&fixture("error_resolution.json"), 2);
+        let BenchError::Scorekit {
+            code,
+            exit_code,
+            report,
+            ..
+        } = err
+        else {
+            panic!("expected Scorekit error");
+        };
+        assert_eq!(code, "resolution");
+        assert_eq!(exit_code, 2);
+        let report = report.expect("resolution failures carry a report");
+        let track = &report["tracks"][0];
+        assert_eq!(track["track_id"], "pad");
+        assert_eq!(track["palette"], "solo");
+        assert_eq!(track["profile"], "scoredata-chamber");
+        assert_eq!(track["status"], "missing");
+    }
+
     #[test]
     fn falls_back_on_non_json_stderr() {
         let err = parse_error_output("segfault or something", 4);
@@ -512,9 +660,19 @@ mod tests {
             value.get("tools").is_some(),
             "doctor JSON must have `tools`"
         );
-        assert_eq!(
-            value.get("scorekit_version").and_then(Value::as_str),
-            Some("0.4.0")
+        // The fixture is a recording of the contract scorebench is written
+        // against, so it must come from a release inside the tested range —
+        // pinning a literal lets the recording rot behind the range.
+        let recorded = value
+            .get("scorekit_version")
+            .and_then(Value::as_str)
+            .expect("doctor JSON must report scorekit_version");
+        let recorded = Version::parse(recorded).expect("recorded version is semantic");
+        assert!(
+            VersionReq::parse(TESTED_SCOREKIT_RANGE)
+                .unwrap()
+                .matches(&recorded),
+            "doctor fixture records scorekit {recorded}, outside {TESTED_SCOREKIT_RANGE}"
         );
     }
 
@@ -523,6 +681,30 @@ mod tests {
         let value: Value = serde_json::from_str(&fixture("forest.meta.json")).unwrap();
         for key in ["audio", "loop", "sample_rate", "total_samples", "tracks"] {
             assert!(value.get(key).is_some(), "meta.json must have `{key}`");
+        }
+        // scorekit 0.5 reports every track by its stable scene-local ID: the
+        // meta track list and the instrument resolution both carry it, which is
+        // what ties a rendered stem back to the scene track that produced it.
+        let tracks = value["tracks"].as_array().expect("tracks is an array");
+        assert!(!tracks.is_empty(), "fixture must record tracks");
+        for track in tracks {
+            for key in ["id", "palette", "instrument", "articulation"] {
+                assert!(
+                    track.get(key).is_some(),
+                    "meta.json track must have `{key}`: {track}"
+                );
+            }
+        }
+        let resolved = value["instrument_resolution"]["tracks"]
+            .as_array()
+            .expect("instrument_resolution.tracks is an array");
+        assert_eq!(resolved.len(), tracks.len());
+        for (resolution, track) in resolved.iter().zip(tracks) {
+            assert_eq!(
+                resolution.get("track_id"),
+                track.get("id"),
+                "instrument resolution must be keyed by the same track id"
+            );
         }
     }
 
@@ -606,20 +788,20 @@ mod tests {
     #[test]
     fn build_params_render_full_arg_set() {
         let params = BuildParams {
-            renderer: Some("timidity".into()),
+            renderer: Some("sfizz".into()),
             sample_rate: Some(48000),
             gain: Some(0.7),
             quality: Some(6),
             stems: Some(true),
             soundfont: None,
-            profile: None,
+            orchestration: Some("hybrid.yaml".into()),
             texture_profile: Some("profiles/forest-textures.yaml".into()),
         };
         assert_eq!(
             params.to_args(),
             vec![
                 "--renderer",
-                "timidity",
+                "sfizz",
                 "--sample-rate",
                 "48000",
                 "--gain",
@@ -627,6 +809,8 @@ mod tests {
                 "--quality",
                 "6",
                 "--stems",
+                "--orchestration",
+                "hybrid.yaml",
                 "--texture-profile",
                 "profiles/forest-textures.yaml"
             ]
@@ -635,6 +819,57 @@ mod tests {
             .collect::<Vec<_>>()
         );
         assert!(BuildParams::default().to_args().is_empty());
+    }
+
+    #[test]
+    fn texture_inspect_filters_render_as_exact_repeated_flags() {
+        let params = TextureInspectParams {
+            source: Some("rain_soft".into()),
+            category: Some("ambience".into()),
+            tags: vec!["rain".into(), "soft".into()],
+            mode: Some("loop".into()),
+            use_case: Some("night".into()),
+        };
+        assert_eq!(
+            params.to_args(),
+            [
+                "--source",
+                "rain_soft",
+                "--category",
+                "ambience",
+                "--tag",
+                "rain",
+                "--tag",
+                "soft",
+                "--mode",
+                "loop",
+                "--use-case",
+                "night",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn texture_check_failure_keeps_the_certification_report() {
+        let error = parse_error_output(
+            r#"{"code":"texture_check","exit_code":2,"field":null,"location":null,"message":"1 texture source(s) failed certification","report":{"passed":1,"failed":1,"entries":[{"source":"gone","status":"missing"}]}}"#,
+            2,
+        );
+        let BenchError::Scorekit {
+            code,
+            exit_code,
+            report,
+            ..
+        } = error
+        else {
+            panic!("expected structured scorekit error");
+        };
+        assert_eq!(code, "texture_check");
+        assert_eq!(exit_code, 2);
+        assert_eq!(report.unwrap()["entries"][0]["source"], "gone");
     }
 
     #[test]
@@ -649,7 +884,7 @@ mod tests {
     fn handshake_gates_machine_readable_version() {
         let report = serde_json::json!({
             "ready": true,
-            "scorekit_version": "0.4.0",
+            "scorekit_version": "0.6.0",
             "hints": ["install a renderer"]
         });
         let handshake =
@@ -657,25 +892,33 @@ mod tests {
         assert_eq!(handshake.compatible, Some(true));
         assert_eq!(handshake.hints, vec!["install a renderer"]);
         assert_eq!(handshake.source, Some(LocateSource::Path));
-
-        // 0.3.x stays inside the tested range: both recorded contracts hold.
-        let floor = handshake_from_report(
+        // The v0.6 agent contract depends on structured texture discovery and
+        // certification, so the whole 0.6 line stays inside the tested range.
+        let patch = handshake_from_report(
             PathBuf::from("scorekit"),
             LocateSource::Path,
-            serde_json::json!({"ready":true,"scorekit_version":"0.3.0","hints":[]}),
+            serde_json::json!({"ready":true,"scorekit_version":"0.6.2","hints":[]}),
         );
-        assert_eq!(floor.compatible, Some(true));
+        assert_eq!(patch.compatible, Some(true));
 
+        // 0.5 has orchestration but not the v0.6 texture inspect/check contract.
         let outdated = handshake_from_report(
             PathBuf::from("scorekit"),
             LocateSource::Settings,
-            serde_json::json!({"ready":true,"scorekit_version":"0.2.3","hints":[]}),
+            serde_json::json!({"ready":true,"scorekit_version":"0.5.9","hints":[]}),
         );
         assert_eq!(outdated.compatible, Some(false));
         assert!(outdated
             .warning
             .unwrap()
             .contains("outside the tested range"));
+
+        let future = handshake_from_report(
+            PathBuf::from("scorekit"),
+            LocateSource::Path,
+            serde_json::json!({"ready":true,"scorekit_version":"0.7.0","hints":[]}),
+        );
+        assert_eq!(future.compatible, Some(false));
 
         let legacy = handshake_from_report(
             PathBuf::from("scorekit"),
