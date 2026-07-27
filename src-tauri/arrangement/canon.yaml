@@ -1,6 +1,6 @@
 schema_version: 1
 id: scorekit-arrangement-canon
-version: 1.0.0
+version: 1.1.0
 source_scorekit_range: ">=0.6.0, <0.7.0"
 provenance:
   repository: talkincode/scorekit
@@ -21,6 +21,19 @@ authority:
   prohibition: "Use only live-schema fields and values; never invent a scene field, instrument, palette, articulation, or texture source."
   narrative_boundary: "story is informational; translate narrative into schema-legal musical decisions."
 
+task_modes:
+  declaration: "Before write_scene, call declare_arrangement_intent with one concise decision record; do not expose private chain-of-thought."
+  new_scene:
+    rule: "Choose form, creative instrumentation, and expected scene fields before writing."
+    diversity: "Apply palette_inertia only when a recent_scene_fingerprint or user-supplied comparison exists; otherwise mark cross-piece comparison n/a."
+  revision:
+    rule: "Change only declared fields, preserve declared invariants, and prefer the smallest semantic diff that realizes the request."
+    disabled_by_default: [palette_inertia, style_independence]
+    exception: "Re-enable palette comparison only when the user explicitly asks for re-orchestration or a new identity."
+  repair:
+    rule: "Make the smallest schema/toolchain repair; do not introduce creative changes merely to satisfy advisory craft baselines."
+    disabled: [palette_inertia, style_independence, creative_recomposition]
+
 intent_contract:
   before_write:
     state: "One concise, falsifiable translation of the user intent."
@@ -35,6 +48,7 @@ intent_contract:
       - "Repair or explicitly explain every mismatch before declaring completion."
 
 palette_inertia:
+  applies_when: "new_scene, or an explicit re-orchestration request"
   timing: "Complete this decision before writing tracks."
   name_the_inertia_answer: "State the habitual palette, key/mode, tempo, and meter that first came to mind."
   candidates:
@@ -42,19 +56,21 @@ palette_inertia:
     compare_by: [setting, era, technology, culture, character, function]
     mood_only_is_not_a_reason: true
   selection: "Pick one candidate and cite brief evidence; name why the rejected candidates fit less well."
-  orchestral_rule: "Orchestral strings must win this comparison; they never inherit by default."
+  orchestral_rule: "Orchestral strings may be selected only when they win this comparison on brief evidence; they never inherit by default."
   consecutive_deliverables:
+    requires: recent_scene_fingerprint
     minimum_changed_axes: 3
     axes: [palette_family, key_mode, tempo_class, meter, lead_timbre, pulse, harmony_color, density]
     exception: "A user-pinned matching or series style; state that override."
 
 craft:
+  authority: "These are advisory defaults, not universal gates. Explicit user intent, task purpose, project grammar, and the active StylePack may override them with one concise justification."
   motif_economy:
     core_identity_count: 1
     total_motifs_max: 2
     core_cell_notes: "4..=6"
     valid_variations: [octave, rhythm, answering_instrument]
-    rule: "Restate and develop the identity instead of piling up unrelated tunes."
+    rule: "For thematic cues, restate and develop the identity instead of piling up unrelated tunes; texture-only scenes may mark this n/a."
   voice_discipline:
     simultaneous_non_rest_melody_voices_max: 2
     exception: "One brief-justified tutti corner; disclose it in the audit."
@@ -62,17 +78,18 @@ craft:
     rest_ratio_per_melody_min: 0.30
     rest_degree: 0
     long_rest_note_beats_max: 16
-    rule: "Split longer silence into multiple legal rest notes; silence is arrangement material."
+    rule: "Split longer silence into multiple legal rest notes; silence is arrangement material. A brief-justified continuous ostinato may override the default ratio."
   role_coverage:
     roles: [lead, harmony, foundation, pulse]
-    rule: "No unintended gap and no duplicate role without registral or rhythmic contrast."
+    rule: "Cover only roles intended by the brief; no unintended gap and no duplicate role without registral or rhythmic contrast."
   entrances_and_exits:
     whole_span_patterns: [sustain, arpeggio, bass, drums, tabla]
     rule: "For a mid-span entrance or exit, use a melody track with explicit rests or a section mute by stable track id."
   emotional_curve:
     measure: "intensity x register x active non-rest voice count over time"
-    shape: "rise -> peak -> cut_or_contrast -> return"
-    reject: "A flat plateau or a peak that never releases."
+    default_shape: "rise -> peak -> cut_or_contrast -> return"
+    alternatives: [static_tension, loop_wave, sectional, stinger]
+    rule: "Choose and name a brief-appropriate contour; reject only an accidental plateau or unreleased peak."
   register_spacing:
     rule: "Keep one clear low anchor, at most two concurrent voices per band, and the lead clear of the harmonic bed."
   loop_and_ending:

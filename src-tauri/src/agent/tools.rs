@@ -1,14 +1,19 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use super::intent::{declaration_output, IntentArgs, IntentTracker};
 use crate::error::BenchError;
 use crate::llm::types::{FunctionCall, ToolDefinition};
 use crate::{manifest, observation, project, scorekit};
 
 pub struct ToolBelt {
     root: PathBuf,
+    intents: Arc<IntentTracker>,
 }
 
 #[derive(Debug, Clone)]
@@ -29,6 +34,8 @@ pub enum SceneGateKind {
     Build,
     /// ScoreKit instrument resolution, including exact-only world identities.
     InstrumentResolution,
+    /// The write must match the run-local, pre-write arrangement intent.
+    IntentAlignment,
     /// One concrete scene/grammar pair.
     Grammar { grammar: String },
 }
@@ -45,12 +52,14 @@ impl ToolBelt {
     pub fn new(root: PathBuf) -> Result<Self, BenchError> {
         Ok(Self {
             root: root.canonicalize().map_err(BenchError::io)?,
+            intents: Arc::new(IntentTracker::default()),
         })
     }
 
     pub async fn execute(&self, call: FunctionCall) -> Result<ToolResult, BenchError> {
         let root = self.root.clone();
-        tokio::task::spawn_blocking(move || execute_sync(&root, &call))
+        let intents = Arc::clone(&self.intents);
+        tokio::task::spawn_blocking(move || execute_sync(&root, &intents, &call))
             .await
             .map_err(BenchError::io)?
     }
@@ -75,40 +84,56 @@ impl ToolBelt {
 /// later text-only response from pretending the failed check never happened.
 pub fn failure_gates(call: &FunctionCall, error: &BenchError) -> Vec<SceneGateUpdate> {
     let reason = format!("{} failed: {error}", call.name);
-    let update = match call.name.as_str() {
+    let update = |kind, path| SceneGateUpdate {
+        kind,
+        path,
+        ready: false,
+        reason: reason.clone(),
+    };
+    match call.name.as_str() {
         "write_scene" => serde_json::from_str::<WriteArgs>(&call.arguments)
             .ok()
-            .map(|args| (SceneGateKind::Readiness, args.path)),
+            .map(|args| {
+                vec![
+                    update(SceneGateKind::Readiness, args.path.clone()),
+                    update(SceneGateKind::IntentAlignment, args.path),
+                ]
+            })
+            .unwrap_or_default(),
         "validate_scene" => serde_json::from_str::<PathArgs>(&call.arguments)
             .ok()
-            .map(|args| (SceneGateKind::Readiness, args.path)),
+            .map(|args| update(SceneGateKind::Readiness, args.path))
+            .into_iter()
+            .collect(),
         "build_scene" => serde_json::from_str::<BuildArgs>(&call.arguments)
             .ok()
-            .map(|args| (SceneGateKind::Build, args.path)),
+            .map(|args| update(SceneGateKind::Build, args.path))
+            .into_iter()
+            .collect(),
         "inspect_instruments" => serde_json::from_str::<InspectInstrumentsArgs>(&call.arguments)
             .ok()
-            .map(|args| (SceneGateKind::InstrumentResolution, args.path)),
+            .map(|args| update(SceneGateKind::InstrumentResolution, args.path))
+            .into_iter()
+            .collect(),
+        "declare_arrangement_intent" => serde_json::from_str::<IntentArgs>(&call.arguments)
+            .ok()
+            .map(|args| update(SceneGateKind::IntentAlignment, args.path))
+            .into_iter()
+            .collect(),
         "lint_scene" => serde_json::from_str::<LintArgs>(&call.arguments)
             .ok()
             .map(|args| {
-                (
+                update(
                     SceneGateKind::Grammar {
                         grammar: args.grammar,
                     },
                     args.path,
                 )
-            }),
-        _ => None,
-    };
-    update
-        .map(|(kind, path)| SceneGateUpdate {
-            kind,
-            path,
-            ready: false,
-            reason,
-        })
-        .into_iter()
-        .collect()
+            })
+            .into_iter()
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 pub fn definitions() -> Vec<ToolDefinition> {
@@ -119,8 +144,34 @@ pub fn definitions() -> Vec<ToolDefinition> {
             json!({"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}),
         ),
         function(
+            "declare_arrangement_intent",
+            "Declare one concise, auditable decision record before write_scene. Use new_scene for a missing target; for revision or repair, read_scene must come first. expected_changes and invariants are top-level ScoreKit scene fields. The declaration locks after the first write so later edits are always compared with the original baseline.",
+            json!({
+                "type":"object",
+                "properties":{
+                    "path":{"type":"string"},
+                    "task_mode":{"type":"string","enum":["new_scene","revision","repair"]},
+                    "goal":{"type":"string"},
+                    "form_intent":{"type":"string"},
+                    "palette_intent":{"type":"string","description":"Creative instrumentation decision, never a Scene palette routing key unless the active orchestration lists that exact key."},
+                    "expected_changes":{
+                        "type":"array",
+                        "minItems":1,
+                        "uniqueItems":true,
+                        "items":{"type":"string","enum":["title","story","tempo","key","time_signature","bars","loop","harmony","performance","motifs","tracks","sections","textures"]}
+                    },
+                    "invariants":{
+                        "type":"array",
+                        "uniqueItems":true,
+                        "items":{"type":"string","enum":["title","story","tempo","key","time_signature","bars","loop","harmony","performance","motifs","tracks","sections","textures"]}
+                    }
+                },
+                "required":["path","task_mode","goal","form_intent","palette_intent","expected_changes","invariants"]
+            }),
+        ),
+        function(
             "write_scene",
-            "Atomically write one scene YAML file inside the project. Validation and active orchestration/texture-profile compatibility checks are mandatory. If any check fails, repair the scene with another write_scene call before finishing.",
+            "Atomically write one scene YAML file inside the project after declare_arrangement_intent. The write is compared with that declaration's original baseline. Intent alignment, validation, and active orchestration/texture-profile compatibility are mandatory; repair every failed gate before finishing.",
             json!({"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}),
         ),
         function(
@@ -261,21 +312,57 @@ fn make_nullable(schema: &mut Value) {
     }
 }
 
-fn execute_sync(root: &Path, call: &FunctionCall) -> Result<ToolResult, BenchError> {
+fn execute_sync(
+    root: &Path,
+    intents: &IntentTracker,
+    call: &FunctionCall,
+) -> Result<ToolResult, BenchError> {
     match call.name.as_str() {
         "read_scene" => {
             let args: PathArgs = args(call)?;
             require_scene_path(&args.path)?;
             let content = project::read_text_inside(root, &args.path)?;
+            intents.mark_read(root, &args.path, &content)?;
             success(
                 json!({"ok":true,"path":args.path,"content":content}),
                 "scene read",
             )
         }
+        "declare_arrangement_intent" => {
+            let args: IntentArgs = args(call)?;
+            require_scene_path(&args.path)?;
+            let declared = intents.declare(root, args)?;
+            success_with_gate(
+                declaration_output(declared.output),
+                "arrangement intent declared; write pending",
+                SceneGateKind::IntentAlignment,
+                declared.gate_path,
+                false,
+            )
+        }
         "write_scene" => {
             let args: WriteArgs = args(call)?;
             require_scene_path(&args.path)?;
-            write_scene(root, args)
+            let intent = intents.require_for_write(root, &args.path)?;
+            let content = args.content.clone();
+            let mut result = write_scene(root, args)?;
+            let alignment = intents.record_write(&intent, &content)?;
+            let alignment_summary = alignment.summary();
+            let alignment_ready = alignment.aligned();
+            let mut output: Value = serde_json::from_str(&result.output).map_err(BenchError::io)?;
+            output["intent_alignment"] =
+                serde_json::to_value(&alignment).map_err(BenchError::io)?;
+            result.output = output.to_string();
+            if !alignment_ready {
+                result.summary = format!("{}; INTENT BLOCKED: {alignment_summary}", result.summary);
+            }
+            result.scene_gates.push(SceneGateUpdate {
+                kind: SceneGateKind::IntentAlignment,
+                path: scene_gate_path(root, intent.target())?,
+                ready: alignment_ready,
+                reason: alignment_summary,
+            });
+            Ok(result)
         }
         "validate_scene" => {
             let args: PathArgs = args(call)?;
@@ -862,6 +949,59 @@ mod tests {
         root
     }
 
+    async fn declare_new_scene(belt: &ToolBelt, path: &str) {
+        belt.execute(FunctionCall {
+            id: None,
+            call_id: "intent".into(),
+            name: "declare_arrangement_intent".into(),
+            arguments: serde_json::json!({
+                "path": path,
+                "task_mode": "new_scene",
+                "goal": "Create the requested scene.",
+                "form_intent": "Use the form declared in the scene.",
+                "palette_intent": "Use live-schema instruments appropriate to the request.",
+                "expected_changes": ["tracks"],
+                "invariants": []
+            })
+            .to_string(),
+        })
+        .await
+        .unwrap();
+    }
+
+    async fn declare_revision(
+        belt: &ToolBelt,
+        path: &str,
+        expected_changes: &[&str],
+        invariants: &[&str],
+    ) {
+        belt.execute(FunctionCall {
+            id: None,
+            call_id: "read".into(),
+            name: "read_scene".into(),
+            arguments: serde_json::json!({"path":path}).to_string(),
+        })
+        .await
+        .unwrap();
+        belt.execute(FunctionCall {
+            id: None,
+            call_id: "intent".into(),
+            name: "declare_arrangement_intent".into(),
+            arguments: serde_json::json!({
+                "path": path,
+                "task_mode": "revision",
+                "goal": "Apply only the requested semantic revision.",
+                "form_intent": "Preserve the existing form unless declared otherwise.",
+                "palette_intent": "Preserve the existing instrumentation unless declared otherwise.",
+                "expected_changes": expected_changes,
+                "invariants": invariants
+            })
+            .to_string(),
+        })
+        .await
+        .unwrap();
+    }
+
     #[test]
     #[cfg(unix)]
     fn scene_gate_paths_do_not_collapse_backslash_filenames() {
@@ -964,11 +1104,265 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn new_scene_write_requires_a_declared_arrangement_intent() {
+        let root = temp_project();
+        let belt = ToolBelt::new(root.clone()).unwrap();
+        let content = include_str!("../../tests/fixtures/scenes/forest.yaml");
+        let write = || FunctionCall {
+            id: None,
+            call_id: "write".into(),
+            name: "write_scene".into(),
+            arguments: serde_json::json!({"path":"forest.yaml","content":content}).to_string(),
+        };
+
+        let error = belt.execute(write()).await.unwrap_err();
+        assert!(
+            matches!(error, BenchError::Agent { ref code, .. } if code == "arrangement_intent_required")
+        );
+        assert!(!root.join("forest.yaml").exists());
+
+        let declaration = belt
+            .execute(FunctionCall {
+                id: None,
+                call_id: "intent".into(),
+                name: "declare_arrangement_intent".into(),
+                arguments: serde_json::json!({
+                    "path": "forest.yaml",
+                    "task_mode": "new_scene",
+                    "goal": "Create a restrained forest exploration loop.",
+                    "form_intent": "A seamless loop with one gentle rise and return.",
+                    "palette_intent": "Airy woodwinds over a light acoustic foundation.",
+                    "expected_changes": ["tempo", "key", "loop", "tracks"],
+                    "invariants": []
+                })
+                .to_string(),
+            })
+            .await
+            .unwrap();
+        assert!(declaration
+            .scene_gates
+            .iter()
+            .any(|gate| { gate.kind == SceneGateKind::IntentAlignment && !gate.ready }));
+
+        let result = belt.execute(write()).await.unwrap();
+        let output: Value = serde_json::from_str(&result.output).unwrap();
+        assert_eq!(
+            output["intent_alignment"]["status"], "aligned",
+            "{output:#}"
+        );
+        assert_eq!(
+            output["intent_alignment"]["unexpected_changes"],
+            serde_json::json!([])
+        );
+        assert!(root.join("forest.yaml").is_file());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn revision_intent_requires_the_existing_scene_to_be_read_first() {
+        let root = temp_project();
+        let content = include_str!("../../tests/fixtures/scenes/forest.yaml");
+        std::fs::write(root.join("forest.yaml"), content).unwrap();
+        let belt = ToolBelt::new(root.clone()).unwrap();
+        let intent = || FunctionCall {
+            id: None,
+            call_id: "intent".into(),
+            name: "declare_arrangement_intent".into(),
+            arguments: serde_json::json!({
+                "path": "forest.yaml",
+                "task_mode": "revision",
+                "goal": "Make the cue slightly more urgent.",
+                "form_intent": "Preserve the existing loop form.",
+                "palette_intent": "Preserve the existing instrumentation.",
+                "expected_changes": ["tempo"],
+                "invariants": ["loop", "tracks"]
+            })
+            .to_string(),
+        };
+
+        let error = belt.execute(intent()).await.unwrap_err();
+        assert!(
+            matches!(error, BenchError::Agent { ref code, .. } if code == "arrangement_scene_not_read")
+        );
+
+        belt.execute(FunctionCall {
+            id: None,
+            call_id: "read".into(),
+            name: "read_scene".into(),
+            arguments: serde_json::json!({"path":"forest.yaml"}).to_string(),
+        })
+        .await
+        .unwrap();
+        belt.execute(intent()).await.unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn revision_write_refuses_a_baseline_changed_after_intent_declaration() {
+        let root = temp_project();
+        let content = include_str!("../../tests/fixtures/scenes/forest.yaml");
+        std::fs::write(root.join("forest.yaml"), content).unwrap();
+        let belt = ToolBelt::new(root.clone()).unwrap();
+        belt.execute(FunctionCall {
+            id: None,
+            call_id: "read".into(),
+            name: "read_scene".into(),
+            arguments: serde_json::json!({"path":"forest.yaml"}).to_string(),
+        })
+        .await
+        .unwrap();
+        belt.execute(FunctionCall {
+            id: None,
+            call_id: "intent".into(),
+            name: "declare_arrangement_intent".into(),
+            arguments: serde_json::json!({
+                "path": "forest.yaml",
+                "task_mode": "revision",
+                "goal": "Increase urgency through tempo only.",
+                "form_intent": "Preserve the seamless loop.",
+                "palette_intent": "Preserve the existing instrumentation.",
+                "expected_changes": ["tempo"],
+                "invariants": ["loop", "tracks"]
+            })
+            .to_string(),
+        })
+        .await
+        .unwrap();
+
+        let external = content.replace("tempo: 92", "tempo: 94");
+        std::fs::write(root.join("forest.yaml"), &external).unwrap();
+        let intended = content.replace("tempo: 92", "tempo: 96");
+        let error = belt
+            .execute(FunctionCall {
+                id: None,
+                call_id: "write".into(),
+                name: "write_scene".into(),
+                arguments: serde_json::json!({"path":"forest.yaml","content":intended}).to_string(),
+            })
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, BenchError::Agent { ref code, .. } if code == "arrangement_intent_stale")
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("forest.yaml")).unwrap(),
+            external
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn revision_intent_keeps_its_canonical_identity_across_an_alias_write() {
+        use std::os::unix::fs::symlink;
+
+        let root = temp_project();
+        let content = include_str!("../../tests/fixtures/scenes/forest.yaml");
+        std::fs::write(root.join("forest.yaml"), content).unwrap();
+        symlink("forest.yaml", root.join("alias.yaml")).unwrap();
+        let belt = ToolBelt::new(root.clone()).unwrap();
+        declare_revision(&belt, "alias.yaml", &["tempo"], &["tracks"]).await;
+
+        let revised = content.replace("tempo: 92", "tempo: 96");
+        let result = belt
+            .execute(FunctionCall {
+                id: None,
+                call_id: "write".into(),
+                name: "write_scene".into(),
+                arguments: serde_json::json!({"path":"alias.yaml","content":revised}).to_string(),
+            })
+            .await
+            .unwrap();
+        let output: Value = serde_json::from_str(&result.output).unwrap();
+        assert_eq!(output["intent_alignment"]["status"], "aligned");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn revision_alignment_compares_every_retry_with_the_declared_baseline() {
+        let root = temp_project();
+        let content = include_str!("../../tests/fixtures/scenes/forest.yaml");
+        std::fs::write(root.join("forest.yaml"), content).unwrap();
+        let belt = ToolBelt::new(root.clone()).unwrap();
+        belt.execute(FunctionCall {
+            id: None,
+            call_id: "read".into(),
+            name: "read_scene".into(),
+            arguments: serde_json::json!({"path":"forest.yaml"}).to_string(),
+        })
+        .await
+        .unwrap();
+        belt.execute(FunctionCall {
+            id: None,
+            call_id: "intent".into(),
+            name: "declare_arrangement_intent".into(),
+            arguments: serde_json::json!({
+                "path": "forest.yaml",
+                "task_mode": "revision",
+                "goal": "Increase urgency through tempo only.",
+                "form_intent": "Preserve the seamless loop.",
+                "palette_intent": "Preserve the existing instrumentation.",
+                "expected_changes": ["tempo"],
+                "invariants": ["loop", "tracks"]
+            })
+            .to_string(),
+        })
+        .await
+        .unwrap();
+
+        let drifted = content
+            .replace("tempo: 92", "tempo: 96")
+            .replace("intensity: 0.4", "intensity: 0.8");
+        let blocked = belt
+            .execute(FunctionCall {
+                id: None,
+                call_id: "drift".into(),
+                name: "write_scene".into(),
+                arguments: serde_json::json!({"path":"forest.yaml","content":drifted}).to_string(),
+            })
+            .await
+            .unwrap();
+        let output: Value = serde_json::from_str(&blocked.output).unwrap();
+        assert_eq!(output["intent_alignment"]["status"], "blocked");
+        assert_eq!(
+            output["intent_alignment"]["unexpected_changes"],
+            serde_json::json!(["tracks"])
+        );
+        assert_eq!(
+            output["intent_alignment"]["invariant_violations"],
+            serde_json::json!(["tracks"])
+        );
+        assert!(blocked
+            .scene_gates
+            .iter()
+            .any(|gate| { gate.kind == SceneGateKind::IntentAlignment && !gate.ready }));
+
+        let repaired = content.replace("tempo: 92", "tempo: 96");
+        let aligned = belt
+            .execute(FunctionCall {
+                id: None,
+                call_id: "repair".into(),
+                name: "write_scene".into(),
+                arguments: serde_json::json!({"path":"forest.yaml","content":repaired}).to_string(),
+            })
+            .await
+            .unwrap();
+        let output: Value = serde_json::from_str(&aligned.output).unwrap();
+        assert_eq!(output["intent_alignment"]["status"], "aligned");
+        assert!(aligned
+            .scene_gates
+            .iter()
+            .any(|gate| { gate.kind == SceneGateKind::IntentAlignment && gate.ready }));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
     async fn history_failure_does_not_block_scene_edit() {
         let root = temp_project();
         std::fs::write(root.join("scene.yaml"), "title: Before\nbars: 8\n").unwrap();
         std::fs::write(root.join(".scorebench"), "blocks history directory").unwrap();
         let belt = ToolBelt::new(root.clone()).unwrap();
+        declare_revision(&belt, "scene.yaml", &["title"], &["bars"]).await;
         let result = belt
             .execute(FunctionCall {
                 id: None,
@@ -999,6 +1393,7 @@ mod tests {
         std::fs::write(root.join("forest.yaml"), before).unwrap();
         let after = before.replace("tempo: 92", "tempo: 96");
         let belt = ToolBelt::new(root.clone()).unwrap();
+        declare_revision(&belt, "forest.yaml", &["tempo"], &["tracks"]).await;
         let result = belt
             .execute(FunctionCall {
                 id: None,
@@ -1031,6 +1426,7 @@ mod tests {
         let root = temp_project();
         let belt = ToolBelt::new(root.clone()).unwrap();
         let valid = include_str!("../../tests/fixtures/scenes/forest.yaml");
+        declare_new_scene(&belt, "forest.yaml").await;
         let result = belt
             .execute(FunctionCall {
                 id: None,
@@ -1111,6 +1507,7 @@ mod tests {
         )
         .unwrap();
         let belt = ToolBelt::new(root.clone()).unwrap();
+        declare_new_scene(&belt, "scene.yaml").await;
         let result = belt
             .execute(FunctionCall {
                 id: None,
@@ -1168,6 +1565,15 @@ mod tests {
                 },
                 SceneGateKind::InstrumentResolution,
             ),
+            (
+                FunctionCall {
+                    id: None,
+                    call_id: "intent".into(),
+                    name: "declare_arrangement_intent".into(),
+                    arguments: r#"{"path":"scene.yaml","task_mode":"new_scene","goal":"Create a cue.","form_intent":"Loop.","palette_intent":"Piano.","expected_changes":["tracks"],"invariants":[]}"#.into(),
+                },
+                SceneGateKind::IntentAlignment,
+            ),
         ];
 
         for (call, expected) in cases {
@@ -1177,6 +1583,21 @@ mod tests {
             assert_eq!(updates[0].path, "scene.yaml");
             assert!(!updates[0].ready);
         }
+
+        let write = FunctionCall {
+            id: None,
+            call_id: "write".into(),
+            name: "write_scene".into(),
+            arguments: r#"{"path":"scene.yaml","content":"tracks: []"}"#.into(),
+        };
+        let updates = failure_gates(&write, &error);
+        assert_eq!(updates.len(), 2);
+        assert!(updates
+            .iter()
+            .any(|update| update.kind == SceneGateKind::Readiness));
+        assert!(updates
+            .iter()
+            .any(|update| update.kind == SceneGateKind::IntentAlignment));
     }
 
     #[test]
@@ -1399,8 +1820,9 @@ mod tests {
             .collect::<Vec<_>>();
         names.sort_unstable();
         names.dedup();
-        assert_eq!(names.len(), 11);
+        assert_eq!(names.len(), 12);
         for expected in [
+            "declare_arrangement_intent",
             "inspect_instruments",
             "inspect_textures",
             "check_texture_profile",
@@ -1460,6 +1882,23 @@ mod tests {
         assert!(
             write.parameters["properties"].get("validate").is_none(),
             "scene validation must not be model-optional"
+        );
+
+        let intent = definitions()
+            .into_iter()
+            .find(|definition| definition.name == "declare_arrangement_intent")
+            .unwrap();
+        assert_eq!(
+            intent.parameters["properties"]["task_mode"]["enum"],
+            serde_json::json!(["new_scene", "revision", "repair"])
+        );
+        assert_eq!(
+            intent.parameters["properties"]["expected_changes"]["minItems"],
+            serde_json::json!(1)
+        );
+        assert_eq!(
+            intent.parameters["properties"]["expected_changes"]["uniqueItems"],
+            serde_json::json!(true)
         );
 
         let texture_check = definitions()

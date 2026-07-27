@@ -25,11 +25,16 @@ melody:
   hooks: essential
 
 arrangement:
-  preferred:
+  preferred_instruments:
+    - strings
+    - synth_strings
+    - brass
+    - choir
+    - timpani
+  creative_concepts:
     - full_orchestra
     - hybrid_synth
     - epic_percussion
-    - choir
     - low_brass
   avoid:
     - lo_fi_textures

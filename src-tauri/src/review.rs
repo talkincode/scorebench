@@ -688,7 +688,7 @@ mod tests {
         let style = evidence.style_pack.unwrap();
         assert_eq!(style["id"], "epic-new-age-instrumental");
         assert_eq!(style["review"]["criteria"][0], "climax_clarity");
-        assert_eq!(style["arrangement"]["preferred"][0], "piano");
+        assert_eq!(style["arrangement"]["preferred_instruments"][0], "piano");
         std::fs::remove_dir_all(root).unwrap();
     }
 

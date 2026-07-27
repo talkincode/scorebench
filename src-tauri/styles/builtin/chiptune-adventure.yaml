@@ -23,8 +23,12 @@ melody:
   hooks: essential
 
 arrangement:
-  preferred:
+  preferred_instruments:
     - square_lead
+    - saw_lead
+    - synth_bass
+    - drums
+  creative_concepts:
     - pulse_bass
     - chip_arp
     - noise_percussion

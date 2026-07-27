@@ -19,11 +19,13 @@ melody:
   motif_development: strong
 
 arrangement:
-  preferred:
+  preferred_instruments:
     - piano
     - synth_strings
-    - orchestral_percussion
+    - timpani
     - bass
+  creative_concepts:
+    - orchestral_percussion
   techniques:
     - arpeggio
     - layer_build

@@ -24,9 +24,12 @@ melody:
   foreground: minimal
 
 arrangement:
-  preferred:
+  preferred_instruments:
     - strings
     - piano
+    - brass
+    - timpani
+  creative_concepts:
     - low_brass
     - subtle_percussion
   avoid:

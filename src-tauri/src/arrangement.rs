@@ -50,8 +50,10 @@ pub fn prompt_section() -> String {
     let canon = canon();
     format!(
         "ARRANGEMENT CANON `{}` v{} (schema {}, source scorekit {} @ {}):\n\
-         Apply this versioned doctrine to every compose or arrangement-revision turn. \
-         The live ScoreKit schemas remain authoritative if this canon and the installed \
+         Apply hard authority, source-honesty, and delivery rules to every scene operation. \
+         Before write_scene, use declare_arrangement_intent and follow the declared task_mode; \
+         creative craft rules are advisory defaults with the applicability and overrides encoded \
+         below. The live ScoreKit schemas remain authoritative if this canon and the installed \
          tool disagree.\n{}\n",
         canon.id,
         canon.version,
@@ -72,7 +74,7 @@ mod tests {
 
         assert_eq!(canon.schema_version, 1);
         assert_eq!(canon.id, "scorekit-arrangement-canon");
-        assert_eq!(canon.version, "1.0.0");
+        assert_eq!(canon.version, "1.1.0");
         assert_eq!(canon.source_scorekit_range, ">=0.6.0, <0.7.0");
         assert_eq!(
             canon.source_scorekit_range,
@@ -81,7 +83,7 @@ mod tests {
         assert_eq!(canon.source_commit, "c2e0b0c");
         assert!(canon.source.contains("skills/scorekit/SKILL.md"));
         assert!(
-            (4 * 1024..=7 * 1024).contains(&canon.source.len()),
+            (4 * 1024..=9 * 1024).contains(&canon.source.len()),
             "canon must stay prompt-sized, got {} bytes",
             canon.source.len()
         );
@@ -92,7 +94,7 @@ mod tests {
         let prompt = prompt_section();
 
         for required in [
-            "ARRANGEMENT CANON `scorekit-arrangement-canon` v1.0.0",
+            "ARRANGEMENT CANON `scorekit-arrangement-canon` v1.1.0",
             "scorekit schema --json",
             "before_write",
             "expected_changes",
@@ -111,13 +113,39 @@ mod tests {
             "name_the_inertia_answer",
             "candidate_count: \"2..=3\"",
             "minimum_changed_axes: 3",
-            "Orchestral strings must win this comparison; they never inherit by default.",
+            "Orchestral strings may be selected only when they win this comparison",
         ] {
             assert!(
                 prompt.contains(required),
                 "missing palette rule: {required}"
             );
         }
+    }
+
+    #[test]
+    fn prompt_scopes_creative_rules_by_declared_task_mode() {
+        let prompt = prompt_section();
+
+        for required in [
+            "task_modes:",
+            "new_scene:",
+            "revision:",
+            "repair:",
+            "recent_scene_fingerprint",
+            "advisory defaults",
+            "declare_arrangement_intent",
+        ] {
+            assert!(
+                prompt.contains(required),
+                "missing task-mode rule: {required}"
+            );
+        }
+        assert!(!prompt.contains(
+            "Apply this versioned doctrine to every compose or arrangement-revision turn."
+        ));
+        assert!(!prompt.contains(
+            "Orchestral strings must win this comparison; they never inherit by default."
+        ));
     }
 
     #[test]

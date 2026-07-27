@@ -272,12 +272,14 @@ pub fn prompt_section(pack: &StylePack) -> String {
     format!(
         "ACTIVE STYLE PACK `{id}` — {name} (bench.json: style.id):\n\
          The user selected this structured style for the whole project. Treat it as the project's musical constitution:\n\
-         - `defaults` seed new scenes (tempo range, meters, density, dynamics) unless the user explicitly overrides them.\n\
-         - `harmony` / `melody` / `arrangement` / `form` steer every compositional choice; `arrangement.preferred` is the default palette and `arrangement.avoid` is a hard avoid-list.\n\
+         - `defaults` seed only new_scene work; revision and repair preserve existing choices unless the declared intent changes them.\n\
+         - `harmony` / `melody` / `arrangement` / `form` are creative vocabulary unless a field explicitly says otherwise. `arrangement.preferred_instruments` contains intended live-schema instruments; verify them against the live schema. Translate `arrangement.creative_concepts` into legal instruments and patterns, and never write a concept as `tracks[].instrument`.\n\
+         - Legacy user packs may use `arrangement.preferred`; treat it as creative instrumentation guidance, not guaranteed identifiers and not a Scene routing palette. `tracks[].palette` is only an orchestration routing key and may use only a key listed in ACTIVE RENDER CONFIGURATION.\n\
+         - `arrangement.avoid` is a strong creative avoid-list unless an explicit user instruction overrides it after acknowledgement.\n\
          - `review.criteria` are the quality bars this project is judged by.\n\
          {yaml}\n\n\
          STYLE CONFLICT DETECTION (mandatory skill):\n\
-         Before acting on any request, compare it with the active style pack. If they conflict — an avoided instrument or technique, a tempo outside the default range, a modulation, density, or character the pack excludes — never implement it silently:\n\
+         Compare the declared request with the active style pack. For revision or repair, examine only the requested change and do not broaden the edit to chase style defaults. If they conflict — an avoided instrument or technique, a tempo outside the default range, a modulation, density, or character the pack excludes — never implement it silently:\n\
          1. Name the conflict in one short sentence, quoting the pack field it violates.\n\
          2. If a pack-consistent alternative exists, state it and proceed with that compromise.\n\
          3. If the conflict is fundamental, stop and ask the user whether to override the style pack or adapt the request.\n\
@@ -330,6 +332,63 @@ mod tests {
         }
         assert!(packs.iter().any(|p| p.id == "epic-new-age-instrumental"));
         assert!(packs.iter().any(|p| p.id == "aaa-game-score"));
+    }
+
+    #[test]
+    fn builtin_arrangement_vocabulary_separates_instruments_and_concepts() {
+        for pack in builtins() {
+            let value: serde_yaml::Value = serde_yaml::from_str(&pack.yaml).unwrap();
+            let arrangement = value["arrangement"].as_mapping().unwrap();
+            assert!(
+                arrangement
+                    .get(serde_yaml::Value::String("preferred".into()))
+                    .is_none(),
+                "builtin `{}` must not use ambiguous legacy `arrangement.preferred`",
+                pack.id
+            );
+            for field in ["preferred_instruments", "creative_concepts"] {
+                assert!(
+                    arrangement
+                        .get(serde_yaml::Value::String(field.into()))
+                        .and_then(serde_yaml::Value::as_sequence)
+                        .is_some_and(|entries| !entries.is_empty()),
+                    "builtin `{}` needs arrangement.{field}",
+                    pack.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn builtin_preferred_instruments_match_the_live_scorekit_schema() {
+        let handshake = crate::scorekit::handshake();
+        if handshake.compatible != Some(true) {
+            if std::env::var("SCOREBENCH_REQUIRE_SCOREKIT_CONTRACT").as_deref() == Ok("1") {
+                panic!(
+                    "ScoreKit contract test was required, but the active CLI is not compatible: {:?}",
+                    handshake.warning
+                );
+            }
+            return;
+        }
+        let schema = crate::scorekit::schema().unwrap();
+        let instruments = schema["$defs"]["Instrument"]["enum"]
+            .as_array()
+            .expect("live ScoreKit schema exposes Instrument.enum");
+        for pack in builtins() {
+            let value: serde_yaml::Value = serde_yaml::from_str(&pack.yaml).unwrap();
+            for instrument in value["arrangement"]["preferred_instruments"]
+                .as_sequence()
+                .unwrap()
+            {
+                let instrument = instrument.as_str().unwrap();
+                assert!(
+                    instruments.iter().any(|value| value == instrument),
+                    "builtin `{}` uses non-schema preferred instrument `{instrument}`",
+                    pack.id
+                );
+            }
+        }
     }
 
     #[test]
@@ -438,6 +497,10 @@ mod tests {
         assert!(section.contains("STYLE CONFLICT DETECTION"));
         assert!(section.contains("never implement it silently"));
         assert!(section.contains("ask the user whether to override"));
+        assert!(section.contains("creative vocabulary"));
+        assert!(section.contains("never write a concept as `tracks[].instrument`"));
+        assert!(section.contains("`tracks[].palette` is only an orchestration routing key"));
+        assert!(!section.contains("`arrangement.preferred` is the default palette"));
     }
 
     #[test]

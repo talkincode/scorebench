@@ -3,6 +3,7 @@
 //! The loop owns orchestration only. HTTP/SSE lives in `llm`; deterministic
 //! project and scorekit operations live in `tools`.
 
+mod intent;
 mod tools;
 
 use std::collections::HashMap;
@@ -281,12 +282,21 @@ pub fn system_prompt(
         "You are scorebench, the composing agent for one scorekit project.\n\
          You are the only writer of scene YAML. Never invent an editing UI or render audio yourself.\n\
          Use the provided tools; scorekit validation errors are authoritative.\n\
-         Keep paths project-relative. write_scene validates automatically and reports the result;\n\
-         fix any reported problem before building and explain musical decisions concisely.\n\
+         Keep paths project-relative. Before changing an existing scene, follow \
+         read_scene -> declare_arrangement_intent -> write_scene. For a missing target, declare \
+         new_scene intent before write_scene. The declaration is a concise, auditable decision \
+         record, not private chain-of-thought.\n\
+         For new_scene, choose form and creative instrumentation deliberately; apply cross-piece \
+         diversity only when real comparison evidence exists. For revision or repair, preserve \
+         declared invariants and make the smallest semantic diff that satisfies the request; do \
+         not re-palette merely to satisfy new-piece diversity advice.\n\
+         write_scene validates automatically and compares the result with the original declared \
+         baseline. Repair every intent-alignment or toolchain gate before building or finishing, \
+         and explain musical decisions concisely.\n\
          Authority order: live ScoreKit schema and machine failures are mandatory; explicit user \
-         constraints govern the musical result; the Arrangement Canon supplies cross-style craft \
-         and audit rules; the active StylePack narrows stylistic choices. Disclose and justify any \
-         user-requested exception to a non-machine Canon rule.\n\
+         constraints govern the musical result; the Arrangement Canon supplies hard source/delivery \
+         rules plus advisory craft defaults; the active StylePack narrows stylistic choices. \
+         Disclose and justify any user-requested exception to a non-machine Canon rule.\n\
          For textures, inspect exact catalog matches before writing source keys; no_match never authorizes invention.\n\
          For world instruments and non-default palettes, inspect instrument resolution before promising or building.\n\n\
          {capability_section}{arrangement_section}\n\
@@ -682,6 +692,10 @@ fn apply_gate_update(scene_gate: &mut HashMap<String, String>, update: SceneGate
         SceneGateKind::InstrumentResolution => (
             format!("instrument-resolution:{path}"),
             format!("`{path}` instrument resolution"),
+        ),
+        SceneGateKind::IntentAlignment => (
+            format!("intent-alignment:{path}"),
+            format!("`{path}` arrangement intent alignment"),
         ),
         SceneGateKind::Grammar { grammar } => {
             let grammar = scene_gate_key(&grammar);
@@ -1137,6 +1151,10 @@ mod tests {
                     delta: "Scene written.".into(),
                 },
                 call(
+                    "declare_arrangement_intent",
+                    r#"{"path":"forest.yaml","task_mode":"new_scene","goal":"Create a forest cue.","form_intent":"Eight-bar scene.","palette_intent":"Use live ScoreKit instruments.","expected_changes":["title","bars"],"invariants":[]}"#,
+                ),
+                call(
                     "write_scene",
                     r#"{"path":"forest.yaml","content":"title: Forest\nbars: 8\n"}"#,
                 ),
@@ -1217,6 +1235,56 @@ mod tests {
             )),
             "a blocked completion claim must not enter persistent history"
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn declared_arrangement_intent_cannot_finish_without_a_matching_write() {
+        let transport = ScriptedTransport::new(vec![
+            Ok(vec![
+                call(
+                    "declare_arrangement_intent",
+                    r#"{"path":"forest.yaml","task_mode":"new_scene","goal":"Create a forest cue.","form_intent":"Eight-bar loop.","palette_intent":"Airy woodwinds.","expected_changes":["tracks"],"invariants":[]}"#,
+                ),
+                completed(),
+            ]),
+            Ok(vec![
+                ResponseEvent::OutputTextDelta {
+                    item_id: None,
+                    output_index: Some(0),
+                    delta: "The arrangement is ready.".into(),
+                },
+                completed(),
+            ]),
+        ]);
+        let root = temp_project("intent-without-write");
+        let belt = ToolBelt::new(root.clone()).unwrap();
+        let mut events = Vec::new();
+        let outcome = run_loop(
+            &transport,
+            &belt,
+            "fixture prompt".into(),
+            vec![],
+            2,
+            CancellationToken::new(),
+            |event| events.push(event),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome.status, RunStatus::Blocked);
+        assert!(!root.join("forest.yaml").exists());
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                AgentEvent::Warning { text }
+                    if text.contains("arrangement intent alignment")
+                        && text.contains("forest.yaml")
+            )
+        }));
+        assert!(!events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::TextCommit)));
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -1637,7 +1705,7 @@ mod tests {
         let pack = styles::builtins().into_iter().next().unwrap();
         let prompt = system_prompt(&root, "main", Some(&pack)).unwrap();
 
-        assert!(prompt.contains("ARRANGEMENT CANON `scorekit-arrangement-canon` v1.0.0"));
+        assert!(prompt.contains("ARRANGEMENT CANON `scorekit-arrangement-canon` v1.1.0"));
         assert!(prompt.contains("before_write"));
         assert!(prompt.contains("name_the_inertia_answer"));
         assert!(prompt.contains("Never guess textures[].source"));
@@ -1646,6 +1714,10 @@ mod tests {
         assert!(prompt.contains("erhu, pipa, guzheng, dizi, tabla, oud, ney, and duduk"));
         assert!(prompt.contains("Authority order: live ScoreKit schema"));
         assert!(prompt.contains("ACTIVE STYLE PACK"));
+        assert!(prompt.contains("read_scene -> declare_arrangement_intent -> write_scene"));
+        assert!(prompt.contains("For new_scene"));
+        assert!(prompt.contains("For revision or repair"));
+        assert!(prompt.contains("decision record, not private chain-of-thought"));
         assert!(
             prompt.find("ARRANGEMENT CANON").unwrap() < prompt.find("ACTIVE STYLE PACK").unwrap(),
             "the global canon must remain a separate authority above the selected style"
