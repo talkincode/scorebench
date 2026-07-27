@@ -1,4 +1,4 @@
-//! Turn user-picked file paths into Responses API content parts.
+//! Turn user-picked file paths into canonical LLM content parts.
 //!
 //! Images become `input_image` data URLs, PDFs become `input_file`, and small
 //! UTF-8 text files are inlined as labelled `input_text` blocks. Everything

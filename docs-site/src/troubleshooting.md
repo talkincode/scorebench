@@ -138,10 +138,10 @@ ScoreKit guarantees asset length and performs seam processing, but it cannot rep
 
 ## The model connection fails
 
-- Confirm that Base URL points to a Responses API-compatible endpoint.
+- Confirm that the selected protocol matches an endpoint supporting Responses or Chat Completions.
 - Check the model name and API-key permissions.
 - Distinguish authentication, rate limiting, and server errors by HTTP status.
-- For an Azure or OpenAI-compatible gateway, confirm support for tool calls and streaming Responses events.
+- Confirm that the selected model and gateway support streaming plus modern `tools` / `tool_calls`.
 - Never paste the API key into chat, scenes, or screenshots.
 
 ## Reporting a reproducible problem

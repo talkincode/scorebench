@@ -1,9 +1,10 @@
-//! Hand-rolled OpenAI Responses API transport.
+//! Hand-rolled OpenAI-compatible Responses and Chat Completions transports.
 //!
 //! The contract intentionally stops at HTTP + SSE. Agent orchestration lives in
 //! `agent`; no SDK, provider abstraction, retry loop, or hidden conversation
 //! state is introduced here.
 
+mod chat_completions;
 mod sse;
 pub mod types;
 
@@ -16,9 +17,11 @@ use bytes::Bytes;
 use futures_util::stream::{self, BoxStream};
 use futures_util::{Stream, StreamExt};
 use reqwest::header::RETRY_AFTER;
+use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use crate::error::BenchError;
+use chat_completions::ChatCompletionsClient;
 use sse::SseDecoder;
 use types::{ResponseEvent, ResponsesRequest};
 
@@ -51,10 +54,56 @@ impl LlmConfig {
     fn responses_url(&self) -> String {
         format!("{}/responses", self.base_url.trim_end_matches('/'))
     }
+
+    fn chat_completions_url(&self) -> String {
+        format!("{}/chat/completions", self.base_url.trim_end_matches('/'))
+    }
 }
 
 pub type ResponseStream =
     Pin<Box<dyn Stream<Item = Result<ResponseEvent, BenchError>> + Send + 'static>>;
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ApiProtocol {
+    #[default]
+    Responses,
+    ChatCompletions,
+}
+
+#[derive(Clone)]
+pub struct LlmClient {
+    inner: LlmClientInner,
+}
+
+#[derive(Clone)]
+enum LlmClientInner {
+    Responses(ResponsesClient),
+    ChatCompletions(ChatCompletionsClient),
+}
+
+impl LlmClient {
+    pub fn new(protocol: ApiProtocol, config: LlmConfig) -> Result<Self, BenchError> {
+        let inner = match protocol {
+            ApiProtocol::Responses => LlmClientInner::Responses(ResponsesClient::new(config)?),
+            ApiProtocol::ChatCompletions => {
+                LlmClientInner::ChatCompletions(ChatCompletionsClient::new(config)?)
+            }
+        };
+        Ok(Self { inner })
+    }
+
+    pub async fn stream(
+        &self,
+        request: ResponsesRequest,
+        cancellation: CancellationToken,
+    ) -> Result<ResponseStream, BenchError> {
+        match &self.inner {
+            LlmClientInner::Responses(client) => client.stream(request, cancellation).await,
+            LlmClientInner::ChatCompletions(client) => client.stream(request, cancellation).await,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct ResponsesClient {
@@ -64,21 +113,12 @@ pub struct ResponsesClient {
 
 impl ResponsesClient {
     pub fn new(config: LlmConfig) -> Result<Self, BenchError> {
-        let http = reqwest::Client::builder()
-            .connect_timeout(config.timeout)
-            .read_timeout(config.timeout)
-            .build()
-            .map_err(|err| BenchError::llm(format!("failed to build HTTP client: {err}")))?;
+        let http = build_http_client(&config)?;
         Ok(Self { http, config })
     }
 
     fn authenticated_post(&self) -> reqwest::RequestBuilder {
-        let request = self.http.post(self.config.responses_url());
-        if uses_azure_api_key_auth(&self.config.base_url) {
-            request.header("api-key", &self.config.api_key)
-        } else {
-            request.bearer_auth(&self.config.api_key)
-        }
+        authorized_post(&self.http, &self.config, self.config.responses_url())
     }
 
     pub async fn stream(
@@ -100,27 +140,7 @@ impl ResponsesClient {
             response = send => response.map_err(network_error)?,
         };
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let retry_after = response
-                .headers()
-                .get(RETRY_AFTER)
-                .and_then(|value| value.to_str().ok())
-                .map(ToOwned::to_owned);
-            let body = response.text().await.unwrap_or_default();
-            let excerpt = truncate(&body, ERROR_BODY_LIMIT);
-            return Err(BenchError::Llm {
-                message: match status.as_u16() {
-                    401 | 403 => "LLM endpoint rejected the API key".into(),
-                    429 => "LLM endpoint rate limit exceeded".into(),
-                    code if code >= 500 => format!("LLM endpoint server error ({code})"),
-                    code => format!("LLM endpoint returned HTTP {code}"),
-                },
-                status: Some(status.as_u16()),
-                retry_after,
-                body_excerpt: (!excerpt.is_empty()).then_some(excerpt),
-            });
-        }
+        let response = ensure_success(response).await?;
 
         let state = StreamState {
             bytes: response.bytes_stream().boxed(),
@@ -167,6 +187,53 @@ fn uses_azure_api_key_auth(base_url: &str) -> bool {
         .is_some_and(|host| {
             host.ends_with(".openai.azure.com") || host.ends_with(".services.ai.azure.com")
         })
+}
+
+fn build_http_client(config: &LlmConfig) -> Result<reqwest::Client, BenchError> {
+    reqwest::Client::builder()
+        .connect_timeout(config.timeout)
+        .read_timeout(config.timeout)
+        .build()
+        .map_err(|err| BenchError::llm(format!("failed to build HTTP client: {err}")))
+}
+
+fn authorized_post(
+    http: &reqwest::Client,
+    config: &LlmConfig,
+    url: String,
+) -> reqwest::RequestBuilder {
+    let request = http.post(url);
+    if uses_azure_api_key_auth(&config.base_url) {
+        request.header("api-key", &config.api_key)
+    } else {
+        request.bearer_auth(&config.api_key)
+    }
+}
+
+async fn ensure_success(response: reqwest::Response) -> Result<reqwest::Response, BenchError> {
+    if response.status().is_success() {
+        return Ok(response);
+    }
+
+    let status = response.status();
+    let retry_after = response
+        .headers()
+        .get(RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
+    let body = response.text().await.unwrap_or_default();
+    let excerpt = truncate(&body, ERROR_BODY_LIMIT);
+    Err(BenchError::Llm {
+        message: match status.as_u16() {
+            401 | 403 => "LLM endpoint rejected the API key".into(),
+            429 => "LLM endpoint rate limit exceeded".into(),
+            code if code >= 500 => format!("LLM endpoint server error ({code})"),
+            code => format!("LLM endpoint returned HTTP {code}"),
+        },
+        status: Some(status.as_u16()),
+        retry_after,
+        body_excerpt: (!excerpt.is_empty()).then_some(excerpt),
+    })
 }
 
 struct StreamState {

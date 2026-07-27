@@ -3,9 +3,16 @@
   import { untrack } from "svelte";
   import { api, errorText, type Settings } from "../api";
   import { setLocale, t } from "../i18n.svelte";
+  import {
+    API_PROVIDER_PRESETS,
+    apiProviderPreset,
+    apiProviderPresetForUrl,
+    type ApiProviderPresetId,
+  } from "../llmPresets";
   import { bench } from "../state.svelte";
 
   let draft = $state<Settings>({
+    api_protocol: "responses",
     base_url: "https://api.openai.com/v1",
     model: "gpt-5.6",
     context_budget_tokens: 128000,
@@ -18,9 +25,9 @@
     locale: "en",
   });
   let tab = $state<"connection" | "interface">("connection");
+  let providerPreset = $state<ApiProviderPresetId | "custom">("openai");
   let apiKey = $state("");
   let scorekitPath = $state("");
-  let allowInsecureStorage = $state(false);
   let busy = $state(false);
   let result = $state<string | null>(null);
   let failed = $state(false);
@@ -37,10 +44,10 @@
     // saved hue before the browser could paint it.
     untrack(() => {
       draft = { ...settings };
+      providerPreset = apiProviderPresetForUrl(settings.base_url)?.id ?? "custom";
       bench.themeHuePreview = settings.theme_hue;
       apiKey = "";
       scorekitPath = settings.scorekit_path ?? "";
-      allowInsecureStorage = false;
       result = warning;
       failed = Boolean(warning);
       tab = "connection";
@@ -57,7 +64,7 @@
       await api.saveSettings(draft);
       const changingApiKey = Boolean(apiKey.trim());
       if (changingApiKey) {
-        await api.setApiKey(apiKey.trim(), allowInsecureStorage);
+        await api.setApiKey(apiKey.trim());
       }
       const view = await api.getSettings();
       if (changingApiKey && !view.api_key_set) {
@@ -133,6 +140,19 @@
     bench.themeHuePreview = draft.theme_hue;
   }
 
+  function chooseProvider(value: string) {
+    providerPreset = value as ApiProviderPresetId | "custom";
+    const preset = apiProviderPreset(value);
+    if (!preset) return;
+    draft.api_protocol = preset.apiProtocol;
+    draft.base_url = preset.baseUrl;
+  }
+
+  function editBaseUrl(value: string) {
+    draft.base_url = value;
+    providerPreset = apiProviderPresetForUrl(value)?.id ?? "custom";
+  }
+
   function handleKeydown(event: KeyboardEvent) {
     if (bench.settingsOpen && event.key === "Escape") {
       event.preventDefault();
@@ -161,9 +181,28 @@
 
       <div class="modal-body">
         {#if tab === "connection"}
+          <div class="row">
+            <label>
+              <span>{t("settings.providerPreset")}</span>
+              <select value={providerPreset} onchange={(event) => chooseProvider(event.currentTarget.value)}>
+                {#each API_PROVIDER_PRESETS as preset}
+                  <option value={preset.id}>{preset.label}</option>
+                {/each}
+                <option value="custom">{t("settings.providerCustom")}</option>
+              </select>
+            </label>
+            <label>
+              <span>{t("settings.apiProtocol")}</span>
+              <select bind:value={draft.api_protocol}>
+                <option value="responses">Responses</option>
+                <option value="chat_completions">Chat Completions</option>
+              </select>
+            </label>
+          </div>
+          <p class="field-hint preset-hint">{t("settings.providerHint")}</p>
           <label>
             <span>{t("settings.baseUrl")}</span>
-            <input bind:value={draft.base_url} spellcheck="false" />
+            <input value={draft.base_url} oninput={(event) => editBaseUrl(event.currentTarget.value)} spellcheck="false" />
           </label>
           <label>
             <span>{t("settings.model")}</span>
@@ -182,10 +221,6 @@
           <label>
             <span>{t("settings.apiKey")} · {bench.apiKeySet ? t("settings.keySet") : t("settings.keyNotSet")}</span>
             <input type="password" autocomplete="off" bind:value={apiKey} placeholder={bench.apiKeySet ? t("settings.keyKeep") : t("settings.keyEnter")} />
-          </label>
-          <label class="check">
-            <input type="checkbox" bind:checked={allowInsecureStorage} />
-            <span>{t("settings.insecure")}</span>
           </label>
 
           <div class="path-line">
@@ -391,13 +426,11 @@
     font: 13px var(--mono);
   }
   input:focus { outline: none; border-color: var(--accent); }
-  .check { display: flex; grid-template-columns: auto 1fr; align-items: flex-start; }
-  .check input { width: auto; margin-top: 2px; }
-  .check span { line-height: 1.45; }
   .path-line { display: flex; gap: 8px; align-items: flex-end; }
   .path-line .path-field { margin-bottom: 0; }
   .path-line .browse { flex: 0 0 auto; padding: 8px 13px; font-size: 12.5px; }
   .field-hint { margin: 6px 0 14px; color: var(--fg-dim); font-size: 12px; line-height: 1.45; }
+  .preset-hint { margin-top: -7px; }
   .result {
     padding: 9px 11px;
     color: var(--good);

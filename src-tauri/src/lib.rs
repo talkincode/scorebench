@@ -164,13 +164,12 @@ async fn send_chat(
     let (settings, api_key, instructions, style_warning) =
         tauri::async_runtime::spawn_blocking(move || {
             let (settings, _) = settings::load(&config_dir)?;
-            let api_key =
-                settings::load_api_key(&config_dir, &settings::OsKeyring)?.ok_or_else(|| {
-                    BenchError::settings(
-                        "api_key_missing",
-                        "set an API key in Settings before chatting",
-                    )
-                })?;
+            let api_key = settings::load_api_key(&config_dir)?.ok_or_else(|| {
+                BenchError::settings(
+                    "api_key_missing",
+                    "set an API key in Settings before chatting",
+                )
+            })?;
             let (style, style_warning) = active_style(&config_dir, &prompt_root);
             let instructions = agent::system_prompt(&prompt_root, &prompt_session, style.as_ref())?;
             Ok::<_, BenchError>((settings, api_key, instructions, style_warning))
@@ -182,12 +181,15 @@ async fn send_chat(
     }
     let max_turns = settings.max_turns;
     let context_budget_tokens = settings.context_budget_tokens;
-    let client = llm::ResponsesClient::new(llm::LlmConfig {
-        base_url: settings.base_url,
-        api_key,
-        model: settings.model,
-        timeout: std::time::Duration::from_secs(120),
-    })?;
+    let client = llm::LlmClient::new(
+        settings.api_protocol,
+        llm::LlmConfig {
+            base_url: settings.base_url,
+            api_key,
+            model: settings.model,
+            timeout: std::time::Duration::from_secs(120),
+        },
+    )?;
     if message.trim() == "/compact" {
         let (root, history, warnings) = state.history(&root, &session)?;
         for text in warnings {
@@ -318,13 +320,12 @@ async fn run_review(
     let evidence_root = root.clone();
     let (settings, api_key, evidence) = tauri::async_runtime::spawn_blocking(move || {
         let (settings, _) = settings::load(&config_dir)?;
-        let api_key =
-            settings::load_api_key(&config_dir, &settings::OsKeyring)?.ok_or_else(|| {
-                BenchError::settings(
-                    "api_key_missing",
-                    "set an API key in Settings before reviewing",
-                )
-            })?;
+        let api_key = settings::load_api_key(&config_dir)?.ok_or_else(|| {
+            BenchError::settings(
+                "api_key_missing",
+                "set an API key in Settings before reviewing",
+            )
+        })?;
         let evidence = {
             let (style, _) = active_style(&config_dir, &evidence_root);
             review::gather_evidence(&evidence_root, &session, &scene_rel, style.as_ref())?
@@ -334,12 +335,15 @@ async fn run_review(
     .await
     .map_err(BenchError::io)??;
     let instructions = review::instructions(&perspectives, &settings.locale)?;
-    let client = llm::ResponsesClient::new(llm::LlmConfig {
-        base_url: settings.base_url,
-        api_key,
-        model: settings.model,
-        timeout: std::time::Duration::from_secs(120),
-    })?;
+    let client = llm::LlmClient::new(
+        settings.api_protocol,
+        llm::LlmConfig {
+            base_url: settings.base_url,
+            api_key,
+            model: settings.model,
+            timeout: std::time::Duration::from_secs(120),
+        },
+    )?;
     let root = root.canonicalize().map_err(BenchError::io)?;
     let cancellation = state.activate(&root, review::CANCEL_KEY)?;
     let result = review::run_review(&client, instructions, &evidence, cancellation, |event| {
@@ -717,11 +721,9 @@ fn save_recording(
 #[tauri::command]
 async fn get_settings(app: AppHandle) -> Result<settings::SettingsView, BenchError> {
     let config_dir = app.path().app_config_dir().map_err(BenchError::io)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        settings::settings_view(&config_dir, &settings::OsKeyring)
-    })
-    .await
-    .map_err(BenchError::io)?
+    tauri::async_runtime::spawn_blocking(move || settings::settings_view(&config_dir))
+        .await
+        .map_err(BenchError::io)?
 }
 
 #[tauri::command]
@@ -738,22 +740,11 @@ async fn save_settings(app: AppHandle, value: settings::Settings) -> Result<(), 
 }
 
 #[tauri::command]
-async fn set_api_key(
-    app: AppHandle,
-    api_key: String,
-    allow_insecure_storage: bool,
-) -> Result<(), BenchError> {
+async fn set_api_key(app: AppHandle, api_key: String) -> Result<(), BenchError> {
     let config_dir = app.path().app_config_dir().map_err(BenchError::io)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        settings::store_api_key(
-            &config_dir,
-            &api_key,
-            allow_insecure_storage,
-            &settings::OsKeyring,
-        )
-    })
-    .await
-    .map_err(BenchError::io)?
+    tauri::async_runtime::spawn_blocking(move || settings::store_api_key(&config_dir, &api_key))
+        .await
+        .map_err(BenchError::io)?
 }
 
 #[tauri::command]

@@ -24,7 +24,7 @@ pub enum BenchError {
     Io { message: String },
     /// The path is not a usable project directory or asset.
     InvalidProject { message: String },
-    /// OpenAI Responses-compatible endpoint failure.
+    /// OpenAI-compatible endpoint failure.
     Llm {
         message: String,
         status: Option<u16>,

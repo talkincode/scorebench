@@ -1,0 +1,7 @@
+data: {"id":"chat_fixture_text","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"hello "},"finish_reason":null}]}
+
+data: {"id":"chat_fixture_text","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"scorebench"},"finish_reason":null}]}
+
+data: {"id":"chat_fixture_text","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":6,"completion_tokens":4,"total_tokens":10}}
+
+data: [DONE]

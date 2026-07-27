@@ -70,10 +70,14 @@ The directory may already be a Git repository, or it can start empty. scorebench
 
 Open Settings and provide:
 
-- **Base URL:** an endpoint compatible with the OpenAI Responses API.
+- **Provider preset:** OpenAI, Claude, Kimi, Qwen, DeepSeek, Zhipu, or Grok. A preset only fills the protocol and base URL.
+- **Protocol:** `responses` or `chat_completions`.
+- **Base URL:** the preset address or any compatible custom endpoint.
 - **Model:** a model name available at that endpoint.
-- **API key:** stored in the operating-system keychain when available.
+- **API key:** stored outside project directories and never returned to the frontend.
 - **Context budget:** the threshold at which long conversations are compacted.
+
+OpenAI defaults to `responses`; the other presets default to `chat_completions`. You can edit either field after selecting a preset, including replacing Qwen's generic address with a regional or workspace-specific endpoint. Native vendor protocols such as Claude Messages are not used.
 
 The frontend never contacts the model endpoint directly; the Rust backend owns all model traffic. Never put an API key in project files or commit it to Git.
 

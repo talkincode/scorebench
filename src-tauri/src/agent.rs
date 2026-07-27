@@ -1,4 +1,4 @@
-//! Minimal hand-rolled ReACT loop over the OpenAI Responses API contract.
+//! Minimal hand-rolled ReACT loop over the selected OpenAI-compatible contract.
 //!
 //! The loop owns orchestration only. HTTP/SSE lives in `llm`; deterministic
 //! project and scorekit operations live in `tools`.
@@ -18,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::error::BenchError;
 use crate::llm::types::{InputItem, InputRole, MessageContent, ResponseEvent, ResponsesRequest};
-use crate::llm::{ResponseStream, ResponsesClient};
+use crate::llm::{LlmClient, ResponseStream, ResponsesClient};
 use crate::{arrangement, manifest, memory, project, scorekit, styles};
 use tools::{SceneGateKind, SceneGateUpdate, ToolBelt, ToolResult};
 
@@ -77,6 +77,16 @@ impl AgentTransport for ResponsesClient {
         cancellation: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = Result<ResponseStream, BenchError>> + Send + 'a>> {
         Box::pin(async move { ResponsesClient::stream(self, request, cancellation).await })
+    }
+}
+
+impl AgentTransport for LlmClient {
+    fn stream<'a>(
+        &'a self,
+        request: ResponsesRequest,
+        cancellation: CancellationToken,
+    ) -> Pin<Box<dyn Future<Output = Result<ResponseStream, BenchError>> + Send + 'a>> {
+        Box::pin(async move { LlmClient::stream(self, request, cancellation).await })
     }
 }
 
@@ -555,9 +565,7 @@ pub async fn run_loop<T: AgentTransport, E: ToolExecutor>(
             if !text.is_empty() {
                 emit(AgentEvent::TextDiscard);
             }
-            return Err(BenchError::llm(
-                "Responses stream ended before a terminal event",
-            ));
+            return Err(BenchError::llm("LLM stream ended before a terminal event"));
         }
 
         if calls.is_empty() {

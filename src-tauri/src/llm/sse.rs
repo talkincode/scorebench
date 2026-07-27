@@ -48,7 +48,7 @@ fn find_boundary(bytes: &[u8]) -> Option<(usize, usize)> {
 
 fn parse_frame(raw: &[u8]) -> Result<Option<String>, BenchError> {
     let frame = std::str::from_utf8(raw)
-        .map_err(|err| BenchError::llm(format!("Responses stream was not UTF-8: {err}")))?;
+        .map_err(|err| BenchError::llm(format!("LLM stream was not UTF-8: {err}")))?;
     let data = frame
         .lines()
         .filter_map(|line| {

@@ -1,8 +1,6 @@
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-#[cfg(target_os = "macos")]
-use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures_util::StreamExt;
@@ -12,16 +10,15 @@ use tokio_util::sync::CancellationToken;
 
 use crate::error::BenchError;
 use crate::llm::types::{InputItem, InputRole, ResponseEvent, ResponsesRequest};
-use crate::llm::{LlmConfig, ResponsesClient};
+use crate::llm::{ApiProtocol, LlmClient, LlmConfig};
 
 const SETTINGS_FILE: &str = "settings.json";
-const INSECURE_KEY_FILE: &str = "api-key";
-const KEYRING_SERVICE: &str = "com.talkincode.scorebench";
-const KEYRING_USER: &str = "openai-responses-api-key";
+const API_KEY_FILE: &str = "api-key";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
+    pub api_protocol: ApiProtocol,
     pub base_url: String,
     pub model: String,
     pub context_budget_tokens: u64,
@@ -46,6 +43,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            api_protocol: ApiProtocol::Responses,
             base_url: "https://api.openai.com/v1".into(),
             model: "gpt-5.6".into(),
             context_budget_tokens: 128_000,
@@ -153,133 +151,9 @@ pub struct SettingsView {
     pub warning: Option<String>,
 }
 
-pub trait KeyringBackend {
-    fn get(&self) -> SecretRead;
-    fn set(&self, value: &str) -> Result<(), String>;
-}
-
-pub enum SecretRead {
-    Found(String),
-    Missing,
-    Failed(String),
-}
-
-pub struct OsKeyring;
-
-impl OsKeyring {
-    #[cfg(not(target_os = "macos"))]
-    fn entry() -> Result<keyring::Entry, String> {
-        keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|err| err.to_string())
-    }
-}
-
-#[cfg(target_os = "macos")]
-impl KeyringBackend for OsKeyring {
-    fn get(&self) -> SecretRead {
-        let output = match Command::new("/usr/bin/security")
-            .args([
-                "find-generic-password",
-                "-a",
-                KEYRING_USER,
-                "-s",
-                KEYRING_SERVICE,
-                "-w",
-            ])
-            .stdin(Stdio::null())
-            .output()
-        {
-            Ok(output) => output,
-            Err(err) => return SecretRead::Failed(err.to_string()),
-        };
-
-        if output.status.success() {
-            return match String::from_utf8(output.stdout) {
-                Ok(value) => SecretRead::Found(value.trim_end_matches(['\r', '\n']).into()),
-                Err(err) => SecretRead::Failed(format!("keychain returned invalid UTF-8: {err}")),
-            };
-        }
-        if output.status.code() == Some(44) {
-            return SecretRead::Missing;
-        }
-        SecretRead::Failed(security_command_error("read", &output.stderr))
-    }
-
-    fn set(&self, value: &str) -> Result<(), String> {
-        let mut child = Command::new("/usr/bin/security")
-            .args([
-                "add-generic-password",
-                "-U",
-                "-a",
-                KEYRING_USER,
-                "-s",
-                KEYRING_SERVICE,
-                "-w",
-            ])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|err| err.to_string())?;
-
-        // `security -w` prompts twice when creating a new item and once when
-        // updating one. Passing the secret through stdin keeps it out of argv,
-        // process listings, logs, and project files.
-        let stdin = child
-            .stdin
-            .as_mut()
-            .ok_or_else(|| "keychain command stdin was unavailable".to_string())?;
-        stdin
-            .write_all(format!("{value}\n{value}\n").as_bytes())
-            .map_err(|err| err.to_string())?;
-        drop(child.stdin.take());
-
-        let output = child.wait_with_output().map_err(|err| err.to_string())?;
-        if output.status.success() {
-            Ok(())
-        } else {
-            Err(security_command_error("write", &output.stderr))
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn security_command_error(operation: &str, stderr: &[u8]) -> String {
-    let detail = String::from_utf8_lossy(stderr);
-    let detail = detail.trim();
-    if detail.is_empty() {
-        format!("macOS Keychain {operation} failed")
-    } else {
-        format!("macOS Keychain {operation} failed: {detail}")
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-impl KeyringBackend for OsKeyring {
-    fn get(&self) -> SecretRead {
-        let entry = match Self::entry() {
-            Ok(entry) => entry,
-            Err(err) => return SecretRead::Failed(err),
-        };
-        match entry.get_password() {
-            Ok(value) => SecretRead::Found(value),
-            Err(keyring::Error::NoEntry) => SecretRead::Missing,
-            Err(err) => SecretRead::Failed(err.to_string()),
-        }
-    }
-
-    fn set(&self, value: &str) -> Result<(), String> {
-        Self::entry()?
-            .set_password(value)
-            .map_err(|err| err.to_string())
-    }
-}
-
-pub fn settings_view(
-    config_dir: &Path,
-    keyring: &impl KeyringBackend,
-) -> Result<SettingsView, BenchError> {
+pub fn settings_view(config_dir: &Path) -> Result<SettingsView, BenchError> {
     let (settings, mut warning) = load(config_dir)?;
-    let api_key_set = match load_api_key(config_dir, keyring) {
+    let api_key_set = match load_api_key(config_dir) {
         Ok(value) => value.is_some(),
         Err(err) => {
             append_warning(&mut warning, err.to_string());
@@ -324,109 +198,46 @@ pub fn save(config_dir: &Path, settings: &Settings) -> Result<(), BenchError> {
     atomic_write(&config_dir.join(SETTINGS_FILE), &bytes, |_| Ok(())).map_err(BenchError::io)
 }
 
-pub fn store_api_key(
-    config_dir: &Path,
-    api_key: &str,
-    allow_insecure_storage: bool,
-    keyring: &impl KeyringBackend,
-) -> Result<(), BenchError> {
+pub fn store_api_key(config_dir: &Path, api_key: &str) -> Result<(), BenchError> {
     if api_key.trim().is_empty() {
         return Err(BenchError::settings(
             "empty_api_key",
             "API key cannot be empty",
         ));
     }
-    match keyring.set(api_key) {
-        Ok(()) => {
-            match keyring.get() {
-                SecretRead::Found(stored) if stored == api_key => {}
-                SecretRead::Found(_) | SecretRead::Missing if allow_insecure_storage => {
-                    store_insecure_api_key(config_dir, api_key)?;
-                    return Ok(());
-                }
-                SecretRead::Found(_) | SecretRead::Missing => {
-                    return Err(BenchError::settings(
-                        "keychain_write_not_persisted",
-                        "OS keychain reported success but the credential could not be verified",
-                    ));
-                }
-                SecretRead::Failed(_) if allow_insecure_storage => {
-                    store_insecure_api_key(config_dir, api_key)?;
-                    return Ok(());
-                }
-                SecretRead::Failed(err) => {
-                    return Err(BenchError::settings(
-                        "keychain_write_not_verified",
-                        format!("OS keychain write could not be verified: {err}"),
-                    ));
-                }
-            }
-            let insecure = config_dir.join(INSECURE_KEY_FILE);
-            if insecure.exists() {
-                fs::remove_file(insecure).map_err(BenchError::io)?;
-            }
-            Ok(())
-        }
-        Err(_keyring_error) if allow_insecure_storage => {
-            store_insecure_api_key(config_dir, api_key)?;
-            Ok(())
-        }
-        Err(keyring_error) => Err(BenchError::settings(
-            "keychain_unavailable",
-            format!(
-                "OS keychain is unavailable ({keyring_error}); explicitly opt in to insecure local storage to continue"
-            ),
-        )),
-    }
-}
-
-fn store_insecure_api_key(config_dir: &Path, api_key: &str) -> Result<(), BenchError> {
-    atomic_write(
-        &config_dir.join(INSECURE_KEY_FILE),
-        api_key.as_bytes(),
-        |_| Ok(()),
-    )
+    atomic_write(&config_dir.join(API_KEY_FILE), api_key.as_bytes(), |_| {
+        Ok(())
+    })
     .map_err(BenchError::io)
 }
 
-pub fn load_api_key(
-    config_dir: &Path,
-    keyring: &impl KeyringBackend,
-) -> Result<Option<String>, BenchError> {
-    // The fallback is created only by explicit user opt-in. If it exists, it
-    // represents the newest verified write and must outrank a stale keychain
-    // value left behind by a failed update.
-    let fallback = config_dir.join(INSECURE_KEY_FILE);
-    match fs::read_to_string(&fallback) {
-        Ok(value) => return Ok(Some(value)),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
-        Err(err) => return Err(BenchError::io(err)),
-    }
-    match keyring.get() {
-        SecretRead::Found(value) => Ok(Some(value)),
-        SecretRead::Missing => Ok(None),
-        SecretRead::Failed(err) => Err(BenchError::settings(
-            "keychain_unavailable",
-            format!("OS keychain is unavailable: {err}"),
-        )),
+pub fn load_api_key(config_dir: &Path) -> Result<Option<String>, BenchError> {
+    let path = config_dir.join(API_KEY_FILE);
+    match fs::read_to_string(&path) {
+        Ok(value) => Ok(Some(value)),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(BenchError::io(err)),
     }
 }
 
 pub async fn test_connection(app: &AppHandle) -> Result<String, BenchError> {
     let config_dir = app.path().app_config_dir().map_err(BenchError::io)?;
     let (settings, _) = load(&config_dir)?;
-    let api_key = load_api_key(&config_dir, &OsKeyring)?.ok_or_else(|| {
+    let api_key = load_api_key(&config_dir)?.ok_or_else(|| {
         BenchError::settings(
             "api_key_missing",
             "set an API key before testing the connection",
         )
     })?;
-    let client = ResponsesClient::new(LlmConfig {
-        base_url: settings.base_url,
-        api_key,
-        model: settings.model,
-        timeout: Duration::from_secs(15),
-    })?;
+    let client = LlmClient::new(
+        settings.api_protocol,
+        LlmConfig {
+            base_url: settings.base_url,
+            api_key,
+            model: settings.model,
+            timeout: Duration::from_secs(15),
+        },
+    )?;
     let request = connection_probe_request();
     let mut stream = client.stream(request, CancellationToken::new()).await?;
     while let Some(event) = stream.next().await {
@@ -435,11 +246,17 @@ pub async fn test_connection(app: &AppHandle) -> Result<String, BenchError> {
             ResponseEvent::Failed { message, .. } | ResponseEvent::Error { message, .. } => {
                 return Err(BenchError::llm(message));
             }
+            ResponseEvent::Incomplete { reason, .. } => {
+                return Err(BenchError::llm(format!(
+                    "LLM connection probe was incomplete ({})",
+                    reason.as_deref().unwrap_or("unknown reason")
+                )));
+            }
             _ => {}
         }
     }
     Err(BenchError::llm(
-        "LLM endpoint closed the stream before response.completed",
+        "LLM endpoint closed the stream before a completion event",
     ))
 }
 
@@ -452,7 +269,7 @@ fn connection_probe_request() -> ResponsesRequest {
             content: "ping".into(),
         }],
         tools: vec![],
-        // The Responses API rejects values below 16, including for a probe.
+        // Responses rejects values below 16; Chat Completions accepts this too.
         max_output_tokens: Some(16),
         stream: true,
         store: false,
@@ -542,70 +359,7 @@ fn sync_dir(_path: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
-
     use super::*;
-
-    struct FakeKeyring {
-        value: Mutex<SecretRead>,
-        set_error: Option<String>,
-        discard_writes: bool,
-    }
-
-    impl FakeKeyring {
-        fn missing() -> Self {
-            Self {
-                value: Mutex::new(SecretRead::Missing),
-                set_error: None,
-                discard_writes: false,
-            }
-        }
-
-        fn unavailable() -> Self {
-            Self {
-                value: Mutex::new(SecretRead::Failed("locked".into())),
-                set_error: Some("locked".into()),
-                discard_writes: false,
-            }
-        }
-
-        fn discards_writes() -> Self {
-            Self {
-                value: Mutex::new(SecretRead::Missing),
-                set_error: None,
-                discard_writes: true,
-            }
-        }
-
-        fn keeps_stale_value() -> Self {
-            Self {
-                value: Mutex::new(SecretRead::Found("old-secret".into())),
-                set_error: None,
-                discard_writes: true,
-            }
-        }
-    }
-
-    impl KeyringBackend for FakeKeyring {
-        fn get(&self) -> SecretRead {
-            match &*self.value.lock().unwrap() {
-                SecretRead::Found(value) => SecretRead::Found(value.clone()),
-                SecretRead::Missing => SecretRead::Missing,
-                SecretRead::Failed(err) => SecretRead::Failed(err.clone()),
-            }
-        }
-
-        fn set(&self, value: &str) -> Result<(), String> {
-            if let Some(err) = &self.set_error {
-                return Err(err.clone());
-            }
-            if self.discard_writes {
-                return Ok(());
-            }
-            *self.value.lock().unwrap() = SecretRead::Found(value.into());
-            Ok(())
-        }
-    }
 
     fn test_dir(name: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!("scorebench-{name}-{}", unique_suffix()));
@@ -617,6 +371,7 @@ mod tests {
     fn settings_round_trip() {
         let dir = test_dir("settings-round-trip");
         let value = Settings {
+            api_protocol: ApiProtocol::ChatCompletions,
             base_url: "http://localhost:9000/v1".into(),
             model: "local-model".into(),
             context_budget_tokens: 32_000,
@@ -632,6 +387,14 @@ mod tests {
         save(&dir, &value).unwrap();
         assert_eq!(load(&dir).unwrap(), (value, None));
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn legacy_settings_default_to_responses_protocol() {
+        let mut value = serde_json::to_value(Settings::default()).unwrap();
+        value.as_object_mut().unwrap().remove("api_protocol");
+        let settings: Settings = serde_json::from_value(value).unwrap();
+        assert_eq!(settings.api_protocol, ApiProtocol::Responses);
     }
 
     #[test]
@@ -703,49 +466,56 @@ mod tests {
     }
 
     #[test]
-    fn keychain_storage_never_writes_key_to_config_dir() {
-        let dir = test_dir("keychain");
-        let keyring = FakeKeyring::missing();
-        store_api_key(&dir, "secret-123", false, &keyring).unwrap();
-        assert_eq!(
-            load_api_key(&dir, &keyring).unwrap().as_deref(),
-            Some("secret-123")
-        );
-        assert!(!dir.join(INSECURE_KEY_FILE).exists());
+    fn api_key_write_read_round_trip() {
+        let dir = test_dir("apikey");
+        let api_key = "secret-abc-123";
+        store_api_key(&dir, api_key).unwrap();
+        assert_eq!(load_api_key(&dir).unwrap().as_deref(), Some(api_key));
+        assert!(dir.join(API_KEY_FILE).exists());
         let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn unverified_keychain_write_fails_closed() {
-        let dir = test_dir("keychain-discarded-write");
-        let keyring = FakeKeyring::discards_writes();
-
-        let error = store_api_key(&dir, "secret-123", false, &keyring).unwrap_err();
-
-        assert!(matches!(
-            error,
-            BenchError::Settings { code, .. } if code == "keychain_write_not_persisted"
-        ));
-        assert!(!dir.join(INSECURE_KEY_FILE).exists());
+    fn api_key_missing_returns_none() {
+        let dir = test_dir("apikey-missing");
+        assert!(load_api_key(&dir).unwrap().is_none());
         let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
-    fn unverified_keychain_write_uses_opted_in_fallback() {
-        let dir = test_dir("keychain-discarded-write-fallback");
-        let keyring = FakeKeyring::discards_writes();
+    fn api_key_empty_is_rejected() {
+        let dir = test_dir("apikey-empty");
+        let err = store_api_key(&dir, "").unwrap_err();
+        assert!(matches!(err, BenchError::Settings { code, .. } if code == "empty_api_key"));
+        let _ = fs::remove_dir_all(dir);
+    }
 
-        store_api_key(&dir, "secret-123", true, &keyring).unwrap();
+    #[test]
+    fn api_key_whitespace_only_is_rejected() {
+        let dir = test_dir("apikey-ws");
+        let err = store_api_key(&dir, "   ").unwrap_err();
+        assert!(matches!(err, BenchError::Settings { code, .. } if code == "empty_api_key"));
+        let _ = fs::remove_dir_all(dir);
+    }
 
-        assert_eq!(
-            load_api_key(&dir, &keyring).unwrap().as_deref(),
-            Some("secret-123")
-        );
+    #[test]
+    fn api_key_overwrite_replaces_previous() {
+        let dir = test_dir("apikey-overwrite");
+        store_api_key(&dir, "old-key").unwrap();
+        store_api_key(&dir, "new-key").unwrap();
+        assert_eq!(load_api_key(&dir).unwrap().as_deref(), Some("new-key"));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn api_key_file_is_mode_0600() {
+        let dir = test_dir("apikey-perms");
+        store_api_key(&dir, "secret-456").unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             assert_eq!(
-                fs::metadata(dir.join(INSECURE_KEY_FILE))
+                fs::metadata(dir.join(API_KEY_FILE))
                     .unwrap()
                     .permissions()
                     .mode()
@@ -757,16 +527,20 @@ mod tests {
     }
 
     #[test]
-    fn opted_in_fallback_overrides_stale_keychain_value() {
-        let dir = test_dir("keychain-stale-value-fallback");
-        let keyring = FakeKeyring::keeps_stale_value();
+    fn settings_view_reports_api_key_set() {
+        let dir = test_dir("apikey-view");
+        store_api_key(&dir, "sk-123").unwrap();
+        let view = settings_view(&dir).unwrap();
+        assert!(view.api_key_set);
+        assert_eq!(view.warning, None);
+        let _ = fs::remove_dir_all(dir);
+    }
 
-        store_api_key(&dir, "new-secret", true, &keyring).unwrap();
-
-        assert_eq!(
-            load_api_key(&dir, &keyring).unwrap().as_deref(),
-            Some("new-secret")
-        );
+    #[test]
+    fn settings_view_reports_api_key_not_set() {
+        let dir = test_dir("apikey-view-missing");
+        let view = settings_view(&dir).unwrap();
+        assert!(!view.api_key_set);
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -777,33 +551,5 @@ mod tests {
         assert_eq!(request.max_output_tokens, Some(16));
         assert!(request.tools.is_empty());
         assert!(!request.store);
-    }
-
-    #[test]
-    fn insecure_fallback_requires_opt_in_and_is_private() {
-        let dir = test_dir("insecure-key");
-        let keyring = FakeKeyring::unavailable();
-        let error = store_api_key(&dir, "secret-456", false, &keyring).unwrap_err();
-        assert!(matches!(error, BenchError::Settings { .. }));
-        assert!(!dir.join(INSECURE_KEY_FILE).exists());
-
-        store_api_key(&dir, "secret-456", true, &keyring).unwrap();
-        assert_eq!(
-            load_api_key(&dir, &keyring).unwrap().as_deref(),
-            Some("secret-456")
-        );
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(
-                fs::metadata(dir.join(INSECURE_KEY_FILE))
-                    .unwrap()
-                    .permissions()
-                    .mode()
-                    & 0o777,
-                0o600
-            );
-        }
-        let _ = fs::remove_dir_all(dir);
     }
 }

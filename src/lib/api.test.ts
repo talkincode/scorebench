@@ -36,7 +36,7 @@ beforeEach(() => {
 });
 
 describe("errorText", () => {
-  it("includes the Responses API error body for actionable HTTP failures", () => {
+  it("includes the model API error body for actionable HTTP failures", () => {
     expect(
       errorText({
         kind: "llm",

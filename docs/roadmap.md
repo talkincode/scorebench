@@ -5,9 +5,9 @@
 
 ## Project overview
 
-scorebench is a desktop app (Tauri 2 + Svelte 5) for chat-driven game-music production. Each window opens exactly one **project directory** containing scene YAML, rendered assets, and agent memory. The user talks; a minimal hand-rolled ReACT agent (OpenAI Responses API spec only) edits the scene DSL and drives the `scorekit` CLI to validate, lint, build, and diff. The GUI's job is observation: read-only parameter panels, a spectrum/playback view (WebAudio `AnalyserNode`), render progress, and the chat itself.
+scorebench is a desktop app (Tauri 2 + Svelte 5) for chat-driven game-music production. Each window opens exactly one **project directory** containing scene YAML, rendered assets, and agent memory. The user talks; a minimal hand-rolled ReACT agent using `responses | chat_completions` edits the scene DSL and drives the `scorekit` CLI to validate, lint, build, and diff. The GUI's job is observation: read-only parameter panels, a spectrum/playback view (WebAudio `AnalyserNode`), render progress, and the chat itself.
 
-Origin ruling (2026-07): a "simple render GUI inside scorekit" was audited and rejected — scorekit's *No GUI* iron rule stands. scorebench exists as an independent repository precisely so that scorekit stays a pure compiler. A second audit rejected building on agent frameworks/SDKs: the owner has built agents before, needs exactly one provider spec, and third-party frameworks add more uncertainty than they remove.
+Origin ruling (2026-07): a "simple render GUI inside scorekit" was audited and rejected — scorekit's *No GUI* iron rule stands. scorebench exists as an independent repository precisely so that scorekit stays a pure compiler. A second audit rejected building on agent frameworks/SDKs: the owner has built agents before, needs only a fixed OpenAI-compatible wire surface, and third-party frameworks add more uncertainty than they remove.
 
 ## Core positioning: compiler below, emotion above
 
@@ -23,7 +23,7 @@ Technique is *relocated*, not eliminated: the user is freed from craft, but the 
 
 ## Non-goals (iron rules)
 
-- **No agent frameworks, no LLM SDKs.** The ReACT loop is hand-rolled against the OpenAI Responses API spec (configurable base URL/key/model — works with any compatible endpoint). No multi-provider abstraction until a second provider spec is a proven need.
+- **No agent frameworks, no LLM SDKs.** The ReACT loop is hand-rolled against an OpenAI-compatible API mode selected as `responses | chat_completions` (configurable base URL/key/model). This is a transport choice, not a multi-provider abstraction; no additional provider or API modes until a proven need exists.
 - **No in-house audio.** No rendering, mixing, decoding, or DSP in Rust. scorekit produces every artifact; the webview's WebAudio API handles playback and FFT for the spectrum display. Visualizer video export stays inside the same boundary: the webview's MediaRecorder captures canvas + playback audio through the system encoder, and the Rust core only writes the finished container bytes to a user-chosen path.
 - **No structured editing UI.** No piano roll, timeline, or YAML form editors. Parameters are read-only observations. Scene YAML has exactly two writers: the agent's tools, and a manual raw-source editor (explicit Validate/Save buttons, never autosave) so experienced users can create and edit scenes without an API key. (The user can always edit files in their own editor too — scorebench watches the directory.)
 - **No multi-project workspace.** One window, one project. Project switching = open a different directory.
@@ -42,7 +42,7 @@ Findings: scorekit's machine contract is *failure-side* JSON — success is exit
 
 ### M1 — Agent core (status: complete)
 
-Hand-rolled ReACT loop over the Responses API: streaming, tool dispatch (declare arrangement intent, validate/lint/build/diff/read scene/write scene), error surfaces from scorekit's JSON verbatim, cancellation. Settings panel: base URL, API key (OS keychain), model name, context budget.
+Hand-rolled ReACT loop over the Responses and Chat Completions APIs: streaming, tool dispatch (declare arrangement intent, validate/lint/build/diff/read scene/write scene), error surfaces from scorekit's JSON verbatim, cancellation. Settings panel: protocol, provider URL presets, custom base URL, API key, model name, context budget. Presets for OpenAI, Claude, Kimi, Qwen, DeepSeek, Zhipu, and Grok are UI-only defaults, not provider adapters.
 
 ### M2 — Observation surfaces (status: complete)
 
@@ -107,7 +107,7 @@ The rework separates three layers on top of the M4 chassis (registry, lazy loadi
 
 ### M10 — MCP client (status: planned)
 
-User-configured extensibility arrives as a hand-rolled **MCP client** — MCP is a tool-transport protocol, not an agent framework or LLM SDK, so the no-framework iron rule stands: the client subset (`initialize`, `tools/list`, `tools/call` over JSON-RPC/stdio) is implemented against the spec with the same discipline as the Responses SSE transport, and the subprocess model mirrors the scorekit precedent. The ruling in one line: **MCP extends what the agent can know and fetch; it never becomes a second way to make sound.**
+User-configured extensibility arrives as a hand-rolled **MCP client** — MCP is a tool-transport protocol, not an agent framework or LLM SDK, so the no-framework iron rule stands: the client subset (`initialize`, `tools/list`, `tools/call` over JSON-RPC/stdio) is implemented against the spec with the same discipline as the LLM SSE transports, and the subprocess model mirrors the scorekit precedent. The ruling in one line: **MCP extends what the agent can know and fetch; it never becomes a second way to make sound.**
 
 Boundaries:
 
@@ -145,10 +145,10 @@ Rules (MUST):
 | Build param → CLI arg mapping | 1 | `build_params_render_full_arg_set` covers renderer, `--orchestration`, and `--texture-profile` | n/a (pure function, no state) |
 | Project directory scan | 1 | `scan_finds_scenes_and_assets` | `scan_rejects_non_directory` |
 | Asset read containment (webview → disk) | 1 | `resolve_inside` accepts in-root paths | `resolve_inside_blocks_escape` rejects traversal |
-| Responses SSE transport | 1 | recorded text/tool/multi-tool fixtures; arbitrary chunk-boundary equivalence | 401/429 metadata, failed event, mid-stream disconnect, dead endpoint, cancellation |
+| Responses + Chat Completions SSE transports | 1 | Responses text/tool/multi-tool fixtures; Chat text/multi-tool fixtures and request/message/tool translation; arbitrary chunk-boundary equivalence | 401/429 metadata, failed/error events, incomplete finish reason, missing terminal marker, mid-stream disconnect, dead endpoint, cancellation |
 | ReACT loop + tool dispatch | 1 | scripted transport repairs a blocked scene and only then completes; stable twelve-tool schema including `declare_arrangement_intent` | offline transport, unknown/malformed tools, missing/stale intent, max-turn guard, invalid-scene completion withheld, scorekit tool errors |
 | Atomic scene write + semantic history | 1 | real-scorekit diff integration test | rename failure preserves original; history failure warns without blocking edit |
-| Settings + API key | 1 | settings/keychain round trip | corrupt-file backup, keychain opt-in fallback, atomic-write kill point, invalid hue |
+| Settings + API key | 1 | settings/API-key round trip; legacy settings default to `responses`; seven provider preset URLs and protocol defaults | corrupt-file backup, atomic-write kill point, invalid hue |
 | Scene observation + watcher | 1 | scorekit scene fixtures; the preview table shows each track's stable `id` and resolved `palette` alongside its instrument, and section segments list the track IDs they mute; external-change GUI smoke | malformed YAML and watcher-storm coalescing |
 | Project memory + compaction | 1 | repeated three-cycle compaction keeps recent turns and coherent memory | corrupt line recovery; every two-phase kill point restores a loadable generation |
 | Player + spectrum (WebAudio) | 2 | required GUI smoke: OGG/WAV, seek/pause/loop, live style switching incl. Three.js scenes, auto style, fullscreen visualizer, and one view/canvas surviving embedded ↔ fullscreen; automated: two-entry LRU and 120-frame timing windows | decode errors surface; import/create/resize/render/context-loss falls back to Bars without stopping playback; LRU eviction disposes before replacement creation and remounts the style canvas |

@@ -11,7 +11,7 @@
 scorebench is a desktop app (Tauri 2 + Svelte 5) that hosts a minimal ReACT agent for composing and rendering game music with scorekit. It is the *shell*, scorekit is the *compiler*, the LLM is the *composer*.
 
 ```text
-you ──chat──► agent core (Rust, OpenAI Responses API only)
+you ──chat──► agent core (Rust, Responses | Chat Completions)
                  │  tool calls (subprocess, --json)
                  ▼
               scorekit  validate / lint / build / diff
@@ -44,7 +44,7 @@ In one line: **the user speaks the vocabulary of emotion, the system works in th
 
 ## Iron rules
 
-1. **Agent core stays minimal.** One provider spec: the OpenAI Responses API (any compatible endpoint via base URL + key). No multi-provider abstraction, no agent framework, no SDK.
+1. **Agent core stays minimal.** Two hand-rolled OpenAI-compatible transports: `responses | chat_completions` (configurable base URL + key + model). Provider presets only fill connection defaults; there is no multi-provider abstraction, agent framework, or SDK.
 2. **scorebench never renders audio itself.** All compilation/rendering/export goes through the `scorekit` CLI (`--json`). If scorekit can't do it, scorebench doesn't do it.
 3. **No structured editing UI.** No piano roll, timeline, or form-based scene editor. The only manual in-app write path is the explicit raw-YAML editor; scorebench otherwise observes and plays.
 4. **Deterministic boundary respected.** scorebench never post-processes rendered artifacts; what scorekit writes is what plays.

@@ -64,6 +64,7 @@ export interface BenchError {
 }
 
 export interface Settings {
+  api_protocol: "responses" | "chat_completions";
   base_url: string;
   model: string;
   context_budget_tokens: number;
@@ -423,8 +424,8 @@ export const api = {
 
   saveSettings: (value: Settings) => invoke<void>("save_settings", { value }),
 
-  setApiKey: (apiKey: string, allowInsecureStorage: boolean) =>
-    invoke<void>("set_api_key", { apiKey, allowInsecureStorage }),
+  setApiKey: (apiKey: string) =>
+    invoke<void>("set_api_key", { apiKey }),
 
   testConnection: () => invoke<string>("test_connection"),
 
