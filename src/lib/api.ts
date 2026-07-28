@@ -131,6 +131,8 @@ export interface SectionDisplay {
   intensity?: number | null;
   /** Stable track IDs silenced in this section. */
   mute: string[];
+  /** Stable track ID to section-local clip replacement. */
+  clips: Record<string, string>;
 }
 
 export interface TrackDisplay {
@@ -141,8 +143,25 @@ export interface TrackDisplay {
   instrument?: string | null;
   pattern?: string | null;
   motif?: string | null;
+  clip?: string | null;
   intensity?: number | null;
   articulation?: string | null;
+}
+
+export interface AutomationDisplay {
+  id: string;
+  target?: string | null;
+  interpolation: string;
+  point_count: number;
+}
+
+export interface ClipDisplay {
+  id: string;
+  kind?: string | null;
+  length_beats?: number | null;
+  mode?: string | null;
+  event_count: number;
+  automation: AutomationDisplay[];
 }
 
 export interface TextureDisplay {
@@ -162,6 +181,7 @@ export interface SceneDisplay {
   bars?: number | null;
   loop_enabled?: boolean | null;
   harmony: string[];
+  clips: ClipDisplay[];
   sections: SectionDisplay[];
   tracks: TrackDisplay[];
   textures: TextureDisplay[];

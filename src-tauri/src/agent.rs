@@ -335,7 +335,9 @@ fn scorekit_capability_section() -> String {
          tested range: {}\n\
          toolchain ready: {}\n\
          compatibility: {compatibility}{warning}\n\
-         deterministic read-only preflights: inspect_instruments, inspect_textures, check_texture_profile\n\
+         deterministic read-only preflights: inspect_instruments, check_renderer_profile, inspect_textures, check_texture_profile\n\
+         Exact clips: pitched/percussion stable-ID events with step or linear CC1/CC11/CC74/pitch-bend automation.\n\
+         Multiple drums tracks may share channel 10 while retaining independent tracks and stems; clavinet and synth_brass are exact General MIDI identities.\n\
          General MIDI exact world identities: shakuhachi, shamisen, sitar.\n\
          erhu, pipa, guzheng, dizi, tabla, oud, ney, and duduk require an exact active source; never rely on fallback.\n\n",
         scorekit::TESTED_SCOREKIT_RANGE,
@@ -1713,11 +1715,13 @@ mod tests {
         let pack = styles::builtins().into_iter().next().unwrap();
         let prompt = system_prompt(&root, "main", Some(&pack)).unwrap();
 
-        assert!(prompt.contains("ARRANGEMENT CANON `scorekit-arrangement-canon` v1.1.0"));
+        assert!(prompt.contains("ARRANGEMENT CANON `scorekit-arrangement-canon` v1.2.0"));
         assert!(prompt.contains("before_write"));
         assert!(prompt.contains("name_the_inertia_answer"));
         assert!(prompt.contains("Never guess textures[].source"));
         assert!(prompt.contains("LIVE SCOREKIT CAPABILITY"));
+        assert!(prompt.contains("check_renderer_profile"));
+        assert!(prompt.contains("Exact clips:"));
         assert!(prompt.contains(scorekit::TESTED_SCOREKIT_RANGE));
         assert!(prompt.contains("erhu, pipa, guzheng, dizi, tabla, oud, ney, and duduk"));
         assert!(prompt.contains("Authority order: live ScoreKit schema"));

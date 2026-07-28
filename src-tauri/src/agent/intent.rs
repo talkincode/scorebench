@@ -31,6 +31,7 @@ pub enum SceneField {
     Harmony,
     Performance,
     Motifs,
+    Clips,
     Tracks,
     Sections,
     Textures,
@@ -49,6 +50,7 @@ impl SceneField {
             Self::Harmony => "harmony",
             Self::Performance => "performance",
             Self::Motifs => "motifs",
+            Self::Clips => "clips",
             Self::Tracks => "tracks",
             Self::Sections => "sections",
             Self::Textures => "textures",
@@ -441,6 +443,7 @@ fn all_fields() -> impl Iterator<Item = SceneField> {
         SceneField::Harmony,
         SceneField::Performance,
         SceneField::Motifs,
+        SceneField::Clips,
         SceneField::Tracks,
         SceneField::Sections,
         SceneField::Textures,
@@ -481,4 +484,32 @@ fn field_list(fields: &[SceneField]) -> String {
 
 pub fn declaration_output(args: JsonValue) -> JsonValue {
     json!({"ok": true, "intent": args})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clip_changes_participate_in_intent_alignment() {
+        let contract = IntentContract {
+            args: IntentArgs {
+                path: "scene.yaml".into(),
+                task_mode: TaskMode::Revision,
+                goal: "Replace the authored rhythm.".into(),
+                form_intent: "Preserve the one-bar loop.".into(),
+                palette_intent: "Preserve the existing instruments.".into(),
+                expected_changes: vec![SceneField::Clips],
+                invariants: vec![SceneField::Tracks],
+            },
+            target: PathBuf::from("scene.yaml"),
+            baseline: Some("clips:\n  pulse: { mode: once }\ntracks: []\n".into()),
+            write_started: false,
+        };
+
+        let alignment = compare(&contract, "clips:\n  pulse: { mode: loop }\ntracks: []\n");
+
+        assert!(alignment.aligned());
+        assert_eq!(alignment.actual_changes, vec![SceneField::Clips]);
+    }
 }

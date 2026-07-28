@@ -158,12 +158,12 @@ pub fn definitions() -> Vec<ToolDefinition> {
                         "type":"array",
                         "minItems":1,
                         "uniqueItems":true,
-                        "items":{"type":"string","enum":["title","story","tempo","key","time_signature","bars","loop","harmony","performance","motifs","tracks","sections","textures"]}
+                        "items":{"type":"string","enum":["title","story","tempo","key","time_signature","bars","loop","harmony","performance","motifs","clips","tracks","sections","textures"]}
                     },
                     "invariants":{
                         "type":"array",
                         "uniqueItems":true,
-                        "items":{"type":"string","enum":["title","story","tempo","key","time_signature","bars","loop","harmony","performance","motifs","tracks","sections","textures"]}
+                        "items":{"type":"string","enum":["title","story","tempo","key","time_signature","bars","loop","harmony","performance","motifs","clips","tracks","sections","textures"]}
                     }
                 },
                 "required":["path","task_mode","goal","form_intent","palette_intent","expected_changes","invariants"]
@@ -222,6 +222,18 @@ pub fn definitions() -> Vec<ToolDefinition> {
                     "verbose":{"type":"boolean"}
                 },
                 "required":["path"]
+            }),
+        ),
+        function(
+            "check_renderer_profile",
+            "Ask scorekit to render deterministic probes for every unique patch and certify each declared CC1/CC11/CC74/pitch-bend control. Use before relying on a new or changed sfizz leaf profile.",
+            json!({
+                "type":"object",
+                "properties":{
+                    "profile":{"type":"string","description":"Project-relative scorekit leaf renderer profile path."},
+                    "sample_rate":{"type":"integer","minimum":8000,"maximum":384000}
+                },
+                "required":["profile"]
             }),
         ),
         function(
@@ -533,6 +545,15 @@ fn execute_sync(
                 SceneGateKind::InstrumentResolution,
                 scene_gate_path(root, &path)?,
                 true,
+            )
+        }
+        "check_renderer_profile" => {
+            let args: CheckRendererProfileArgs = args(call)?;
+            let profile = project::resolve_inside(root, &args.profile)?;
+            let report = scorekit::check_renderer_profile(&profile, args.sample_rate)?;
+            success(
+                json!({"ok":true,"profile":args.profile,"report":report}),
+                "renderer profile certified",
             )
         }
         "inspect_textures" => {
@@ -911,6 +932,13 @@ struct InspectInstrumentsArgs {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct CheckRendererProfileArgs {
+    profile: String,
+    sample_rate: Option<u32>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct InspectTexturesArgs {
     profile: Option<String>,
     source: Option<String>,
@@ -1041,7 +1069,7 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    fn require_scorekit_06_contract() -> bool {
+    fn require_scorekit_07_contract() -> bool {
         let handshake = scorekit::handshake();
         if handshake.compatible == Some(true) {
             return true;
@@ -1637,8 +1665,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn scorekit_06_contract_tools_query_live_capabilities() {
-        if !require_scorekit_06_contract() {
+    async fn scorekit_07_contract_tools_query_live_capabilities() {
+        if !require_scorekit_07_contract() {
             return;
         }
         let root = temp_project();
@@ -1648,6 +1676,16 @@ mod tests {
             include_str!("../../tests/fixtures/scenes/forest.yaml"),
         )
         .unwrap();
+        std::fs::write(
+            root.join("clips.yaml"),
+            include_str!("../../tests/fixtures/scenes/clips.yaml"),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("clips.grammar.yaml"),
+            "name: scorebench_clips\nrules:\n  pads_max: 1\n  percussion_events_per_bar_min: 8\n  percussion_onsets:\n    - { voice: kick, positions: [0, 2], coverage_min: 1 }\n  automation_activity:\n    - { track: keys, target: cc74, points_per_bar_min: 3, value_span_min: 96 }\n",
+        )
+        .unwrap();
         write_tiny_wav(&root.join("profiles/tone.wav"));
         std::fs::write(
             root.join("profiles/textures.yaml"),
@@ -1655,6 +1693,142 @@ mod tests {
         )
         .unwrap();
         let belt = ToolBelt::new(root.clone()).unwrap();
+
+        let schema = scorekit::schema().unwrap();
+        assert!(schema["properties"].get("clips").is_some());
+        assert!(schema["$defs"]["AutomationInterpolation"]["enum"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("linear")));
+        for instrument in ["clavinet", "synth_brass"] {
+            assert!(schema["$defs"]["Instrument"]["enum"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!(instrument)));
+        }
+
+        let clip_validation = belt
+            .execute(FunctionCall {
+                id: None,
+                call_id: "clip-validation".into(),
+                name: "validate_scene".into(),
+                arguments: serde_json::json!({"path":"clips.yaml"}).to_string(),
+            })
+            .await
+            .unwrap();
+        let clip_validation: Value = serde_json::from_str(&clip_validation.output).unwrap();
+        assert_eq!(clip_validation["ok"], true);
+
+        let clip_instruments = belt
+            .execute(FunctionCall {
+                id: None,
+                call_id: "clip-instruments".into(),
+                name: "inspect_instruments".into(),
+                arguments: serde_json::json!({
+                    "path":"clips.yaml",
+                    "orchestration":null,
+                    "resolver":null,
+                    "fallback_mode":"conservative",
+                    "verbose":false
+                })
+                .to_string(),
+            })
+            .await
+            .unwrap();
+        let clip_instruments: Value = serde_json::from_str(&clip_instruments.output).unwrap();
+        assert_eq!(clip_instruments["report"]["summary"]["exact"], 4);
+        assert_eq!(
+            clip_instruments["report"]["tracks"][0]["requested"],
+            "clavinet"
+        );
+        assert_eq!(
+            clip_instruments["report"]["tracks"][1]["requested"],
+            "synth_brass"
+        );
+
+        let clip_lint = belt
+            .execute(FunctionCall {
+                id: None,
+                call_id: "clip-lint".into(),
+                name: "lint_scene".into(),
+                arguments: serde_json::json!({
+                    "path":"clips.yaml",
+                    "grammar":"clips.grammar.yaml"
+                })
+                .to_string(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&clip_lint.output).unwrap()["ok"],
+            true
+        );
+
+        let clip_build = belt
+            .execute(FunctionCall {
+                id: None,
+                call_id: "clip-build".into(),
+                name: "build_scene".into(),
+                arguments: serde_json::json!({
+                    "path":"clips.yaml",
+                    "format":"wav",
+                    "renderer":"fluidsynth",
+                    "sample_rate":8000,
+                    "gain":null,
+                    "quality":null,
+                    "stems":true,
+                    "soundfont":null,
+                    "orchestration":null,
+                    "texture_profile":null
+                })
+                .to_string(),
+            })
+            .await
+            .unwrap();
+        let clip_build: Value = serde_json::from_str(&clip_build.output).unwrap();
+        let meta = &clip_build["meta"];
+        assert_eq!(meta["tracks"][0]["pattern"], "clip");
+        assert_eq!(
+            meta["tracks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|track| track["instrument"] == "drums")
+                .count(),
+            2
+        );
+        assert_eq!(meta["stems"].as_array().unwrap().len(), 4);
+
+        std::fs::write(
+            root.join("invalid-clips.yaml"),
+            include_str!("../../tests/fixtures/scenes/clips.yaml")
+                .replace("open: { at: 2, value: 112 }", "open: { at: 2, value: 128 }"),
+        )
+        .unwrap();
+        let invalid_clip = belt
+            .execute(FunctionCall {
+                id: None,
+                call_id: "invalid-clip".into(),
+                name: "validate_scene".into(),
+                arguments: serde_json::json!({"path":"invalid-clips.yaml"}).to_string(),
+            })
+            .await
+            .unwrap_err();
+        let BenchError::Scorekit {
+            code,
+            field,
+            exit_code,
+            ..
+        } = invalid_clip
+        else {
+            panic!("invalid automation must keep scorekit's structured error");
+        };
+        assert_eq!(code, "validation");
+        assert_eq!(exit_code, 2);
+        assert_eq!(
+            field.as_deref(),
+            Some("clips.keys_line.automation.filter.points.open.value")
+        );
 
         let instruments = belt
             .execute(FunctionCall {
@@ -1820,10 +1994,11 @@ mod tests {
             .collect::<Vec<_>>();
         names.sort_unstable();
         names.dedup();
-        assert_eq!(names.len(), 12);
+        assert_eq!(names.len(), 13);
         for expected in [
             "declare_arrangement_intent",
             "inspect_instruments",
+            "check_renderer_profile",
             "inspect_textures",
             "check_texture_profile",
         ] {
@@ -1900,6 +2075,12 @@ mod tests {
             intent.parameters["properties"]["expected_changes"]["uniqueItems"],
             serde_json::json!(true)
         );
+        assert!(
+            intent.parameters["properties"]["expected_changes"]["items"]["enum"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("clips"))
+        );
 
         let texture_check = definitions()
             .into_iter()
@@ -1907,6 +2088,19 @@ mod tests {
             .unwrap();
         assert_eq!(
             texture_check.parameters["properties"]["sample_rate"]["maximum"],
+            serde_json::json!(384_000)
+        );
+
+        let profile_check = definitions()
+            .into_iter()
+            .find(|definition| definition.name == "check_renderer_profile")
+            .unwrap();
+        assert_eq!(
+            profile_check.parameters["properties"]["profile"]["type"],
+            serde_json::json!("string")
+        );
+        assert_eq!(
+            profile_check.parameters["properties"]["sample_rate"]["maximum"],
             serde_json::json!(384_000)
         );
     }

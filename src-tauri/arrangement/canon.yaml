@@ -1,10 +1,10 @@
 schema_version: 1
 id: scorekit-arrangement-canon
-version: 1.1.0
-source_scorekit_range: ">=0.6.0, <0.7.0"
+version: 1.2.0
+source_scorekit_range: ">=0.7.0, <0.8.0"
 provenance:
   repository: talkincode/scorekit
-  commit: c2e0b0c
+  commit: 9a2c7b0
   references:
     - skills/scorekit/SKILL.md
     - skills/scorekit/audit.md
@@ -84,7 +84,8 @@ craft:
     rule: "Cover only roles intended by the brief; no unintended gap and no duplicate role without registral or rhythmic contrast."
   entrances_and_exits:
     whole_span_patterns: [sustain, arpeggio, bass, drums, tabla]
-    rule: "For a mid-span entrance or exit, use a melody track with explicit rests or a section mute by stable track id."
+    exact_pattern: clip
+    rule: "For a mid-span entrance or exit, use melody rests, an exact once clip, or a section mute/clip replacement by stable track id."
   emotional_curve:
     measure: "intensity x register x active non-rest voice count over time"
     default_shape: "rise -> peak -> cut_or_contrast -> return"
@@ -100,6 +101,19 @@ craft:
       rule: "The final cadence and tail match the declared intent."
   determinism:
     rule: "If performance.humanize is present, set its seed; identical decisions must remain reproducible."
+
+authored_clips:
+  identity: "Clip, event, lane, and point map keys are stable semantic IDs; reordering keys must not change meaning."
+  timing: "All positions are quarter-note beats quantized at PPQ 480. Clip timing ignores swing, legato, and humanize; intensity and dynamics still scale velocity."
+  loop_rule: "A loop clip must divide every active scene/section. Events stay inside the boundary, and every loop automation lane returns to its initial value."
+  automation:
+    targets: [cc1, cc11, cc74, pitch_bend]
+    interpolation: [step, linear]
+    linear_grid_ticks: 60
+    event_budget_per_active_track: 65536
+  percussion: "Multiple drums tracks may share channel 10 and remain independent tracks/stems. Their pan/reverb state must agree; drums clips use only live-schema GM percussion voices."
+  renderer_capability: "For sfizz, every automated target must be declared and certified by the effective leaf mapping; never swap profiles or weaken resolution to hide a missing control."
+  grammar_measurements: [percussion_events_per_bar_min, percussion_onsets, automation_activity]
 
 world_identity:
   identities: [erhu, pipa, guzheng, dizi, shakuhachi, shamisen, sitar, tabla, oud, ney, duduk]
@@ -125,6 +139,7 @@ delivery_gates:
   preflight:
     doctor: "scorekit --json doctor must report a ready toolchain."
     orchestration: "When configured, scorekit orchestration check <orchestration> must pass."
+    automation_controls: "Before relying on a new or changed sfizz automation mapping, scorekit profile check <leaf-profile> must certify every declared control."
   ordered:
     G1_validate:
       command: "scorekit --json validate <scene>"

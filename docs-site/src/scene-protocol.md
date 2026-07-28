@@ -71,14 +71,15 @@ tracks:
 | `loop` | Whether the output is a seamless loop | Default `false` |
 | `harmony` | One Roman-numeral chord per bar | Cycles until the scene ends |
 | `motifs` | Named melodic material | Referenced by `melody` tracks |
+| `clips` | Stable-ID exact pitched/percussion events and automation | Referenced by `clip` tracks; map order is inert |
 | `performance` | Swing, legato, dynamics, and deterministic humanization | Optional |
-| `tracks` | Instrument tracks | 1–16, with at most one drum track |
+| `tracks` | Instrument tracks | 1–16; at most 15 melodic tracks, while percussion tracks share channel 10 |
 | `textures` | Scheduled ambience, field recordings, and sound effects | Optional; portable source names are resolved by a separate texture profile |
 | `sections` | Named cues that share the scene's material | Optional; build emits one output per section |
 
 ScoreKit currently builds diatonic triads from the scene scale. Roman-numeral case is conventional: `VI` and `vi` select the same scale degree in the current protocol. This field is not a complete classical-harmony notation system.
 
-## Tracks and the six patterns
+## Tracks and the seven patterns
 
 Every track selects an `instrument` and a `pattern`, and carries a stable scene-local `id`:
 
@@ -89,7 +90,8 @@ Every track selects an `instrument` and a `pattern`, and carries a stable scene-
 | `arpeggio` | Eighth notes in root–third–fifth–third order | Motion, piano or harp figures |
 | `bass` | Low roots derived from the current chord | Low-frequency foundation |
 | `drums` | A fixed kick, snare, and hi-hat groove | Basic pulse; must use `instrument: drums` |
-| `tabla` | A deterministic tabla groove | World-percussion pulse; must use `instrument: tabla` and still obey the single-percussion-track rule |
+| `clip` | Plays a named exact event sequence | Authored syncopation, fills, auxiliary percussion, and controller motion |
+| `tabla` | A deterministic tabla groove | World-percussion pulse; must use `instrument: tabla` |
 
 Tracks can also define:
 
@@ -97,9 +99,41 @@ Tracks can also define:
 - `palette`: an optional logical orchestration palette name. Absent uses the active orchestration's `default_palette`; irrelevant when not building with `--renderer sfizz --orchestration ...`. Routing metadata only — it never changes compiled MIDI.
 - `intensity`: velocity scaling from 0.0 to 1.0.
 - `articulation`: `sustain`, `staccato`, `spiccato`, `pizzicato`, `tremolo`, or `mute`. It selects SFZ samples only; SF2 backends ignore it.
+- `clip`: required only for `pattern: clip`; names a compatible root clip.
 - `pan`: 0.0 hard left, 0.5 center, 1.0 hard right, compiled to MIDI CC10.
 - `reverb`: a 0.0–1.0 MIDI CC91 send. An SFZ patch responds only if it maps the controller.
 - `glide`: on `melody` tracks only, the fraction of each note tail that bends toward the next pitch.
+
+Several `drums` or `tabla` tracks may share channel 10 while keeping independent MIDI tracks and stems. Shared-channel `pan` and `reverb` values must agree. ScoreKit 0.7 also exposes exact General MIDI `clavinet` and `synth_brass` identities.
+
+## Exact event clips and automation
+
+Clip, event, lane, and point keys are stable semantic IDs. Reordering them does not change MIDI or semantic diffs:
+
+```yaml
+clips:
+  filtered_stab:
+    kind: pitched
+    length_beats: 4
+    mode: loop
+    events:
+      stab_1: { at: 0.5, duration: 0.25, pitch: C4, velocity: 104 }
+      stab_2: { at: 2.5, duration: 0.25, pitch: Eb4, velocity: 98 }
+    automation:
+      filter:
+        target: cc74
+        interpolation: linear
+        points:
+          closed: { at: 0, value: 16 }
+          open: { at: 2, value: 112 }
+          seal: { at: 3.75, value: 16 }
+tracks:
+  - { id: stab, instrument: synth_brass, pattern: clip, clip: filtered_stab }
+```
+
+Clips are `pitched` or `percussion`, and play `once` or `loop`. Pitched events use scientific pitch plus duration; percussion events use ScoreKit's frozen General MIDI voice enum. Automation targets are `cc1`, `cc11`, `cc74`, and `pitch_bend`; interpolation is `step` by default or deterministic `linear` on a fixed 60-tick grid.
+
+Loop clips must divide every active scene or section. Events stay inside the clip boundary, and loop automation must return to its initial value. Clip timing ignores swing, legato, and humanization, while track/section intensity and dynamics still scale velocity. For sfizz, the effective leaf profile must declare every active control, and `scorekit profile check` must certify that the patch responds.
 
 ## Motifs and scale degrees
 
@@ -149,7 +183,7 @@ sources:
       library: field-recordings@1.0.0
 ```
 
-ScoreKit 0.6 also accepts the old path-only binding for build compatibility, but discovery and certification require the structured form. The Agent queries the active profile with exact `inspect_textures` filters before choosing a source; `no_match` means it must change the plan, not invent a key. The observation panel reports missing mappings and a `loop`/`one_shot` mode not declared by the source before build. ScoreKit still performs authoritative validation and mixing. Enabling stems produces aligned texture stems alongside instrument stems.
+ScoreKit 0.7 retains the old path-only binding for build compatibility, but discovery and certification require the structured form. The Agent queries the active profile with exact `inspect_textures` filters before choosing a source; `no_match` means it must change the plan, not invent a key. The observation panel reports missing mappings and a `loop`/`one_shot` mode not declared by the source before build. ScoreKit still performs authoritative validation and mixing. Enabling stems produces aligned texture stems alongside instrument stems.
 
 ## Performance
 
@@ -181,13 +215,13 @@ sections:
   - { name: victory, bars: 4, loop: false, mute: [foundation], intensity: 1.1 }
 ```
 
-A section can change `bars`, `tempo`, `loop`, and overall `intensity`, or silence tracks through the **stable track `id`s** listed in `mute`. Sections inherit the top-level key, harmony, motifs, tracks, and performance. The current protocol cannot replace harmony or motif contents per section.
+A section can change `bars`, `tempo`, `loop`, and overall `intensity`, silence tracks through the **stable track `id`s** listed in `mute`, or replace a clip track with `clips: { track_id: clip_id }`. Sections inherit the top-level key, harmony, motifs, clips, tracks, and performance. The current protocol cannot replace harmony or motif contents per section.
 
 ## What does not belong in the scene protocol
 
 - SoundFont, SFZ, renderer, orchestration, and recording paths. They belong in build parameters, orchestration/renderer profiles, or texture profiles; scene textures use portable source keys.
 - Arbitrary `mood`, `danger`, or `avoid` fields without compile semantics. Keep them in the conversation or `story`.
 - Plugin chains, mastering, equalization, or post-processing instructions.
-- Arbitrary MIDI events, automation curves, or free-form per-note editing outside the schema.
+- Renderer-specific synth parameters, arbitrary MIDI outside the exact-clip protocol, or free-form per-note articulation.
 
 For the complete current field ranges and instrument enum, run `scorekit schema` instead of copying an old list, or consult the [ScoreKit Scene Protocol](https://talkincode.github.io/scorekit/scene-protocol.html).

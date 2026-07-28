@@ -38,11 +38,11 @@ You do not need to know every theory term. A phrase such as “a distant memory,
 ## StylePack, grammar, and orchestration profile are different
 
 - A **StylePack** is a scorebench creative preference package. Built-ins distinguish schema-legal `preferred_instruments` from descriptive `creative_concepts`; neither is the same thing as a Scene routing palette.
-- A **grammar profile** is a set of measurable ScoreKit aesthetic checks, such as tempo limits, voice count, and melody rest ratio.
+- A **grammar profile** is a set of measurable ScoreKit aesthetic checks, such as tempo limits, voice count, melody rest ratio, compiled percussion onsets/density, and automation activity.
 - An **orchestration profile** routes each scene track's logical `palette` (or the orchestration's `default_palette`) to a leaf renderer profile mapping ScoreKit instruments and articulations to local SFZ files for sfizz.
 - A **texture profile** maps portable ambience and sound-effect source names to local audio files, independently of the renderer.
 
-StylePack influences choices, grammar checks the compiled music, an orchestration profile controls instrumental timbre per track, and a texture profile binds scheduled recordings. A creative concept must be translated into live-schema instruments; a Scene `palette` may only name a key from the active orchestration. None of these layers replaces the others.
+StylePack influences choices, grammar checks the compiled music, an orchestration profile controls instrumental timbre per track, and a texture profile binds scheduled recordings. A creative concept must be translated into live-schema instruments; a Scene `palette` may only name a key from the active orchestration. Exact clips remain portable score semantics, not renderer parameters. When a clip automates an sfizz patch, the leaf profile must declare the control and ScoreKit's profile check must certify that the patch actually responds. None of these layers replaces the others.
 
 ## Project files and recovery
 
