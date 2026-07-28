@@ -86,6 +86,8 @@ scorekit orchestration check hybrid-cinematic.yaml
 scorekit build scene.yaml --renderer sfizz --orchestration hybrid-cinematic.yaml -o out/scene.ogg
 ```
 
+`schema_version` is required at the orchestration document root. ScoreKit 0.7 rejects a profile that omits it; add `schema_version: 1` rather than relying on an implicit default.
+
 A scene track without a `palette` uses `default_palette`; a track with `palette: solo` routes through the `scoredata-chamber` profile instead, without any DSL field naming a sound source.
 
 ## Open sources worth evaluating
