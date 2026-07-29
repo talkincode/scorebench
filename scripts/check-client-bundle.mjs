@@ -14,6 +14,9 @@ const budgets = {
   entries: {
     "src/lib/spectrum/three/mood.ts": { raw: 22_000, gzip: 9_000 },
     "src/lib/spectrum/three/voyage.ts": { raw: 85_000, gzip: 28_000 },
+    // Dedicated stream, star-twinkle and planet-wave shaders are intentionally
+    // local to Mirage; total, largest-chunk and gzip ceilings remain tight.
+    "src/lib/spectrum/three/mirage.ts": { raw: 34_000, gzip: 11_500 },
   },
 };
 
