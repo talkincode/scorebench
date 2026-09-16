@@ -1,0 +1,47 @@
+title: ScoreKit 0.7 Contract Clips
+tempo: 120
+key: C_minor
+time_signature: "4/4"
+bars: 1
+loop: true
+
+clips:
+  keys_line:
+    kind: pitched
+    length_beats: 4
+    mode: loop
+    events:
+      root: { at: 0, duration: 0.5, pitch: C4, velocity: 104 }
+      answer: { at: 2, duration: 0.5, pitch: Eb4, velocity: 96 }
+    automation:
+      filter:
+        target: cc74
+        interpolation: linear
+        points:
+          closed: { at: 0, value: 16 }
+          open: { at: 2, value: 112 }
+          seal: { at: 3.75, value: 16 }
+  main_kit:
+    kind: percussion
+    length_beats: 4
+    mode: loop
+    events:
+      kick_1: { at: 0, voice: kick, velocity: 118 }
+      snare_1: { at: 1, voice: snare, velocity: 108 }
+      kick_2: { at: 2, voice: kick, velocity: 116 }
+      snare_2: { at: 3, voice: snare, velocity: 110 }
+  auxiliary:
+    kind: percussion
+    length_beats: 4
+    mode: loop
+    events:
+      tambourine_1: { at: 0.5, voice: tambourine, velocity: 72 }
+      tambourine_2: { at: 1.5, voice: tambourine, velocity: 76 }
+      cabasa_1: { at: 2.5, voice: cabasa, velocity: 68 }
+      maracas_1: { at: 3.5, voice: maracas, velocity: 70 }
+
+tracks:
+  - { id: keys, instrument: clavinet, pattern: clip, clip: keys_line, intensity: 0.7 }
+  - { id: brass, instrument: synth_brass, pattern: sustain, intensity: 0.35 }
+  - { id: kit, instrument: drums, pattern: clip, clip: main_kit, intensity: 0.65 }
+  - { id: auxiliary, instrument: drums, pattern: clip, clip: auxiliary, intensity: 0.4 }

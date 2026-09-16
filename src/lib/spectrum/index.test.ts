@@ -7,6 +7,7 @@ describe("visualStyles", () => {
       { id: "bars", label: "Bars" },
       { id: "mood", label: "Mood" },
       { id: "voyage", label: "Voyage" },
+      { id: "mirage", label: "Mirage" },
     ]);
   });
 
@@ -21,9 +22,15 @@ describe("visualStyles", () => {
     expect(voyage?.options?.find((option) => option.key === "wireframe")?.defaultValue).toBe(1);
   });
 
+  it("keeps Mirage as an observation-only scene with the shared HUD", () => {
+    const mirage = visualStyles.find((entry) => entry.id === "mirage");
+    expect(mirage?.options?.map((option) => option.key)).toEqual(["moodHud"]);
+  });
+
   it("selects at most one not-yet-loaded Three style for idle preload", () => {
     expect(nextThreeStyleToPreload(null)?.id).toBe("mood");
     expect(nextThreeStyleToPreload("mood")?.id).toBe("voyage");
-    expect(nextThreeStyleToPreload("voyage", new Set(["mood"]))).toBeUndefined();
+    expect(nextThreeStyleToPreload("voyage", new Set(["mood"]))?.id).toBe("mirage");
+    expect(nextThreeStyleToPreload("voyage", new Set(["mood", "mirage"]))).toBeUndefined();
   });
 });

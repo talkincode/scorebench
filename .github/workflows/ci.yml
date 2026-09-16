@@ -56,7 +56,7 @@ jobs:
         run: cargo test
 
   scorekit-contract:
-    name: ScoreKit 0.6 contract
+    name: ScoreKit 0.7 contract
     runs-on: ubuntu-latest
     steps:
       - name: Check out scorebench
@@ -66,8 +66,8 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: talkincode/scorekit
-          # v0.6.0 release commit; pin the immutable contract, not a moving branch.
-          ref: 5cea04fb75764480e18759674aae4cb8d917a518
+          # v0.7.0 release commit; pin the immutable contract, not a moving branch.
+          ref: 9a2c7b0be3e42c91a80c1f4d6c3b028b30828a0a
           path: .scorekit-contract
 
       - name: Install native dependencies
@@ -87,13 +87,20 @@ jobs:
       - name: Build pinned ScoreKit
         run: cargo build --locked --manifest-path .scorekit-contract/Cargo.toml
 
+      - name: Install contract SoundFont
+        run: >-
+          make -C .scorekit-contract install-default-soundfont
+          SCOREKIT_SOUND_LIBRARY_DIR=${{ github.workspace }}/.scorekit-sounds
+          SCOREKIT_DEFAULT_SOUNDFONT_SOURCE=${{ github.workspace }}/.scorekit-contract/assets/TimGM6mb.sf2
+
       - name: Run non-skippable ScoreKit contract
         env:
           SCOREBENCH_SCOREKIT: ${{ github.workspace }}/.scorekit-contract/target/debug/scorekit
           SCOREBENCH_REQUIRE_SCOREKIT_CONTRACT: "1"
+          SCOREKIT_SOUND_LIBRARY_DIR: ${{ github.workspace }}/.scorekit-sounds
         run: >-
           cargo test --manifest-path src-tauri/Cargo.toml
-          scorekit_06_contract_tools_query_live_capabilities -- --nocapture
+          scorekit_07_contract_tools_query_live_capabilities -- --nocapture
 
   frontend:
     name: Frontend

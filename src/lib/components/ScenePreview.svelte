@@ -52,6 +52,7 @@
           {#if scene.bars != null}<span class="chip"><b>{scene.bars}</b> bars</span>{/if}
           {#if scene.loop_enabled}<span class="chip">loop</span>{/if}
           {#if scene.has_performance}<span class="chip">performance</span>{/if}
+          {#if scene.clips.length}<span class="chip">{scene.clips.length} {t("preview.clips")}</span>{/if}
           {#if scene.textures.length}<span class="chip">{scene.textures.length} {t("preview.textures")}</span>{/if}
           <span class="chip status {inspection.validation.status}">{inspection.validation.status}</span>
         </div>
@@ -86,12 +87,57 @@
                 {#if section.mute.length}
                   <span class="muted" title={`${t("preview.muted")}: ${section.mute.join(", ")}`}>{t("preview.muted")}: {section.mute.join(", ")}</span>
                 {/if}
+                {#if Object.keys(section.clips).length}
+                  <span class="muted" title={`${t("preview.clipOverrides")}: ${Object.entries(section.clips).map(([track, clip]) => `${track} → ${clip}`).join(", ")}`}>
+                    {t("preview.clipOverrides")}: {Object.entries(section.clips).map(([track, clip]) => `${track} → ${clip}`).join(", ")}
+                  </span>
+                {/if}
                 {#if section.intensity != null}
                   <i class="meter"><b style={`width: ${intensityWidth(section.intensity)}`}></b></i>
                 {/if}
               </div>
             {/each}
           </div>
+        </section>
+      {/if}
+
+      {#if scene.clips.length}
+        <section>
+          <h3>{t("preview.clips")} <em>{scene.clips.length}</em></h3>
+          <table>
+            <thead>
+              <tr>
+                <th>{t("preview.clip")}</th>
+                <th>{t("preview.kind")}</th>
+                <th>{t("preview.mode")}</th>
+                <th>{t("preview.length")}</th>
+                <th class="num">{t("preview.events")}</th>
+                <th>{t("preview.automation")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each scene.clips as clip}
+                <tr>
+                  <td class="track-id">{clip.id}</td>
+                  <td>{clip.kind ?? "—"}</td>
+                  <td>{clip.mode ?? "—"}</td>
+                  <td>{clip.length_beats != null ? `${clip.length_beats} ${t("preview.beats")}` : "—"}</td>
+                  <td class="num">{clip.event_count}</td>
+                  <td>
+                    {#if clip.automation.length}
+                      <div class="automation-list">
+                        {#each clip.automation as lane}
+                          <span>{lane.id}: {lane.target ?? "—"} · {lane.interpolation} · {lane.point_count} {t("preview.points")}</span>
+                        {/each}
+                      </div>
+                    {:else}
+                      —
+                    {/if}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
         </section>
       {/if}
 
@@ -109,6 +155,7 @@
                 <th>{t("preview.palette")}</th>
                 <th>{t("preview.pattern")}</th>
                 <th>{t("preview.motif")}</th>
+                <th>{t("preview.clip")}</th>
                 <th>{t("preview.articulation")}</th>
                 <th class="num">{t("preview.intensity")}</th>
               </tr>
@@ -122,6 +169,7 @@
                   <td class="palette">{resolvedPaletteForTrack(track, inspection.orchestration) ?? t("preview.defaultPalette")}</td>
                   <td>{track.pattern ?? "—"}</td>
                   <td>{track.motif ?? "—"}</td>
+                  <td>{track.clip ?? "—"}</td>
                   <td>{track.articulation ?? "—"}</td>
                   <td class="num">
                     {#if track.intensity != null}
@@ -202,7 +250,7 @@
     flex: 1;
     min-height: 0;
     padding: 20px 24px 28px;
-    overflow-y: auto;
+    overflow: auto;
   }
   .head {
     position: relative;
@@ -389,6 +437,12 @@
   td.instrument {
     color: var(--fg);
     font-weight: 550;
+  }
+  .automation-list {
+    display: grid;
+    gap: 2px;
+    color: var(--fg-dim);
+    font: 9.5px var(--mono);
   }
   th.num,
   td.num {

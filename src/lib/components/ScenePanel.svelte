@@ -114,10 +114,16 @@
     const average = intensities.length
       ? intensities.reduce((sum, value) => sum + value, 0) / intensities.length
       : 0.45;
+    const clipEvents = scene.clips.reduce((sum, clip) => sum + clip.event_count, 0);
     return [
       Math.min(
         100,
-        18 + scene.tracks.length * 13 + scene.sections.length * 5 + scene.textures.length * 7,
+        18 +
+          scene.tracks.length * 13 +
+          scene.clips.length * 5 +
+          Math.min(24, clipEvents) +
+          scene.sections.length * 5 +
+          scene.textures.length * 7,
       ),
       Math.min(100, Math.round(average * 100)),
       Math.min(
@@ -325,6 +331,7 @@
       {:else if inspection.scene}
         <div class="stats">
           <span><b>{inspection.scene.tracks.length}</b><i>{t("preview.tracks")}</i></span>
+          <span><b>{inspection.scene.clips.length}</b><i>{t("preview.clips")}</i></span>
           <span><b>{inspection.scene.sections.length}</b><i>{t("preview.sections")}</i></span>
           <span><b>{inspection.scene.harmony.length}</b><i>{t("preview.harmony")}</i></span>
           <span><b>{inspection.scene.textures.length}</b><i>{t("preview.textures")}</i></span>
@@ -590,7 +597,7 @@
   .dial strong { z-index: 1; grid-area: 1 / 1; color: var(--fg); font: 14px var(--mono); font-weight: 400; }
   .dial small { color: var(--fg-muted); font-size: 10px; }
 
-  .stats { display: grid; grid-template-columns: repeat(4, 1fr); }
+  .stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .stats span { display: grid; gap: 3px; justify-items: center; padding: 11px 6px 10px; border-right: 1px solid var(--line); }
   .stats span:last-child { border-right: 0; }
   .stats b { color: var(--fg); font: 17px var(--mono); font-weight: 450; }

@@ -69,21 +69,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn canon_has_a_typed_versioned_scorekit_v06_envelope() {
+    fn canon_has_a_typed_versioned_scorekit_v07_envelope() {
         let canon = canon();
 
         assert_eq!(canon.schema_version, 1);
         assert_eq!(canon.id, "scorekit-arrangement-canon");
-        assert_eq!(canon.version, "1.1.0");
-        assert_eq!(canon.source_scorekit_range, ">=0.6.0, <0.7.0");
+        assert_eq!(canon.version, "1.2.0");
+        assert_eq!(canon.source_scorekit_range, ">=0.7.0, <0.8.0");
         assert_eq!(
             canon.source_scorekit_range,
             crate::scorekit::TESTED_SCOREKIT_RANGE
         );
-        assert_eq!(canon.source_commit, "c2e0b0c");
+        assert_eq!(canon.source_commit, "9a2c7b0");
         assert!(canon.source.contains("skills/scorekit/SKILL.md"));
         assert!(
-            (4 * 1024..=9 * 1024).contains(&canon.source.len()),
+            (4 * 1024..=11 * 1024).contains(&canon.source.len()),
             "canon must stay prompt-sized, got {} bytes",
             canon.source.len()
         );
@@ -94,7 +94,7 @@ mod tests {
         let prompt = prompt_section();
 
         for required in [
-            "ARRANGEMENT CANON `scorekit-arrangement-canon` v1.1.0",
+            "ARRANGEMENT CANON `scorekit-arrangement-canon` v1.2.0",
             "scorekit schema --json",
             "before_write",
             "expected_changes",
@@ -163,6 +163,23 @@ mod tests {
             "last harmony must pull toward the first",
         ] {
             assert!(prompt.contains(required), "missing craft rule: {required}");
+        }
+    }
+
+    #[test]
+    fn prompt_carries_the_scorekit_v07_clip_contract() {
+        let prompt = prompt_section();
+
+        for required in [
+            "authored_clips:",
+            "linear_grid_ticks: 60",
+            "event_budget_per_active_track: 65536",
+            "Multiple drums tracks may share channel 10",
+            "percussion_events_per_bar_min",
+            "automation_activity",
+            "scorekit profile check <leaf-profile>",
+        ] {
+            assert!(prompt.contains(required), "missing clip rule: {required}");
         }
     }
 

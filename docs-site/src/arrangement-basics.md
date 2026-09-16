@@ -104,4 +104,4 @@ Brief: “Oppressive underground-ruin exploration with an occasional distant ech
 | Combat | Restore drums, raise tempo and intensity, and retain the motif |
 | Continuous identity | Share motifs and harmony across sections and pass the same material between instruments |
 
-If a brief requires a capability the protocol does not have—such as independent harmony per section, arbitrary automation curves, or free per-note articulation—state the limitation instead of adding imaginary YAML fields.
+If a brief requires a capability the protocol does not have—such as independent harmony per section, renderer-specific synth parameters, or free per-note articulation—state the limitation instead of adding imaginary YAML fields. Portable CC1/CC11/CC74/pitch-bend motion belongs in an exact event clip and must follow the live schema.

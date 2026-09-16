@@ -1,6 +1,6 @@
 //! Subprocess boundary to the `scorekit` CLI.
 //!
-//! Contract (recorded through scorekit 0.6.0, see `tests/fixtures/`):
+//! Contract (recorded through scorekit 0.7.0, see `tests/fixtures/`):
 //! - success: exit 0; `build` writes `<output stem>.meta.json` as the machine-readable result
 //! - failure: stderr carries one JSON object `{code, exit_code, field, location, message}`
 //! - `doctor --json`: stdout JSON report
@@ -19,11 +19,11 @@ use crate::error::BenchError;
 
 /// Environment variable that pins the scorekit binary explicitly.
 pub const SCOREKIT_ENV: &str = "SCOREBENCH_SCOREKIT";
-/// scorekit 0.6.0 adds the discoverable texture source protocol and the
-/// `texture inspect` / `texture check` machine commands used by the agent.
-/// Keeping a single v0.6 floor avoids advertising tools an older CLI cannot
-/// execute; the next minor line must be re-recorded before admission.
-pub const TESTED_SCOREKIT_RANGE: &str = ">=0.6.0, <0.7.0";
+/// scorekit 0.7.0 adds exact event clips, deterministic step/linear
+/// automation, independent percussion tracks, and the Disco instrument slice.
+/// Keeping a single v0.7 floor avoids advertising scene semantics an older CLI
+/// cannot compile; the next minor line must be re-recorded before admission.
+pub const TESTED_SCOREKIT_RANGE: &str = ">=0.7.0, <0.8.0";
 
 /// Settings-pinned binary path, seeded by the host layer at startup and
 /// whenever settings are saved. Held here (not re-read from disk) so core
@@ -415,6 +415,33 @@ pub fn inspect_instruments(
     })
 }
 
+/// Render scorekit's deterministic base/control probes for every unique patch
+/// in a leaf renderer profile. This is the authoritative automation-capability
+/// certification; scorebench never inspects or renders sample data itself.
+pub fn check_renderer_profile(
+    profile: &Path,
+    sample_rate: Option<u32>,
+) -> Result<Value, BenchError> {
+    let args = renderer_profile_check_args(profile, sample_rate);
+    let stdout = run(&args)?;
+    serde_json::from_str(&stdout).map_err(|err| BenchError::Io {
+        message: format!("profile check output was not valid JSON: {err}"),
+    })
+}
+
+fn renderer_profile_check_args(profile: &Path, sample_rate: Option<u32>) -> Vec<String> {
+    let mut args = vec![
+        "profile".into(),
+        "check".into(),
+        profile.to_string_lossy().into_owned(),
+    ];
+    if let Some(sample_rate) = sample_rate {
+        args.extend(["--sample-rate".into(), sample_rate.to_string()]);
+    }
+    args.push("--json".into());
+    args
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TextureInspectParams {
@@ -682,7 +709,7 @@ mod tests {
         for key in ["audio", "loop", "sample_rate", "total_samples", "tracks"] {
             assert!(value.get(key).is_some(), "meta.json must have `{key}`");
         }
-        // scorekit 0.5 reports every track by its stable scene-local ID: the
+        // scorekit reports every track by its stable scene-local ID: the
         // meta track list and the instrument resolution both carry it, which is
         // what ties a rendered stem back to the scene track that produced it.
         let tracks = value["tracks"].as_array().expect("tracks is an array");
@@ -853,6 +880,24 @@ mod tests {
     }
 
     #[test]
+    fn renderer_profile_check_renders_machine_argument_vector() {
+        assert_eq!(
+            renderer_profile_check_args(Path::new("profiles/house.yaml"), Some(48_000)),
+            [
+                "profile",
+                "check",
+                "profiles/house.yaml",
+                "--sample-rate",
+                "48000",
+                "--json",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn texture_check_failure_keeps_the_certification_report() {
         let error = parse_error_output(
             r#"{"code":"texture_check","exit_code":2,"field":null,"location":null,"message":"1 texture source(s) failed certification","report":{"passed":1,"failed":1,"entries":[{"source":"gone","status":"missing"}]}}"#,
@@ -884,7 +929,7 @@ mod tests {
     fn handshake_gates_machine_readable_version() {
         let report = serde_json::json!({
             "ready": true,
-            "scorekit_version": "0.6.0",
+            "scorekit_version": "0.7.0",
             "hints": ["install a renderer"]
         });
         let handshake =
@@ -892,20 +937,20 @@ mod tests {
         assert_eq!(handshake.compatible, Some(true));
         assert_eq!(handshake.hints, vec!["install a renderer"]);
         assert_eq!(handshake.source, Some(LocateSource::Path));
-        // The v0.6 agent contract depends on structured texture discovery and
-        // certification, so the whole 0.6 line stays inside the tested range.
+        // The v0.7 agent contract depends on exact clips and deterministic
+        // linear automation, so the whole 0.7 line stays inside the range.
         let patch = handshake_from_report(
             PathBuf::from("scorekit"),
             LocateSource::Path,
-            serde_json::json!({"ready":true,"scorekit_version":"0.6.2","hints":[]}),
+            serde_json::json!({"ready":true,"scorekit_version":"0.7.2","hints":[]}),
         );
         assert_eq!(patch.compatible, Some(true));
 
-        // 0.5 has orchestration but not the v0.6 texture inspect/check contract.
+        // 0.6 has texture discovery but not the v0.7 clip contract.
         let outdated = handshake_from_report(
             PathBuf::from("scorekit"),
             LocateSource::Settings,
-            serde_json::json!({"ready":true,"scorekit_version":"0.5.9","hints":[]}),
+            serde_json::json!({"ready":true,"scorekit_version":"0.6.9","hints":[]}),
         );
         assert_eq!(outdated.compatible, Some(false));
         assert!(outdated
@@ -916,7 +961,7 @@ mod tests {
         let future = handshake_from_report(
             PathBuf::from("scorekit"),
             LocateSource::Path,
-            serde_json::json!({"ready":true,"scorekit_version":"0.7.0","hints":[]}),
+            serde_json::json!({"ready":true,"scorekit_version":"0.8.0","hints":[]}),
         );
         assert_eq!(future.compatible, Some(false));
 

@@ -64,6 +64,14 @@ export const visualStyles: VisualStyleEntry[] = [
     ],
     load: () => import("./three/voyage"),
   },
+  {
+    kind: "three",
+    id: "mirage",
+    label: "Mirage",
+    moodAware: true,
+    options: [{ key: "moodHud", label: "HUD", min: 0, max: 1, step: 1, defaultValue: 1 }],
+    load: () => import("./three/mirage"),
+  },
 ];
 
 export function visualStyleById(id: string): VisualStyleEntry | undefined {

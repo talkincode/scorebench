@@ -3,7 +3,7 @@
 //! Unknown scorekit fields are tolerated. scorebench extracts values for
 //! display and delegates validity to `scorekit validate --json`.
 
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path};
 
 use serde::Serialize;
 use serde_json::Value as JsonValue;
@@ -42,6 +42,7 @@ pub struct SceneDisplay {
     pub bars: Option<u64>,
     pub loop_enabled: Option<bool>,
     pub harmony: Vec<String>,
+    pub clips: Vec<ClipDisplay>,
     pub sections: Vec<SectionDisplay>,
     pub tracks: Vec<TrackDisplay>,
     pub textures: Vec<TextureDisplay>,
@@ -57,6 +58,8 @@ pub struct SectionDisplay {
     pub intensity: Option<f64>,
     /// Stable track IDs silenced in this section.
     pub mute: Vec<String>,
+    /// Stable track ID to section-local clip replacement.
+    pub clips: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
@@ -68,8 +71,27 @@ pub struct TrackDisplay {
     pub instrument: Option<String>,
     pub pattern: Option<String>,
     pub motif: Option<String>,
+    pub clip: Option<String>,
     pub intensity: Option<f64>,
     pub articulation: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+pub struct ClipDisplay {
+    pub id: String,
+    pub kind: Option<String>,
+    pub length_beats: Option<f64>,
+    pub mode: Option<String>,
+    pub event_count: usize,
+    pub automation: Vec<AutomationDisplay>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+pub struct AutomationDisplay {
+    pub id: String,
+    pub target: Option<String>,
+    pub interpolation: String,
+    pub point_count: usize,
 }
 
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
@@ -176,6 +198,7 @@ fn display(mapping: &Mapping) -> SceneDisplay {
             .into_iter()
             .filter_map(value_string)
             .collect(),
+        clips: clip_displays(mapping),
         sections: sequence(mapping, "sections")
             .into_iter()
             .filter_map(|value| value.as_mapping())
@@ -189,6 +212,7 @@ fn display(mapping: &Mapping) -> SceneDisplay {
                     .into_iter()
                     .filter_map(|value| value.as_str().map(ToOwned::to_owned))
                     .collect(),
+                clips: string_map(section, "clips"),
             })
             .collect(),
         tracks: sequence(mapping, "tracks")
@@ -200,6 +224,7 @@ fn display(mapping: &Mapping) -> SceneDisplay {
                 instrument: string(track, "instrument"),
                 pattern: string(track, "pattern"),
                 motif: string(track, "motif"),
+                clip: string(track, "clip"),
                 intensity: number(track, "intensity"),
                 articulation: string(track, "articulation"),
             })
@@ -220,6 +245,65 @@ fn display(mapping: &Mapping) -> SceneDisplay {
             .collect(),
         has_performance: get(mapping, "performance").is_some(),
     }
+}
+
+fn clip_displays(scene: &Mapping) -> Vec<ClipDisplay> {
+    let Some(clips) = get(scene, "clips").and_then(Value::as_mapping) else {
+        return Vec::new();
+    };
+    let mut displays = clips
+        .iter()
+        .filter_map(|(id, value)| {
+            let id = id.as_str()?;
+            let clip = value.as_mapping()?;
+            Some(ClipDisplay {
+                id: id.to_owned(),
+                kind: string(clip, "kind"),
+                length_beats: number(clip, "length_beats"),
+                mode: string(clip, "mode"),
+                event_count: mapping_len(clip, "events"),
+                automation: automation_displays(clip),
+            })
+        })
+        .collect::<Vec<_>>();
+    displays.sort_by(|left, right| left.id.cmp(&right.id));
+    displays
+}
+
+fn automation_displays(clip: &Mapping) -> Vec<AutomationDisplay> {
+    let Some(automation) = get(clip, "automation").and_then(Value::as_mapping) else {
+        return Vec::new();
+    };
+    let mut displays = automation
+        .iter()
+        .filter_map(|(id, value)| {
+            let id = id.as_str()?;
+            let lane = value.as_mapping()?;
+            Some(AutomationDisplay {
+                id: id.to_owned(),
+                target: string(lane, "target"),
+                interpolation: string(lane, "interpolation").unwrap_or_else(|| "step".to_owned()),
+                point_count: mapping_len(lane, "points"),
+            })
+        })
+        .collect::<Vec<_>>();
+    displays.sort_by(|left, right| left.id.cmp(&right.id));
+    displays
+}
+
+fn mapping_len(mapping: &Mapping, key: &str) -> usize {
+    get(mapping, key)
+        .and_then(Value::as_mapping)
+        .map_or(0, Mapping::len)
+}
+
+fn string_map(mapping: &Mapping, key: &str) -> BTreeMap<String, String> {
+    get(mapping, key)
+        .and_then(Value::as_mapping)
+        .into_iter()
+        .flat_map(Mapping::iter)
+        .filter_map(|(key, value)| Some((key.as_str()?.to_owned(), value.as_str()?.to_owned())))
+        .collect()
 }
 
 fn get<'a>(mapping: &'a Mapping, key: &str) -> Option<&'a Value> {
@@ -353,6 +437,50 @@ mod tests {
         let scene = display(with_palette.as_mapping().unwrap());
         assert_eq!(scene.tracks[0].id.as_deref(), Some("solo_violin"));
         assert_eq!(scene.tracks[0].palette.as_deref(), Some("solo"));
+    }
+
+    #[test]
+    fn parses_scorekit_v07_clips_for_observation() {
+        let value: Value = serde_yaml::from_str(&fixture("clips.yaml")).unwrap();
+        let scene = display(value.as_mapping().unwrap());
+
+        assert_eq!(scene.clips.len(), 3);
+        let keys = scene
+            .clips
+            .iter()
+            .find(|clip| clip.id == "keys_line")
+            .unwrap();
+        assert_eq!(keys.kind.as_deref(), Some("pitched"));
+        assert_eq!(keys.length_beats, Some(4.0));
+        assert_eq!(keys.event_count, 2);
+        assert_eq!(keys.automation.len(), 1);
+        assert_eq!(keys.automation[0].target.as_deref(), Some("cc74"));
+        assert_eq!(keys.automation[0].interpolation, "linear");
+        assert_eq!(keys.automation[0].point_count, 3);
+        assert_eq!(scene.tracks[0].clip.as_deref(), Some("keys_line"));
+        assert_eq!(
+            scene
+                .tracks
+                .iter()
+                .filter(|track| track.instrument.as_deref() == Some("drums"))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn parses_section_clip_replacements_and_effective_step_default() {
+        let value: Value = serde_yaml::from_str(
+            "clips:\n  base:\n    kind: pitched\n    length_beats: 4\n    mode: loop\n    events: {}\n    automation:\n      motion:\n        target: cc1\n        points: { start: { at: 0, value: 0 } }\nsections:\n  - name: alternate\n    bars: 1\n    clips: { lead: base }\n",
+        )
+        .unwrap();
+        let scene = display(value.as_mapping().unwrap());
+
+        assert_eq!(scene.clips[0].automation[0].interpolation, "step");
+        assert_eq!(
+            scene.sections[0].clips.get("lead").map(String::as_str),
+            Some("base")
+        );
     }
 
     #[test]

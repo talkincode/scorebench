@@ -125,10 +125,10 @@ The API endpoint, model, context budget, and API key are configured from the in-
 `src-tauri/tauri.conf.json` is the application-version source of truth:
 
 ```bash
-npm run version:set -- 0.1.1
-git commit -am "Release 0.1.1"
-git tag v0.1.1
-git push origin main v0.1.1
+npm run version:set -- 0.3.4
+git commit -am "Release 0.3.4"
+git tag v0.3.4
+git push origin main v0.3.4
 ```
 
 Version tags build macOS (`aarch64` and `x86_64`), Windows, and Linux installers, generate `SHA256SUMS`, and assemble a draft GitHub release. Publishing that release updates the Homebrew cask in `talkincode/homebrew-tap` when `HOMEBREW_TAP_TOKEN` is configured. Apple signing/notarization activates when its repository secrets are present; local and non-macOS builds do not require those secrets. scorekit is discovered at runtime and is installed as a Homebrew cask dependency, but is not bundled.

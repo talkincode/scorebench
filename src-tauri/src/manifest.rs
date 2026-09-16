@@ -298,6 +298,80 @@ fn load_profile_instruments(path: &Path) -> Result<(Option<String>, Vec<String>)
     Ok((wire.name, wire.instruments.into_keys().collect()))
 }
 
+const ORCHESTRATION_SCHEMA_VERSION: u16 = 1;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OrchestrationPaletteWire {
+    profile: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OrchestrationWire {
+    #[serde(default)]
+    schema_version: Option<u16>,
+    name: String,
+    default_palette: String,
+    palettes: BTreeMap<String, OrchestrationPaletteWire>,
+}
+
+impl OrchestrationWire {
+    fn validate(&self, path: &Path) -> Result<(), String> {
+        let invalid = |message: String| {
+            Err(format!(
+                "`{}` is not a valid ScoreKit orchestration profile: {message}",
+                path.display()
+            ))
+        };
+        let Some(schema_version) = self.schema_version else {
+            return invalid(
+                "missing required `schema_version`; add `schema_version: 1` at the document root"
+                    .into(),
+            );
+        };
+        if schema_version != ORCHESTRATION_SCHEMA_VERSION {
+            return invalid(format!(
+                "schema_version {schema_version} is unsupported; expected {ORCHESTRATION_SCHEMA_VERSION}"
+            ));
+        }
+        if !valid_logical_token(&self.name, 64) {
+            return invalid(format!(
+                "name `{}` must match [a-z][a-z0-9_-]{{0,63}}",
+                self.name
+            ));
+        }
+        if !valid_logical_token(&self.default_palette, 64) {
+            return invalid(format!(
+                "default_palette `{}` must match [a-z][a-z0-9_-]{{0,63}}",
+                self.default_palette
+            ));
+        }
+        if self.palettes.is_empty() {
+            return invalid("palettes must contain at least one entry".into());
+        }
+        if !self.palettes.contains_key(&self.default_palette) {
+            return invalid(format!(
+                "default_palette `{}` is not defined in palettes",
+                self.default_palette
+            ));
+        }
+        for (name, binding) in &self.palettes {
+            if !valid_logical_token(name, 64) {
+                return invalid(format!(
+                    "palette `{name}` must match [a-z][a-z0-9_-]{{0,63}}"
+                ));
+            }
+            if binding.profile.trim().is_empty() {
+                return invalid(format!(
+                    "palettes.{name}.profile must name a renderer profile"
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// One palette as declared by an orchestration, with its leaf renderer
 /// profile resolved (or the error that made it unusable).
 #[derive(Debug, Clone)]
@@ -324,19 +398,6 @@ pub struct OrchestrationInfo {
 /// Leaf `profile` paths are resolved relative to the orchestration file's
 /// own directory (scorekit's contract), never the project root.
 pub fn load_orchestration(root: &Path, orchestration: &str) -> Result<OrchestrationInfo, String> {
-    #[derive(Deserialize)]
-    struct PaletteWire {
-        profile: String,
-    }
-    #[derive(Deserialize)]
-    struct OrchestrationWire {
-        #[serde(default)]
-        name: Option<String>,
-        #[serde(default)]
-        default_palette: Option<String>,
-        #[serde(default)]
-        palettes: BTreeMap<String, PaletteWire>,
-    }
     let path = resolve_config_path(root, orchestration);
     let raw = std::fs::read_to_string(&path)
         .map_err(|error| format!("cannot read `{}`: {error}", path.display()))?;
@@ -346,6 +407,7 @@ pub fn load_orchestration(root: &Path, orchestration: &str) -> Result<Orchestrat
             path.display()
         )
     })?;
+    wire.validate(&path)?;
     let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
     let palettes = wire
         .palettes
@@ -369,8 +431,8 @@ pub fn load_orchestration(root: &Path, orchestration: &str) -> Result<Orchestrat
         })
         .collect();
     Ok(OrchestrationInfo {
-        name: wire.name,
-        default_palette: wire.default_palette,
+        name: Some(wire.name),
+        default_palette: Some(wire.default_palette),
         palettes,
     })
 }
@@ -566,7 +628,7 @@ impl TextureProfile {
         // ScoreKit v0.6; reading them keeps this mirror explicit.
         let _ = (&self.description, &self.root);
         for (name, source) in &self.sources {
-            if !valid_texture_token(name, 64) {
+            if !valid_logical_token(name, 64) {
                 return Err(format!("sources.{name} must match [a-z][a-z0-9_-]{{0,63}}"));
             }
             source.validate(&format!("sources.{name}"))?;
@@ -575,7 +637,7 @@ impl TextureProfile {
     }
 }
 
-fn valid_texture_token(value: &str, maximum: usize) -> bool {
+fn valid_logical_token(value: &str, maximum: usize) -> bool {
     !value.is_empty()
         && value.len() <= maximum
         && value.bytes().enumerate().all(|(index, byte)| {
@@ -593,7 +655,7 @@ fn validate_texture_tokens(field: &str, values: &[String]) -> Result<(), String>
     }
     let mut unique = BTreeSet::new();
     for value in values {
-        if !valid_texture_token(value, 32) {
+        if !valid_logical_token(value, 32) {
             return Err(format!(
                 "{field} entry `{value}` must match [a-z][a-z0-9_-]{{0,31}}"
             ));
@@ -1150,6 +1212,44 @@ mod tests {
         assert!(!compat.is_compatible());
         assert!(compat.error.as_deref().unwrap().contains("cannot read"));
         assert!(compat.message().contains("unusable"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_orchestration_schema_version_is_reported_with_migration_hint() {
+        let root = temp_project();
+        write_leaf_profile(&root);
+        std::fs::write(
+            root.join("hybrid.yaml"),
+            "name: hybrid-cinematic\ndefault_palette: default\npalettes:\n  default: { profile: profiles/open.yaml }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("scene.yaml"),
+            "tracks:\n  - { id: lead, instrument: piano }\n",
+        )
+        .unwrap();
+
+        let compat = check_scene_profile(&root, &root.join("scene.yaml"), &sfizz_render()).unwrap();
+        assert!(!compat.is_compatible());
+        let error = compat.error.as_deref().unwrap();
+        assert!(error.contains("missing required `schema_version`"));
+        assert!(error.contains("add `schema_version: 1`"));
+        assert!(compat.tracks.is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unsupported_orchestration_schema_version_is_reported() {
+        let root = temp_project();
+        std::fs::write(
+            root.join("hybrid.yaml"),
+            "schema_version: 2\nname: hybrid-cinematic\ndefault_palette: default\npalettes:\n  default: { profile: profiles/open.yaml }\n",
+        )
+        .unwrap();
+
+        let error = load_orchestration(&root, "hybrid.yaml").unwrap_err();
+        assert!(error.contains("schema_version 2 is unsupported; expected 1"));
         std::fs::remove_dir_all(root).unwrap();
     }
 
